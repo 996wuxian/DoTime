@@ -1,0 +1,16 @@
+# 项目级覆盖：全局 rsproxy 经系统代理偶发失败时，改用可直连的 sparse 源
+[source.crates-io]
+replace-with = "ustc-sparse"
+
+[source.ustc-sparse]
+registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
+
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[http]
+check-revoke = false
+multiplexing = false
+
+[net]
+git-fetch-with-cli = true
