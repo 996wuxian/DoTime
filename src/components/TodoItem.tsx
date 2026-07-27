@@ -1,12 +1,12 @@
-import { useState } from "react";
 import type { Todo } from "../types";
 import { URGENCY_LABELS } from "../types";
 import { formatDuration, formatDurationHuman } from "../utils/time";
-import { CountdownDial } from "./CountdownDial";
 import {
   IconCheck,
   IconClock,
   IconClockHour4,
+  IconPencil,
+  IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
   IconTrash,
@@ -16,40 +16,54 @@ interface TodoItemProps {
   todo: Todo;
   liveElapsed: number;
   remaining: number;
+  isHighlighted?: boolean;
+  itemRef?: (node: HTMLElement | null) => void;
   onStart: () => void;
+  onPause: () => void;
   onStop: () => void;
   onToggle: () => void;
   onRemove: () => void;
-  onUpdatePlanned: (seconds: number) => void;
+  onEdit: () => void;
 }
 
 export function TodoItem({
   todo,
   liveElapsed,
   remaining,
+  isHighlighted = false,
+  itemRef,
   onStart,
+  onPause,
   onStop,
   onToggle,
   onRemove,
-  onUpdatePlanned,
+  onEdit,
 }: TodoItemProps) {
-  const [editingPlan, setEditingPlan] = useState(false);
+  const countdownEnabled = todo.countdownEnabled;
+  const statusLabel = todo.completed
+    ? "已完成"
+    : todo.isTiming
+    ? "进行中"
+    : "待开始";
 
   const progress =
-    todo.plannedSeconds > 0
+    countdownEnabled && todo.plannedSeconds > 0
       ? Math.min(100, (liveElapsed / todo.plannedSeconds) * 100)
       : 0;
 
-  const overtime = liveElapsed > todo.plannedSeconds && todo.isTiming;
+  const overtime =
+    countdownEnabled && liveElapsed > todo.plannedSeconds && todo.isTiming;
 
   return (
     <article
+      ref={itemRef}
       className={[
         "todo-item",
         "card",
         todo.completed ? "is-completed" : "",
         todo.isTiming ? "is-timing" : "",
         overtime ? "is-overtime" : "",
+        isHighlighted ? "is-highlighted" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -67,17 +81,36 @@ export function TodoItem({
 
         <div className="todo-item__main">
           <div className="todo-item__title-row">
-            <h3 className="todo-item__title">{todo.title}</h3>
+            <h3 className="todo-item__title">
+              <button
+                type="button"
+                className="todo-item__title-btn"
+                onClick={onToggle}
+                aria-label={todo.completed ? "标记未完成" : "标记完成"}
+                title={todo.completed ? "标记未完成" : "标记完成"}
+              >
+                {todo.title}
+              </button>
+            </h3>
             <span className={`badge badge--${todo.urgency}`}>
               {URGENCY_LABELS[todo.urgency]}
+            </span>
+            <span
+              className={`status-badge status-badge--${
+                todo.completed ? "done" : todo.isTiming ? "active" : "idle"
+              }`}
+            >
+              {statusLabel}
             </span>
           </div>
 
           <div className="todo-item__meta">
-            <span className="meta-item">
-              <IconClock size={13} />
-              计划 {formatDuration(todo.plannedSeconds)}
-            </span>
+            {countdownEnabled && (
+              <span className="meta-item">
+                <IconClock size={13} />
+                计划 {formatDuration(todo.plannedSeconds)}
+              </span>
+            )}
             {(liveElapsed > 0 || todo.isTiming) && (
               <span className="meta-item meta-elapsed">
                 <IconClockHour4 size={13} />
@@ -92,28 +125,40 @@ export function TodoItem({
             )}
           </div>
 
-          {(todo.isTiming || (!todo.completed && liveElapsed > 0)) && (
-            <div className="progress-bar" aria-hidden>
-              <div
-                className="progress-bar__fill"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          )}
+          {countdownEnabled &&
+            (todo.isTiming || (!todo.completed && liveElapsed > 0)) && (
+              <div className="progress-bar" aria-hidden>
+                <div
+                  className="progress-bar__fill"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            )}
         </div>
 
-        <button
-          type="button"
-          className="btn btn-ghost btn-icon-only"
-          onClick={onRemove}
-          aria-label="删除"
-          title="删除"
-        >
-          <IconTrash size={16} />
-        </button>
+        <div className="todo-item__top-actions">
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon-only btn-edit"
+            onClick={onEdit}
+            aria-label="编辑待办"
+            title="编辑待办"
+          >
+            <IconPencil size={16} />
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon-only btn-delete"
+            onClick={onRemove}
+            aria-label="删除"
+            title="删除"
+          >
+            <IconTrash size={16} />
+          </button>
+        </div>
       </div>
 
-      {todo.isTiming && (
+      {countdownEnabled && todo.isTiming && (
         <div className="todo-item__timer">
           <div className="timer-display">
             <span className="timer-display__label">
@@ -131,55 +176,37 @@ export function TodoItem({
         </div>
       )}
 
-      {!todo.completed && !todo.isTiming && editingPlan && (
-        <div className="todo-item__edit-plan">
-          <CountdownDial
-            value={todo.plannedSeconds}
-            onChange={onUpdatePlanned}
-            size={140}
-          />
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => setEditingPlan(false)}
-          >
-            <IconCheck size={14} />
-            完成设置
-          </button>
-        </div>
-      )}
-
       {(!todo.completed || todo.isTiming) && (
         <div className="todo-item__actions">
           {!todo.completed && !todo.isTiming && (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={onStart}
+            >
+              <IconPlayerPlay size={14} />
+              开始计时
+            </button>
+          )}
+          {todo.isTiming && (
             <>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                onClick={() => setEditingPlan((v) => !v)}
+                onClick={onPause}
               >
-                <IconClock size={14} />
-                {editingPlan ? "收起" : "调整倒计时"}
+                <IconPlayerPause size={14} />
+                暂停计时
               </button>
               <button
                 type="button"
-                className="btn btn-primary btn-sm"
-                onClick={onStart}
+                className="btn btn-danger btn-sm"
+                onClick={onStop}
               >
-                <IconPlayerPlay size={14} />
-                开始计时
+                <IconPlayerStop size={14} />
+                结束计时
               </button>
             </>
-          )}
-          {todo.isTiming && (
-            <button
-              type="button"
-              className="btn btn-danger btn-sm"
-              onClick={onStop}
-            >
-              <IconPlayerStop size={14} />
-              结束计时
-            </button>
           )}
         </div>
       )}

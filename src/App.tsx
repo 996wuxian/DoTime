@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { MiniTodoBar } from "./components/MiniTodoBar";
+import { TodoEditorForm } from "./components/TodoEditorForm";
+import type { TodoDraft, TodoStatus } from "./components/TodoEditorForm";
 import { TodoForm } from "./components/TodoForm";
 import { TodoItem } from "./components/TodoItem";
 import {
@@ -9,36 +12,329 @@ import {
   IconCalendarEvent,
   IconChevronLeft,
   IconChevronRight,
+  IconChevronUp,
   IconCircleCheck,
   IconClockHour4,
   IconListCheck,
+  IconDockTop,
+  IconPencil,
+  IconPlus,
+  IconSearch,
+  IconThemeMoon,
+  IconThemeSun,
 } from "./components/icons";
 import { useTodos } from "./hooks/useTodos";
+import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
 import {
   formatDateKey,
   formatDisplayDate,
-  formatDurationHuman,
+  formatDurationCompact,
 } from "./utils/time";
+import {
+  collapseMiniWindowMode,
+  ensureDefaultWindowMode,
+  enterMiniWindowMode,
+  exitMiniWindowMode,
+  revealMiniWindowMode,
+} from "./utils/windowMode";
+import { setWindowOpacity } from "./utils/windowOpacity";
 import "./App.css";
+
+const MINI_OPACITY_STORAGE_KEY = "dotime:mini-opacity";
+const MINI_OPACITY_MIN = 0.35;
+const MINI_OPACITY_MAX = 1;
+const MINI_OPACITY_STEP = 0.05;
+const TODO_HIGHLIGHT_MS = 2000;
+
+function clampMiniOpacity(value: number) {
+  return Math.min(MINI_OPACITY_MAX, Math.max(MINI_OPACITY_MIN, value));
+}
+
+function loadMiniOpacity() {
+  const stored = Number(localStorage.getItem(MINI_OPACITY_STORAGE_KEY));
+  return Number.isFinite(stored) ? clampMiniOpacity(stored) : 1;
+}
 
 function App() {
   const [selectedDate, setSelectedDate] = useState(() => formatDateKey());
   const [todoFormOpen, setTodoFormOpen] = useState(false);
+  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
+  const [theme, setTheme] = useState(() => loadTheme());
+  const [miniMode, setMiniMode] = useState(false);
+  const [miniIndex, setMiniIndex] = useState(0);
+  const [miniAutoHideEnabled, setMiniAutoHideEnabled] = useState(false);
+  const [miniAutoHideRevealed, setMiniAutoHideRevealed] = useState(true);
+  const [miniOpacity, setMiniOpacity] = useState(() => loadMiniOpacity());
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTitle, setSearchTitle] = useState("");
+  const [searchMissed, setSearchMissed] = useState(false);
+  const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(
+    null,
+  );
+  const appBodyRef = useRef<HTMLElement | null>(null);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const todoItemRefs = useRef(new Map<string, HTMLElement>());
+  const highlightTimerRef = useRef<number | null>(null);
   const {
     dayTodos,
     stats,
     addTodo,
     removeTodo,
     toggleComplete,
-    updatePlanned,
+    updateTodo,
     startTiming,
+    pauseTiming,
     stopTiming,
     getLiveElapsed,
     getCountdownRemaining,
     shiftDate,
   } = useTodos(selectedDate);
 
-  const isToday = selectedDate === formatDateKey();
+  useEffect(() => {
+    saveTheme(theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (!miniMode) void ensureDefaultWindowMode();
+  }, [miniMode]);
+
+  useEffect(() => {
+    document.body.classList.toggle("is-mini-mode", miniMode);
+    return () => document.body.classList.remove("is-mini-mode");
+  }, [miniMode]);
+
+  useEffect(() => {
+    localStorage.setItem(MINI_OPACITY_STORAGE_KEY, String(miniOpacity));
+  }, [miniOpacity]);
+
+  useEffect(() => {
+    if (miniMode) void setWindowOpacity(miniOpacity);
+  }, [miniMode, miniOpacity]);
+
+  const editingTodo = editingTodoId
+    ? dayTodos.find((todo) => todo.id === editingTodoId) ?? null
+    : null;
+  const showingEditor = todoFormOpen || editingTodo != null;
+  const unfinishedTodos = dayTodos.filter((todo) => !todo.completed);
+  const activeMiniIndex =
+    unfinishedTodos.length === 0
+      ? 0
+      : Math.min(miniIndex, unfinishedTodos.length - 1);
+  const miniTodo = unfinishedTodos[activeMiniIndex] ?? null;
+
+  useEffect(() => {
+    if (miniIndex !== activeMiniIndex) setMiniIndex(activeMiniIndex);
+  }, [activeMiniIndex, miniIndex]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [searchOpen]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        searchContainerRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setSearchOpen(false);
+      setSearchMissed(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [searchOpen]);
+
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current != null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  const handleOpenNewTodo = (open: boolean) => {
+    setTodoFormOpen(open);
+    if (open) setEditingTodoId(null);
+  };
+
+  const handleStartEdit = (id: string) => {
+    setEditingTodoId(id);
+    setTodoFormOpen(false);
+  };
+
+  const handleEnterMiniMode = async () => {
+    setEditingTodoId(null);
+    setTodoFormOpen(false);
+    setMiniIndex(0);
+    setMiniAutoHideEnabled(false);
+    setMiniAutoHideRevealed(true);
+    await enterMiniWindowMode();
+    setMiniMode(true);
+  };
+
+  const handleExitMiniMode = async () => {
+    setMiniMode(false);
+    setMiniAutoHideEnabled(false);
+    setMiniAutoHideRevealed(true);
+    await setWindowOpacity(1);
+    await exitMiniWindowMode();
+  };
+
+  const handleToggleMiniAutoHide = async () => {
+    if (miniAutoHideEnabled) {
+      setMiniAutoHideEnabled(false);
+      setMiniAutoHideRevealed(true);
+      await revealMiniWindowMode();
+      return;
+    }
+
+    setMiniAutoHideEnabled(true);
+    setMiniAutoHideRevealed(false);
+    await collapseMiniWindowMode();
+  };
+
+  const handleRevealMiniMode = async () => {
+    if (!miniAutoHideEnabled || miniAutoHideRevealed) return;
+    setMiniAutoHideRevealed(true);
+    await revealMiniWindowMode();
+  };
+
+  const handleHideMiniMode = async () => {
+    if (!miniAutoHideEnabled || !miniAutoHideRevealed) return;
+    setMiniAutoHideRevealed(false);
+    await collapseMiniWindowMode();
+  };
+
+  const handleRemoveTodo = (id: string) => {
+    if (!window.confirm("确定要删除这个待办吗？")) return;
+    removeTodo(id);
+  };
+
+  const setTodoItemRef = (id: string) => (node: HTMLElement | null) => {
+    if (node) {
+      todoItemRefs.current.set(id, node);
+      return;
+    }
+    todoItemRefs.current.delete(id);
+  };
+
+  const scrollTodoIntoView = (id: string) => {
+    window.requestAnimationFrame(() => {
+      const node = todoItemRefs.current.get(id);
+      node?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  };
+
+  const flashTodo = (id: string) => {
+    if (highlightTimerRef.current != null) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+    setHighlightedTodoId(null);
+    window.requestAnimationFrame(() => setHighlightedTodoId(id));
+    highlightTimerRef.current = window.setTimeout(() => {
+      highlightTimerRef.current = null;
+      setHighlightedTodoId(null);
+    }, TODO_HIGHLIGHT_MS);
+  };
+
+  const handleScrollToTop = () => {
+    appBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleSearchTodo = () => {
+    const keyword = searchTitle.trim().toLocaleLowerCase();
+    if (!keyword) {
+      setSearchMissed(true);
+      return;
+    }
+
+    const matchedTodo = dayTodos.find((todo) =>
+      todo.title.toLocaleLowerCase().includes(keyword),
+    );
+    if (!matchedTodo) {
+      setSearchMissed(true);
+      return;
+    }
+
+    setSearchMissed(false);
+    setTodoFormOpen(false);
+    setEditingTodoId(null);
+    scrollTodoIntoView(matchedTodo.id);
+    flashTodo(matchedTodo.id);
+  };
+
+  const moveMiniTodo = (direction: -1 | 1) => {
+    setMiniIndex((index) =>
+      unfinishedTodos.length <= 1
+        ? index
+        : (index + direction + unfinishedTodos.length) %
+          unfinishedTodos.length,
+    );
+  };
+
+  const changeMiniOpacity = (direction: -1 | 1) => {
+    setMiniOpacity((current) =>
+      clampMiniOpacity(
+        Number((current + direction * MINI_OPACITY_STEP).toFixed(2)),
+      ),
+    );
+  };
+
+  const handleSubmitEdit = (draft: TodoDraft) => {
+    if (!editingTodo) return;
+    updateTodo(editingTodo.id, draft);
+    setEditingTodoId(null);
+  };
+
+  const getTodoStatus = (): TodoStatus => {
+    if (!editingTodo) return "idle";
+    if (editingTodo.completed) return "done";
+    if (editingTodo.isTiming) return "active";
+    return "idle";
+  };
+
+  if (miniMode) {
+    return (
+      <div className="app app--mini">
+        <MiniTodoBar
+          todo={miniTodo}
+          index={activeMiniIndex}
+          total={unfinishedTodos.length}
+          liveElapsed={miniTodo ? getLiveElapsed(miniTodo) : 0}
+          remaining={miniTodo ? getCountdownRemaining(miniTodo) : 0}
+          onWheelNavigate={moveMiniTodo}
+          onOpacityChange={changeMiniOpacity}
+          autoHideEnabled={miniAutoHideEnabled}
+          autoHideRevealed={miniAutoHideRevealed}
+          onToggleAutoHide={() => void handleToggleMiniAutoHide()}
+          onReveal={() => void handleRevealMiniMode()}
+          onHide={() => void handleHideMiniMode()}
+          onStart={() => {
+            if (miniTodo) startTiming(miniTodo.id);
+          }}
+          onPause={() => {
+            if (miniTodo) pauseTiming(miniTodo.id);
+          }}
+          onToggle={() => {
+            if (miniTodo) toggleComplete(miniTodo.id);
+          }}
+          onRemove={() => {
+            if (miniTodo) handleRemoveTodo(miniTodo.id);
+          }}
+          onRestore={() => void handleExitMiniMode()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -96,7 +392,7 @@ function App() {
               <span className="stat-card__label">总耗时</span>
               <span className="stat-card__value stat-card__value--sm">
                 {stats.totalActual > 0
-                  ? formatDurationHuman(stats.totalActual)
+                  ? formatDurationCompact(stats.totalActual)
                   : "—"}
               </span>
             </div>
@@ -120,9 +416,6 @@ function App() {
               <IconCalendarEvent size={14} />
               <span className="date-nav__text">
                 {formatDisplayDate(selectedDate)}
-                {!isToday && (
-                  <span className="date-nav__hint">点此回今天</span>
-                )}
               </span>
             </button>
             <button
@@ -135,19 +428,116 @@ function App() {
               <IconChevronRight size={18} />
             </button>
           </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-icon-only titlebar-add-todo"
+            onClick={() => handleOpenNewTodo(true)}
+            aria-label="新建待办"
+            title="新建待办"
+          >
+            <IconPlus size={17} />
+          </button>
+          <div ref={searchContainerRef} className="titlebar-search">
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon-only titlebar-search__toggle"
+              onClick={() => {
+                setSearchOpen((open) => !open);
+                setSearchMissed(false);
+              }}
+              aria-label="搜索待办"
+              title="搜索待办"
+            >
+              <IconSearch size={17} />
+            </button>
+            {searchOpen && (
+              <form
+                className="todo-search-popover"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleSearchTodo();
+                }}
+              >
+                <input
+                  ref={searchInputRef}
+                  className={`todo-search-popover__input ${
+                    searchMissed ? "is-invalid" : ""
+                  }`}
+                  value={searchTitle}
+                  onChange={(event) => {
+                    setSearchTitle(event.target.value);
+                    setSearchMissed(false);
+                  }}
+                  placeholder="输入待办标题"
+                  aria-label="输入待办标题"
+                />
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm todo-search-popover__submit"
+                >
+                  确认
+                </button>
+              </form>
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon-only theme-toggle"
+            onClick={() => setTheme((currentTheme) => toggleTheme(currentTheme))}
+            aria-label={theme === "dark" ? "切换亮色" : "切换暗色"}
+            title={theme === "dark" ? "切换亮色" : "切换暗色"}
+          >
+            {theme === "dark" ? (
+              <IconThemeSun size={17} />
+            ) : (
+              <IconThemeMoon size={17} />
+            )}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon-only dock-toggle"
+            onClick={() => void handleEnterMiniMode()}
+            aria-label="进入顶部迷你模式"
+            title="进入顶部迷你模式"
+          >
+            <IconDockTop size={17} />
+          </button>
           <WindowControls />
         </div>
       </header>
 
-      <main className="app-body">
+      <main ref={appBodyRef} className="app-body">
         <div className="app-content">
-          <TodoForm
-            onAdd={addTodo}
-            open={todoFormOpen}
-            onOpenChange={setTodoFormOpen}
-          />
+          {editingTodo ? (
+            <TodoEditorForm
+              key={editingTodo.id}
+              initialDraft={{
+                title: editingTodo.title,
+                urgency: editingTodo.urgency,
+                plannedSeconds:
+                  editingTodo.plannedSeconds > 0
+                    ? editingTodo.plannedSeconds
+                    : 25 * 60,
+                countdownEnabled: editingTodo.countdownEnabled,
+              }}
+              status={getTodoStatus()}
+              title="编辑待办"
+              titleIcon={<IconPencil size={18} />}
+              submitLabel="保存修改"
+              className="todo-form card"
+              autoFocus
+              onSubmit={handleSubmitEdit}
+              onCancel={() => setEditingTodoId(null)}
+            />
+          ) : (
+            <TodoForm
+              onAdd={addTodo}
+              open={todoFormOpen}
+              onOpenChange={handleOpenNewTodo}
+            />
+          )}
 
-          {!todoFormOpen && (
+          {!showingEditor && (
             <>
               <section className="todo-list">
                 {dayTodos.length === 0 ? (
@@ -160,32 +550,43 @@ function App() {
                     />
                     <h2>这一天还没有待办</h2>
                     <p>
-                      点击上方「新建待办」，设置紧急程度与倒计时，开始高效一天。
+                      点击上方「新建待办」，设置紧急程度，按需开启倒计时。
                     </p>
                   </div>
                 ) : (
                   dayTodos.map((todo) => (
                     <TodoItem
                       key={todo.id}
+                      itemRef={setTodoItemRef(todo.id)}
                       todo={todo}
                       liveElapsed={getLiveElapsed(todo)}
                       remaining={getCountdownRemaining(todo)}
+                      isHighlighted={highlightedTodoId === todo.id}
                       onStart={() => startTiming(todo.id)}
+                      onPause={() => pauseTiming(todo.id)}
                       onStop={() => stopTiming(todo.id)}
                       onToggle={() => toggleComplete(todo.id)}
-                      onRemove={() => removeTodo(todo.id)}
-                      onUpdatePlanned={(s) => updatePlanned(todo.id, s)}
+                      onRemove={() => handleRemoveTodo(todo.id)}
+                      onEdit={() => handleStartEdit(todo.id)}
                     />
                   ))
                 )}
               </section>
 
-              <footer className="app-footer">
-                数据保存在本地 · 同时仅一项计时 · 结束计时将记录完成耗时
-              </footer>
             </>
           )}
         </div>
+        {!showingEditor && dayTodos.length > 0 && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon-only todo-scroll-top"
+            onClick={handleScrollToTop}
+            aria-label="回到顶部"
+            title="回到顶部"
+          >
+            <IconChevronUp size={18} />
+          </button>
+        )}
       </main>
     </div>
   );

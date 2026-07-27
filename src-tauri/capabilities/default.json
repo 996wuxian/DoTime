@@ -12,7 +12,15 @@
     "core:window:allow-maximize",
     "core:window:allow-unmaximize",
     "core:window:allow-is-maximized",
+    "core:window:allow-center",
+    "core:window:allow-current-monitor",
+    "core:window:allow-outer-position",
+    "core:window:allow-outer-size",
     "core:window:allow-start-dragging",
-    "core:window:allow-toggle-maximize"
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-min-size",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size"
   ]
 }

@@ -14,13 +14,13 @@
       {
         "label": "main",
         "title": "doTime",
-        "width": 880,
+        "width": 1060,
         "height": 720,
-        "minWidth": 420,
+        "minWidth": 1060,
         "minHeight": 560,
         "resizable": true,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
         "center": true,
         "shadow": true
       }

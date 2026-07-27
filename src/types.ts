@@ -9,6 +9,8 @@ export interface Todo {
   date: string;
   /** 计划倒计时时长（秒） */
   plannedSeconds: number;
+  /** 是否启用倒计时 */
+  countdownEnabled: boolean;
   /** 是否完成 */
   completed: boolean;
   /** 计时是否进行中 */

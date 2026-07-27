@@ -9,7 +9,13 @@ function loadTodos(): Todo[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw) as Todo[];
+    const savedTodos = JSON.parse(raw) as Todo[];
+    return savedTodos.map((todo) => ({
+      ...todo,
+      countdownEnabled:
+        todo.countdownEnabled ?? (Number(todo.plannedSeconds) > 0),
+      plannedSeconds: Number(todo.plannedSeconds) > 0 ? todo.plannedSeconds : 0,
+    }));
   } catch {
     return [];
   }
@@ -63,7 +69,13 @@ export function useTodos(selectedDate: string) {
   }, [dayTodos]);
 
   const addTodo = useCallback(
-    (title: string, urgency: Urgency, plannedSeconds: number, date?: string) => {
+    (
+      title: string,
+      urgency: Urgency,
+      plannedSeconds: number,
+      countdownEnabled: boolean,
+      date?: string,
+    ) => {
       const trimmed = title.trim();
       if (!trimmed) return;
       const todo: Todo = {
@@ -71,7 +83,8 @@ export function useTodos(selectedDate: string) {
         title: trimmed,
         urgency,
         date: date ?? selectedDate,
-        plannedSeconds: Math.max(60, plannedSeconds),
+        plannedSeconds: countdownEnabled ? Math.max(60, plannedSeconds) : 0,
+        countdownEnabled,
         completed: false,
         isTiming: false,
         timingStartedAt: null,
@@ -90,21 +103,34 @@ export function useTodos(selectedDate: string) {
   }, []);
 
   const toggleComplete = useCallback((id: string) => {
+    const now = Date.now();
     setTodos((prev) =>
       prev.map((t) => {
         if (t.id !== id) return t;
         if (t.completed) {
-          return { ...t, completed: false, completedAt: null };
+          const elapsed = Math.max(
+            t.elapsedSeconds,
+            t.actualDurationSeconds ?? 0,
+          );
+          return {
+            ...t,
+            completed: false,
+            completedAt: null,
+            isTiming: elapsed > 0,
+            timingStartedAt: elapsed > 0 ? now : null,
+            elapsedSeconds: elapsed,
+            actualDurationSeconds: null,
+          };
         }
         // 完成时若仍在计时，先结算
         let elapsed = t.elapsedSeconds;
         if (t.isTiming && t.timingStartedAt) {
-          elapsed += Math.floor((Date.now() - t.timingStartedAt) / 1000);
+          elapsed += Math.floor((now - t.timingStartedAt) / 1000);
         }
         return {
           ...t,
           completed: true,
-          completedAt: Date.now(),
+          completedAt: now,
           isTiming: false,
           timingStartedAt: null,
           elapsedSeconds: elapsed,
@@ -114,43 +140,72 @@ export function useTodos(selectedDate: string) {
     );
   }, []);
 
-  const updatePlanned = useCallback((id: string, plannedSeconds: number) => {
-    setTodos((prev) =>
-      prev.map((t) =>
-        t.id === id && !t.isTiming
-          ? { ...t, plannedSeconds: Math.max(60, plannedSeconds) }
-          : t,
-      ),
-    );
-  }, []);
+  const updateTodo = useCallback(
+    (
+      id: string,
+      updates: {
+        title: string;
+        urgency: Urgency;
+        plannedSeconds: number;
+        countdownEnabled: boolean;
+      },
+    ) => {
+      const trimmed = updates.title.trim();
+      if (!trimmed) return;
+      setTodos((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                title: trimmed,
+                urgency: updates.urgency,
+                countdownEnabled: updates.countdownEnabled,
+                plannedSeconds: updates.countdownEnabled
+                  ? Math.max(60, updates.plannedSeconds)
+                  : 0,
+              }
+            : t,
+        ),
+      );
+    },
+    [],
+  );
 
   const startTiming = useCallback((id: string) => {
+    const now = Date.now();
     setTodos((prev) =>
       prev.map((t) => {
-        // 同时只允许一个任务在计时：暂停其他
         if (t.id === id) {
           if (t.completed || t.isTiming) return t;
-          return { ...t, isTiming: true, timingStartedAt: Date.now() };
-        }
-        if (t.isTiming && t.timingStartedAt) {
-          const extra = Math.floor((Date.now() - t.timingStartedAt) / 1000);
-          return {
-            ...t,
-            isTiming: false,
-            timingStartedAt: null,
-            elapsedSeconds: t.elapsedSeconds + extra,
-          };
+          return { ...t, isTiming: true, timingStartedAt: now };
         }
         return t;
       }),
     );
   }, []);
 
-  const stopTiming = useCallback((id: string) => {
+  const pauseTiming = useCallback((id: string) => {
+    const now = Date.now();
     setTodos((prev) =>
       prev.map((t) => {
         if (t.id !== id || !t.isTiming || !t.timingStartedAt) return t;
-        const extra = Math.floor((Date.now() - t.timingStartedAt) / 1000);
+        const extra = Math.floor((now - t.timingStartedAt) / 1000);
+        return {
+          ...t,
+          isTiming: false,
+          timingStartedAt: null,
+          elapsedSeconds: t.elapsedSeconds + extra,
+        };
+      }),
+    );
+  }, []);
+
+  const stopTiming = useCallback((id: string) => {
+    const now = Date.now();
+    setTodos((prev) =>
+      prev.map((t) => {
+        if (t.id !== id || !t.isTiming || !t.timingStartedAt) return t;
+        const extra = Math.floor((now - t.timingStartedAt) / 1000);
         const total = t.elapsedSeconds + extra;
         return {
           ...t,
@@ -159,7 +214,7 @@ export function useTodos(selectedDate: string) {
           elapsedSeconds: total,
           actualDurationSeconds: total,
           completed: true,
-          completedAt: Date.now(),
+          completedAt: now,
         };
       }),
     );
@@ -183,6 +238,7 @@ export function useTodos(selectedDate: string) {
   /** 倒计时剩余秒数（计划 - 已用） */
   const getCountdownRemaining = useCallback(
     (todo: Todo): number => {
+      if (!todo.countdownEnabled) return 0;
       return Math.max(0, todo.plannedSeconds - getLiveElapsed(todo));
     },
     [getLiveElapsed],
@@ -201,8 +257,9 @@ export function useTodos(selectedDate: string) {
     addTodo,
     removeTodo,
     toggleComplete,
-    updatePlanned,
+    updateTodo,
     startTiming,
+    pauseTiming,
     stopTiming,
     getLiveElapsed,
     getCountdownRemaining,

@@ -6,9 +6,13 @@
 import type { ComponentType } from "react";
 import {
   IconCalendarEvent as TbCalendarEvent,
+  IconArrowBarToDown as TbArrowBarToDown,
+  IconArrowBarToUp as TbArrowBarToUp,
   IconCheck as TbCheck,
+  IconChevronDown as TbChevronDown,
   IconChevronLeft as TbChevronLeft,
   IconChevronRight as TbChevronRight,
+  IconChevronUp as TbChevronUp,
   IconCircleCheck as TbCircleCheck,
   IconClock as TbClock,
   IconClockHour4 as TbClockHour4,
@@ -16,11 +20,17 @@ import {
   IconFlame as TbFlame,
   IconListCheck as TbListCheck,
   IconMinus as TbMinus,
+  IconMoon as TbMoon,
+  IconSearch as TbSearch,
+  IconPlayerPause as TbPlayerPause,
+  IconPencil as TbPencil,
   IconPlayerPlay as TbPlayerPlay,
   IconPlayerStop as TbPlayerStop,
   IconPlus as TbPlus,
   IconSquare as TbSquare,
+  IconSun as TbSun,
   IconTrash as TbTrash,
+  IconWindowMaximize as TbWindowMaximize,
   IconX as TbX,
 } from "@tabler/icons-react";
 
@@ -75,6 +85,7 @@ function wrap(Tb: TbIcon, defaults?: { stroke?: number; className?: string }) {
 }
 
 export const IconPlus = wrap(TbPlus);
+export const IconSearch = wrap(TbSearch);
 export const IconTrash = wrap(TbTrash);
 export const IconCheck = wrap(TbCheck);
 export const IconClose = wrap(TbX);
@@ -82,7 +93,10 @@ export const IconMinimize = wrap(TbMinus);
 export const IconMaximize = wrap(TbSquare);
 export const IconChevronLeft = wrap(TbChevronLeft);
 export const IconChevronRight = wrap(TbChevronRight);
+export const IconChevronUp = wrap(TbChevronUp);
+export const IconChevronDown = wrap(TbChevronDown);
 export const IconPlayerPlay = wrap(TbPlayerPlay);
+export const IconPlayerPause = wrap(TbPlayerPause);
 export const IconPlayerStop = wrap(TbPlayerStop);
 export const IconClock = wrap(TbClock);
 export const IconClockHour4 = wrap(TbClockHour4);
@@ -91,3 +105,9 @@ export const IconCircleCheck = wrap(TbCircleCheck);
 export const IconCalendarEvent = wrap(TbCalendarEvent);
 export const IconFlag = wrap(TbFlag);
 export const IconFlame = wrap(TbFlame);
+export const IconPencil = wrap(TbPencil);
+export const IconThemeSun = wrap(TbSun);
+export const IconThemeMoon = wrap(TbMoon);
+export const IconDockBottom = wrap(TbArrowBarToDown);
+export const IconDockTop = wrap(TbArrowBarToUp);
+export const IconRestore = wrap(TbWindowMaximize);
