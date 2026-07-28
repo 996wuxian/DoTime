@@ -44,9 +44,9 @@
   --text: #172033;
   --text-muted: #566176;
   --text-dim: #7b8596;
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
-  --primary-soft: rgba(37, 99, 235, 0.12);
+  --primary: #0f766e;
+  --primary-hover: #0d9488;
+  --primary-soft: rgba(15, 118, 110, 0.12);
   --primary-contrast: #ffffff;
   --danger: #dc2626;
   --danger-soft: rgba(220, 38, 38, 0.1);
@@ -55,10 +55,10 @@
   --warning: #d97706;
   --shadow: 0 16px 36px rgba(15, 23, 42, 0.1);
   --titlebar-bg: rgba(244, 247, 251, 0.92);
-  --app-accent-start: rgba(37, 99, 235, 0.11);
+  --app-accent-start: rgba(15, 118, 110, 0.1);
   --app-accent-end: rgba(5, 150, 105, 0.08);
 
-  --urgency-low: #2563eb;
+  --urgency-low: #475569;
   --urgency-medium: #059669;
   --urgency-high: #d97706;
   --urgency-critical: #dc2626;
@@ -575,13 +575,13 @@ a,
 }
 
 :root[data-theme="light"] .btn-edit {
-  color: #2563eb;
+  color: #0f766e;
 }
 
 :root[data-theme="light"] .btn-edit:hover:not(:disabled) {
-  color: #1d4ed8;
-  background: rgba(37, 99, 235, 0.09);
-  border-color: rgba(37, 99, 235, 0.16);
+  color: #0d9488;
+  background: rgba(15, 118, 110, 0.09);
+  border-color: rgba(15, 118, 110, 0.16);
 }
 
 .btn-delete {
@@ -602,6 +602,84 @@ a,
   color: #dc2626;
   background: rgba(220, 38, 38, 0.08);
   border-color: rgba(220, 38, 38, 0.16);
+}
+
+/* Confirm dialog */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+}
+
+:root[data-theme="light"] .confirm-overlay {
+  background: rgba(15, 23, 42, 0.24);
+}
+
+.confirm-dialog {
+  width: min(420px, 100%);
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+}
+
+.confirm-dialog__icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.confirm-dialog__content {
+  min-width: 0;
+}
+
+.confirm-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.confirm-dialog h2 {
+  margin: 1px 0 0;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.confirm-dialog p {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.confirm-dialog__close {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 .btn-add-open {
@@ -757,8 +835,8 @@ a,
 }
 
 :root[data-theme="light"] .urgency-chip--low.is-active {
-  background: rgba(37, 99, 235, 0.12);
-  color: #1d4ed8;
+  background: rgba(71, 85, 105, 0.12);
+  color: #334155;
 }
 
 .urgency-chip--medium.is-active {
@@ -862,6 +940,182 @@ a,
 
 .preset-row.is-disabled {
   opacity: 0.48;
+}
+
+.todo-reminder-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.95fr) minmax(300px, 1.05fr);
+  gap: 16px;
+  align-items: start;
+  padding: 12px 0 2px;
+}
+
+.field--reminder,
+.field--record-time {
+  min-width: 0;
+}
+
+.field--record-time {
+  align-self: start;
+}
+
+.todo-reminder-time {
+  position: relative;
+  width: 220px;
+  max-width: 100%;
+  gap: 8px;
+  z-index: 30;
+}
+
+.todo-reminder-time__control {
+  width: 100%;
+  min-height: 40px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+    background 0.15s ease;
+  cursor: pointer;
+  text-align: left;
+}
+
+.todo-reminder-time__value {
+  line-height: 1;
+  width: 46px;
+}
+
+.todo-reminder-time:focus-within .todo-reminder-time__control {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.todo-reminder-time:hover:not(.is-disabled) .todo-reminder-time__control {
+  border-color: rgba(110, 168, 255, 0.4);
+  background: var(--bg-card-hover);
+}
+
+.todo-reminder-time.is-disabled {
+  opacity: 0.52;
+}
+
+.todo-reminder-time.is-disabled .todo-reminder-time__control {
+  cursor: not-allowed;
+}
+
+.time-picker-popover {
+  position: fixed;
+  z-index: 60;
+  width: 220px;
+  height: 250px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.time-picker-popover__column {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 18px minmax(0, 1fr) 18px;
+  gap: 4px;
+}
+
+.time-picker-popover__label {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+}
+
+.time-picker-popover__list {
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.52) transparent;
+  padding-right: 4px;
+}
+
+.time-picker-popover__list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.time-picker-popover__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.time-picker-popover__list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.52);
+}
+
+.time-picker-popover__scroll-btn {
+  width: 100%;
+  height: 18px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  background: rgba(148, 163, 184, 0.08);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.time-picker-popover__scroll-btn:hover,
+.time-picker-popover__scroll-btn:focus-visible {
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.16);
+  outline: none;
+}
+
+.time-picker-popover__option {
+  width: 100%;
+  min-height: 30px;
+  height: 30px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.time-picker-popover__option:hover,
+.time-picker-popover__option:focus-visible {
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.12);
+  outline: none;
+}
+
+.time-picker-popover__option.is-active {
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+}
+
+:root[data-theme="light"] .time-picker-popover__option.is-active {
+  color: #0f766e;
 }
 
 .preset-chip {
@@ -1028,14 +1282,55 @@ a,
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding-left: 58px;
+}
+
+.todo-list.is-dragging {
+  user-select: none;
 }
 
 .todo-item {
+  position: relative;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition: border-color 0.2s ease, background 0.2s ease, opacity 0.15s ease,
+    transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.todo-item__created-time {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 14px);
+  transform: translateY(-50%);
+  width: 44px;
+  padding: 3px 0;
+  border-radius: 8px;
+  color: var(--text-dim);
+  background: rgba(148, 163, 184, 0.08);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+:root[data-theme="light"] .todo-item__created-time {
+  color: #64748b;
+  background: rgba(100, 116, 139, 0.08);
+}
+
+.todo-item.is-dragging {
+  opacity: 0.84;
+  border-color: rgba(45, 212, 191, 0.6);
+  transform: scale(0.995);
+  box-shadow:
+    var(--shadow),
+    0 0 0 3px rgba(45, 212, 191, 0.16);
 }
 
 .todo-item.is-highlighted {
@@ -1225,6 +1520,22 @@ a,
   color: #0f766e;
 }
 
+.meta-reminder {
+  color: #d8b4fe;
+}
+
+.meta-reminder--fired {
+  color: var(--success);
+}
+
+:root[data-theme="light"] .meta-reminder {
+  color: #0f766e;
+}
+
+:root[data-theme="light"] .meta-reminder--fired {
+  color: #047857;
+}
+
 .meta-done {
   color: var(--success);
 }
@@ -1292,8 +1603,8 @@ a,
 }
 
 :root[data-theme="light"] .badge--low {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: #e2e8f0;
+  color: #334155;
 }
 
 :root[data-theme="light"] .badge--medium {
@@ -1338,8 +1649,8 @@ a,
 }
 
 :root[data-theme="light"] .status-badge--active {
-  color: #1d4ed8;
-  background: #dbeafe;
+  color: #0f766e;
+  background: #ccfbf1;
 }
 
 :root[data-theme="light"] .status-badge--done {
@@ -1433,6 +1744,22 @@ a,
   margin-left: auto;
   flex-shrink: 0;
   align-self: flex-start;
+}
+
+.btn-drag-handle {
+  cursor: grab;
+  touch-action: none;
+  color: var(--text-dim);
+}
+
+.btn-drag-handle:active,
+.todo-item.is-dragging .btn-drag-handle {
+  cursor: grabbing;
+  color: var(--primary-hover);
+}
+
+body.is-todo-dragging {
+  cursor: grabbing;
 }
 
 /* Mini top mode */
@@ -1651,7 +1978,7 @@ a,
 .mini-todo__meta {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: var(--primary-hover);
   font-size: 0.72rem;
   font-weight: 700;
@@ -1669,7 +1996,15 @@ a,
   flex-shrink: 0;
 }
 
+.mini-todo__meta-item--reminder {
+  color: #d8b4fe;
+}
+
 :root[data-theme="light"] .mini-todo__meta {
+  color: #0f766e;
+}
+
+:root[data-theme="light"] .mini-todo__meta-item--reminder {
   color: #0f766e;
 }
 
@@ -1728,7 +2063,7 @@ a,
 
 :root[data-theme="light"] .mini-shell {
   background:
-    linear-gradient(180deg, rgba(37, 99, 235, 0.06), transparent),
+    linear-gradient(180deg, rgba(15, 118, 110, 0.06), transparent),
     var(--bg-card);
 }
 
@@ -1759,6 +2094,271 @@ a,
 :root[data-theme="light"] .mini-icon-btn.btn-delete:hover:not(:disabled) {
   color: #dc2626;
   background: rgba(220, 38, 38, 0.08);
+}
+
+/* Reminder window */
+body.is-reminder-window {
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+body.is-reminder-window #root {
+  min-height: 100%;
+  height: 100%;
+}
+
+.reminder-window {
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-card);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.reminder-toast {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 20px 22px 18px;
+  background: var(--bg-card);
+  border: 0;
+  overflow: hidden;
+}
+
+.reminder-toast__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--warning);
+  background: rgba(255, 176, 32, 0.13);
+  flex: 0 0 48px;
+}
+
+.reminder-toast__header {
+  min-width: 0;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.reminder-toast__title {
+  min-width: 0;
+}
+
+.reminder-toast h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.1rem;
+  line-height: 1.25;
+  font-weight: 750;
+}
+
+.reminder-toast p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.reminder-toast__icon-btn,
+.reminder-toast__item-close {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: rgba(148, 163, 184, 0.08);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.reminder-toast__icon-btn {
+  margin-left: 0;
+}
+
+.reminder-toast__icon-btn:hover,
+.reminder-toast__icon-btn:focus-visible,
+.reminder-toast__item-close:hover,
+.reminder-toast__item-close:focus-visible {
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.16);
+  outline: none;
+}
+
+.reminder-toast__list {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 4px 0 0;
+  scrollbar-width: thin;
+}
+
+.reminder-toast.is-empty .reminder-toast__list {
+  display: flex;
+}
+
+.reminder-toast__item {
+  min-width: 0;
+  min-height: 54px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+}
+
+.reminder-toast__item > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.reminder-toast__item-title,
+.reminder-toast__item-time {
+  display: block;
+  min-width: 0;
+}
+
+.reminder-toast__item-title {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reminder-toast__item-time {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.reminder-toast__item-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.reminder-toast__actions {
+  min-width: 0;
+  height: 40px;
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  overflow: visible;
+}
+
+.reminder-toast.is-empty .reminder-toast__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.reminder-toast__snooze {
+  position: relative;
+  z-index: 11;
+  width: 176px;
+  flex: 0 1 176px;
+  height: 40px;
+  min-width: 128px;
+}
+
+.reminder-toast__snooze-trigger {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--bg-elevated);
+  font-size: 0.86rem;
+  font-weight: 750;
+  overflow: hidden;
+}
+
+.reminder-toast__snooze-trigger span {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.reminder-toast__snooze-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+}
+
+.reminder-toast__snooze-option {
+  width: 100%;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--text);
+  background: transparent;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: left;
+  padding: 0 8px;
+}
+
+.reminder-toast__snooze-option:hover,
+.reminder-toast__snooze-option:focus-visible,
+.reminder-toast__snooze-option.is-active {
+  outline: none;
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.reminder-toast__action {
+  width: 86px;
+  min-width: 86px;
+  flex: 0 0 86px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+}
+
+.reminder-toast.is-empty .reminder-toast__action {
+  min-width: 82px;
+}
+
+:root[data-theme="light"] .reminder-toast__icon {
+  color: #b45309;
+  background: rgba(217, 119, 6, 0.11);
 }
 
 /* Empty */
@@ -1803,8 +2403,17 @@ a,
     padding-left: 10px;
   }
 
-  .todo-form__meta-row {
+  .todo-form__meta-row,
+  .todo-reminder-row {
     grid-template-columns: 1fr;
+  }
+
+  .todo-list {
+    padding-left: 0;
+  }
+
+  .todo-item__created-time {
+    display: none;
   }
 
   .todo-status-panel {

@@ -23,6 +23,20 @@
         "transparent": true,
         "center": true,
         "shadow": true
+      },
+      {
+        "label": "reminder",
+        "title": "doTime 提醒",
+        "url": "index.html?view=reminder",
+        "width": 620,
+        "height": 380,
+        "resizable": false,
+        "decorations": false,
+        "transparent": false,
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": true
       }
     ],
     "security": {

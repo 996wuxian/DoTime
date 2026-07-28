@@ -1,10 +1,18 @@
+import type { PointerEvent } from "react";
 import type { Todo } from "../types";
 import { URGENCY_LABELS } from "../types";
-import { formatDuration, formatDurationHuman } from "../utils/time";
 import {
+  formatClockTime,
+  formatDuration,
+  formatDurationHuman,
+} from "../utils/time";
+import { getReminderDueAt } from "../utils/reminders";
+import {
+  IconBell,
   IconCheck,
   IconClock,
   IconClockHour4,
+  IconGripVertical,
   IconPencil,
   IconPlayerPause,
   IconPlayerPlay,
@@ -17,6 +25,7 @@ interface TodoItemProps {
   liveElapsed: number;
   remaining: number;
   isHighlighted?: boolean;
+  isDragging?: boolean;
   itemRef?: (node: HTMLElement | null) => void;
   onStart: () => void;
   onPause: () => void;
@@ -24,6 +33,7 @@ interface TodoItemProps {
   onToggle: () => void;
   onRemove: () => void;
   onEdit: () => void;
+  onDragHandlePointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
 }
 
 export function TodoItem({
@@ -31,6 +41,7 @@ export function TodoItem({
   liveElapsed,
   remaining,
   isHighlighted = false,
+  isDragging = false,
   itemRef,
   onStart,
   onPause,
@@ -38,6 +49,7 @@ export function TodoItem({
   onToggle,
   onRemove,
   onEdit,
+  onDragHandlePointerDown,
 }: TodoItemProps) {
   const countdownEnabled = todo.countdownEnabled;
   const statusLabel = todo.completed
@@ -53,10 +65,17 @@ export function TodoItem({
 
   const overtime =
     countdownEnabled && liveElapsed > todo.plannedSeconds && todo.isTiming;
+  const createdTime = formatClockTime(todo.createdAt);
+  const reminderDueAt = getReminderDueAt(todo);
+  const reminderFired =
+    reminderDueAt != null &&
+    todo.reminderLastFiredAt != null &&
+    todo.reminderLastFiredAt >= reminderDueAt;
 
   return (
     <article
       ref={itemRef}
+      data-todo-id={todo.id}
       className={[
         "todo-item",
         "card",
@@ -64,10 +83,18 @@ export function TodoItem({
         todo.isTiming ? "is-timing" : "",
         overtime ? "is-overtime" : "",
         isHighlighted ? "is-highlighted" : "",
+        isDragging ? "is-dragging" : "",
       ]
         .filter(Boolean)
         .join(" ")}
     >
+      <time
+        className="todo-item__created-time"
+        dateTime={new Date(todo.createdAt).toISOString()}
+        aria-label={`添加时间 ${createdTime}`}
+      >
+        {createdTime}
+      </time>
       <div className="todo-item__top">
         <button
           type="button"
@@ -109,6 +136,16 @@ export function TodoItem({
               <span className="meta-item">
                 <IconClock size={13} />
                 计划 {formatDuration(todo.plannedSeconds)}
+              </span>
+            )}
+            {todo.reminderEnabled && todo.reminderTime && (
+              <span
+                className={`meta-item meta-reminder ${
+                  reminderFired ? "meta-reminder--fired" : ""
+                }`}
+              >
+                <IconBell size={13} />
+                {reminderFired ? "已提醒" : "提醒"} {todo.reminderTime}
               </span>
             )}
             {(liveElapsed > 0 || todo.isTiming) && (
@@ -155,6 +192,15 @@ export function TodoItem({
           >
             <IconTrash size={16} />
           </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon-only btn-drag-handle"
+            onPointerDown={onDragHandlePointerDown}
+            aria-label="拖拽排序"
+            title="长按拖拽排序"
+          >
+            <IconGripVertical size={16} />
+          </button>
         </div>
       </div>
 
@@ -176,7 +222,7 @@ export function TodoItem({
         </div>
       )}
 
-      {(!todo.completed || todo.isTiming) && (
+      {todo.recordTimeEnabled && (!todo.completed || todo.isTiming) && (
         <div className="todo-item__actions">
           {!todo.completed && !todo.isTiming && (
             <button

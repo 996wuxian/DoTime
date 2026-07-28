@@ -1,6 +1,6 @@
 import type { Urgency } from "../types";
 import {
-  DEFAULT_TODO_DRAFT,
+  createDefaultTodoDraft,
   TodoEditorForm,
 } from "./TodoEditorForm";
 import type { TodoDraft } from "./TodoEditorForm";
@@ -12,6 +12,9 @@ interface TodoFormProps {
     urgency: Urgency,
     plannedSeconds: number,
     countdownEnabled: boolean,
+    reminderEnabled: boolean,
+    reminderTime: string | null,
+    recordTimeEnabled: boolean,
   ) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -24,6 +27,9 @@ export function TodoForm({ onAdd, open, onOpenChange }: TodoFormProps) {
       draft.urgency,
       draft.plannedSeconds,
       draft.countdownEnabled,
+      draft.reminderEnabled,
+      draft.reminderTime,
+      draft.recordTimeEnabled,
     );
     onOpenChange(false);
   };
@@ -32,7 +38,7 @@ export function TodoForm({ onAdd, open, onOpenChange }: TodoFormProps) {
 
   return (
     <TodoEditorForm
-      initialDraft={DEFAULT_TODO_DRAFT}
+      initialDraft={createDefaultTodoDraft()}
       status="idle"
       title="新建待办"
       titleIcon={<IconPlus size={18} />}

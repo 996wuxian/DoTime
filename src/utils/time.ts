@@ -12,6 +12,14 @@ export function formatDisplayDate(dateKey: string): string {
   return `${y}/${Number(m)}/${Number(d)}`;
 }
 
+/** 时间戳 → HH:mm */
+export function formatClockTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  const h = String(date.getHours()).padStart(2, "0");
+  const m = String(date.getMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
 /** 秒 → mm:ss 或 h:mm:ss */
 export function formatDuration(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));

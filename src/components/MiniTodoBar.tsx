@@ -4,6 +4,7 @@ import { URGENCY_LABELS } from "../types";
 import { formatDuration } from "../utils/time";
 import {
   IconCheck,
+  IconBell,
   IconChevronDown,
   IconChevronUp,
   IconClock,
@@ -314,10 +315,18 @@ export function MiniTodoBar({
                   计划 {formatDuration(todo.plannedSeconds)}
                 </span>
               )}
-              <span className="mini-todo__meta-item">
-                <IconClockHour4 size={13} />
-                已用 {formatDuration(liveElapsed)}
-              </span>
+              {todo.recordTimeEnabled && (
+                <span className="mini-todo__meta-item">
+                  <IconClockHour4 size={13} />
+                  已用 {formatDuration(liveElapsed)}
+                </span>
+              )}
+              {todo.reminderEnabled && todo.reminderTime && (
+                <span className="mini-todo__meta-item mini-todo__meta-item--reminder">
+                  <IconBell size={13} />
+                  提醒 {todo.reminderTime}
+                </span>
+              )}
             </div>
           </div>
 
@@ -332,7 +341,7 @@ export function MiniTodoBar({
               >
                 <IconPlayerPause size={14} />
               </button>
-            ) : (
+            ) : todo.recordTimeEnabled ? (
               <button
                 type="button"
                 className="mini-action-btn mini-action-btn--primary"
@@ -342,7 +351,7 @@ export function MiniTodoBar({
               >
                 <IconPlayerPlay size={14} />
               </button>
-            )}
+            ) : null}
             <button
               type="button"
               className="mini-icon-btn"

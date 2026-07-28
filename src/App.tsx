@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { MiniTodoBar } from "./components/MiniTodoBar";
 import { TodoEditorForm } from "./components/TodoEditorForm";
 import type { TodoDraft, TodoStatus } from "./components/TodoEditorForm";
@@ -15,6 +20,7 @@ import {
   IconChevronUp,
   IconCircleCheck,
   IconClockHour4,
+  IconClose,
   IconListCheck,
   IconDockTop,
   IconPencil,
@@ -22,6 +28,7 @@ import {
   IconSearch,
   IconThemeMoon,
   IconThemeSun,
+  IconTrash,
 } from "./components/icons";
 import { useTodos } from "./hooks/useTodos";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
@@ -45,6 +52,19 @@ const MINI_OPACITY_MIN = 0.35;
 const MINI_OPACITY_MAX = 1;
 const MINI_OPACITY_STEP = 0.05;
 const TODO_HIGHLIGHT_MS = 2000;
+const TODO_DRAG_LONG_PRESS_MS = 180;
+const TODO_DRAG_CANCEL_DISTANCE = 8;
+const TODO_DRAG_SWAP_UP_THRESHOLD = 0.4;
+const TODO_DRAG_SWAP_DOWN_THRESHOLD = 0.6;
+
+type TodoDragState = {
+  pointerId: number;
+  draggedId: string;
+  startX: number;
+  startY: number;
+  active: boolean;
+  longPressTimer: number;
+};
 
 function clampMiniOpacity(value: number) {
   return Math.min(MINI_OPACITY_MAX, Math.max(MINI_OPACITY_MIN, value));
@@ -71,16 +91,24 @@ function App() {
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(
     null,
   );
+  const [pendingDeleteTodoId, setPendingDeleteTodoId] = useState<string | null>(
+    null,
+  );
   const appBodyRef = useRef<HTMLElement | null>(null);
   const searchContainerRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const confirmDeleteButtonRef = useRef<HTMLButtonElement | null>(null);
   const todoItemRefs = useRef(new Map<string, HTMLElement>());
   const highlightTimerRef = useRef<number | null>(null);
+  const dragStateRef = useRef<TodoDragState | null>(null);
+  const dayTodoIdsRef = useRef<string[]>([]);
+  const [draggingTodoId, setDraggingTodoId] = useState<string | null>(null);
   const {
     dayTodos,
     stats,
     addTodo,
     removeTodo,
+    reorderTodo,
     toggleComplete,
     updateTodo,
     startTiming,
@@ -94,6 +122,33 @@ function App() {
   useEffect(() => {
     saveTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const appWindow = getCurrentWindow();
+
+        unlisten = await appWindow.onCloseRequested(async (event) => {
+          event.preventDefault();
+          await invoke("hide_main_window");
+        });
+
+        if (cancelled && unlisten) unlisten();
+      } catch {
+        /* browser */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!miniMode) void ensureDefaultWindowMode();
@@ -122,6 +177,9 @@ function App() {
       ? 0
       : Math.min(miniIndex, unfinishedTodos.length - 1);
   const miniTodo = unfinishedTodos[activeMiniIndex] ?? null;
+  const pendingDeleteTodo = pendingDeleteTodoId
+    ? dayTodos.find((todo) => todo.id === pendingDeleteTodoId) ?? null
+    : null;
 
   useEffect(() => {
     if (miniIndex !== activeMiniIndex) setMiniIndex(activeMiniIndex);
@@ -131,6 +189,22 @@ function App() {
     if (!searchOpen) return;
     window.requestAnimationFrame(() => searchInputRef.current?.focus());
   }, [searchOpen]);
+
+  useEffect(() => {
+    if (!pendingDeleteTodoId) return;
+    window.requestAnimationFrame(() => confirmDeleteButtonRef.current?.focus());
+  }, [pendingDeleteTodoId]);
+
+  useEffect(() => {
+    if (!pendingDeleteTodoId) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPendingDeleteTodoId(null);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pendingDeleteTodoId]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -157,9 +231,21 @@ function App() {
       if (highlightTimerRef.current != null) {
         window.clearTimeout(highlightTimerRef.current);
       }
+      if (dragStateRef.current != null) {
+        window.clearTimeout(dragStateRef.current.longPressTimer);
+      }
     },
     [],
   );
+
+  useEffect(() => {
+    document.body.classList.toggle("is-todo-dragging", draggingTodoId != null);
+    return () => document.body.classList.remove("is-todo-dragging");
+  }, [draggingTodoId]);
+
+  useEffect(() => {
+    dayTodoIdsRef.current = dayTodos.map((todo) => todo.id);
+  }, [dayTodos]);
 
   const handleOpenNewTodo = (open: boolean) => {
     setTodoFormOpen(open);
@@ -215,9 +301,111 @@ function App() {
   };
 
   const handleRemoveTodo = (id: string) => {
-    if (!window.confirm("确定要删除这个待办吗？")) return;
-    removeTodo(id);
+    if (miniMode) {
+      void handleExitMiniMode().then(() => setPendingDeleteTodoId(id));
+      return;
+    }
+
+    setPendingDeleteTodoId(id);
   };
+
+  const handleCancelDeleteTodo = () => {
+    setPendingDeleteTodoId(null);
+  };
+
+  const handleConfirmDeleteTodo = () => {
+    if (!pendingDeleteTodoId) return;
+    removeTodo(pendingDeleteTodoId);
+    setPendingDeleteTodoId(null);
+  };
+
+  const finishTodoDrag = () => {
+    const dragState = dragStateRef.current;
+    if (dragState) window.clearTimeout(dragState.longPressTimer);
+    window.removeEventListener("pointermove", handleTodoDragMove);
+    window.removeEventListener("pointerup", handleTodoDragEnd);
+    window.removeEventListener("pointercancel", handleTodoDragEnd);
+    dragStateRef.current = null;
+    setDraggingTodoId(null);
+  };
+
+  const handleTodoDragMove = (event: globalThis.PointerEvent) => {
+    const dragState = dragStateRef.current;
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+
+    const movedDistance = Math.hypot(
+      event.clientX - dragState.startX,
+      event.clientY - dragState.startY,
+    );
+
+    if (!dragState.active) {
+      if (movedDistance > TODO_DRAG_CANCEL_DISTANCE) finishTodoDrag();
+      return;
+    }
+
+    event.preventDefault();
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    const targetItem = target?.closest<HTMLElement>("[data-todo-id]");
+    const targetId = targetItem?.dataset.todoId;
+    if (!targetId || targetId === dragState.draggedId) return;
+
+    const currentOrder = dayTodoIdsRef.current;
+    const draggedIndex = currentOrder.indexOf(dragState.draggedId);
+    const targetIndex = currentOrder.indexOf(targetId);
+    if (draggedIndex < 0 || targetIndex < 0) return;
+
+    const targetRect = targetItem.getBoundingClientRect();
+    const relativeY = (event.clientY - targetRect.top) / targetRect.height;
+    const isMovingDown = targetIndex > draggedIndex;
+    const crossedSwapLine = isMovingDown
+      ? relativeY >= TODO_DRAG_SWAP_DOWN_THRESHOLD
+      : relativeY <= TODO_DRAG_SWAP_UP_THRESHOLD;
+    if (!crossedSwapLine) return;
+
+    const nextOrder = [...currentOrder];
+    const [draggedId] = nextOrder.splice(draggedIndex, 1);
+    nextOrder.splice(targetIndex, 0, draggedId);
+    dayTodoIdsRef.current = nextOrder;
+
+    reorderTodo(dragState.draggedId, targetId);
+  };
+
+  const handleTodoDragEnd = (event: globalThis.PointerEvent) => {
+    const dragState = dragStateRef.current;
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+    finishTodoDrag();
+  };
+
+  const handleTodoDragHandlePointerDown =
+    (id: string) => (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      finishTodoDrag();
+
+      const dragState: TodoDragState = {
+        pointerId: event.pointerId,
+        draggedId: id,
+        startX: event.clientX,
+        startY: event.clientY,
+        active: false,
+        longPressTimer: window.setTimeout(() => {
+          const current = dragStateRef.current;
+          if (!current || current.pointerId !== event.pointerId) return;
+          current.active = true;
+          setDraggingTodoId(id);
+        }, TODO_DRAG_LONG_PRESS_MS),
+      };
+
+      dragStateRef.current = dragState;
+      window.addEventListener("pointermove", handleTodoDragMove, {
+        passive: false,
+      });
+      window.addEventListener("pointerup", handleTodoDragEnd);
+      window.addEventListener("pointercancel", handleTodoDragEnd);
+    };
 
   const setTodoItemRef = (id: string) => (node: HTMLElement | null) => {
     if (node) {
@@ -302,6 +490,65 @@ function App() {
     return "idle";
   };
 
+  const deleteConfirmDialog = pendingDeleteTodoId ? (
+    <div
+      className="confirm-overlay"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) handleCancelDeleteTodo();
+      }}
+    >
+      <section
+        className="confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-confirm-title"
+        aria-describedby="delete-confirm-desc"
+      >
+        <div className="confirm-dialog__icon" aria-hidden>
+          <IconTrash size={20} />
+        </div>
+        <div className="confirm-dialog__content">
+          <div className="confirm-dialog__header">
+            <h2 id="delete-confirm-title">删除这个待办？</h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon-only confirm-dialog__close"
+              onClick={handleCancelDeleteTodo}
+              aria-label="取消删除"
+              title="取消删除"
+            >
+              <IconClose size={16} />
+            </button>
+          </div>
+          <p id="delete-confirm-desc">
+            {pendingDeleteTodo
+              ? `「${pendingDeleteTodo.title}」将从今天的列表中移除。`
+              : "这个待办将从列表中移除。"}
+          </p>
+          <div className="confirm-dialog__actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleCancelDeleteTodo}
+            >
+              取消
+            </button>
+            <button
+              ref={confirmDeleteButtonRef}
+              type="button"
+              className="btn btn-danger btn-sm"
+              onClick={handleConfirmDeleteTodo}
+            >
+              <IconTrash size={14} />
+              删除
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  ) : null;
+
   if (miniMode) {
     return (
       <div className="app app--mini">
@@ -332,6 +579,7 @@ function App() {
           }}
           onRestore={() => void handleExitMiniMode()}
         />
+        {deleteConfirmDialog}
       </div>
     );
   }
@@ -519,6 +767,9 @@ function App() {
                     ? editingTodo.plannedSeconds
                     : 25 * 60,
                 countdownEnabled: editingTodo.countdownEnabled,
+                reminderEnabled: editingTodo.reminderEnabled,
+                reminderTime: editingTodo.reminderTime,
+                recordTimeEnabled: editingTodo.recordTimeEnabled,
               }}
               status={getTodoStatus()}
               title="编辑待办"
@@ -539,7 +790,11 @@ function App() {
 
           {!showingEditor && (
             <>
-              <section className="todo-list">
+              <section
+                className={`todo-list ${
+                  draggingTodoId != null ? "is-dragging" : ""
+                }`}
+              >
                 {dayTodos.length === 0 ? (
                   <div className="empty-state card">
                     <img
@@ -562,17 +817,20 @@ function App() {
                       liveElapsed={getLiveElapsed(todo)}
                       remaining={getCountdownRemaining(todo)}
                       isHighlighted={highlightedTodoId === todo.id}
+                      isDragging={draggingTodoId === todo.id}
                       onStart={() => startTiming(todo.id)}
                       onPause={() => pauseTiming(todo.id)}
                       onStop={() => stopTiming(todo.id)}
                       onToggle={() => toggleComplete(todo.id)}
                       onRemove={() => handleRemoveTodo(todo.id)}
                       onEdit={() => handleStartEdit(todo.id)}
+                      onDragHandlePointerDown={handleTodoDragHandlePointerDown(
+                        todo.id,
+                      )}
                     />
                   ))
                 )}
               </section>
-
             </>
           )}
         </div>
@@ -588,6 +846,7 @@ function App() {
           </button>
         )}
       </main>
+      {deleteConfirmDialog}
     </div>
   );
 }

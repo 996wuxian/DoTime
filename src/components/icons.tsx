@@ -5,9 +5,12 @@
 
 import type { ComponentType } from "react";
 import {
+  IconAlarmSnooze as TbAlarmSnooze,
   IconCalendarEvent as TbCalendarEvent,
   IconArrowBarToDown as TbArrowBarToDown,
   IconArrowBarToUp as TbArrowBarToUp,
+  IconBell as TbBell,
+  IconBellRinging as TbBellRinging,
   IconCheck as TbCheck,
   IconChevronDown as TbChevronDown,
   IconChevronLeft as TbChevronLeft,
@@ -18,6 +21,7 @@ import {
   IconClockHour4 as TbClockHour4,
   IconFlag as TbFlag,
   IconFlame as TbFlame,
+  IconGripVertical as TbGripVertical,
   IconListCheck as TbListCheck,
   IconMinus as TbMinus,
   IconMoon as TbMoon,
@@ -106,8 +110,12 @@ export const IconCalendarEvent = wrap(TbCalendarEvent);
 export const IconFlag = wrap(TbFlag);
 export const IconFlame = wrap(TbFlame);
 export const IconPencil = wrap(TbPencil);
+export const IconGripVertical = wrap(TbGripVertical);
 export const IconThemeSun = wrap(TbSun);
 export const IconThemeMoon = wrap(TbMoon);
 export const IconDockBottom = wrap(TbArrowBarToDown);
 export const IconDockTop = wrap(TbArrowBarToUp);
 export const IconRestore = wrap(TbWindowMaximize);
+export const IconBell = wrap(TbBell);
+export const IconBellRinging = wrap(TbBellRinging);
+export const IconAlarmSnooze = wrap(TbAlarmSnooze);
