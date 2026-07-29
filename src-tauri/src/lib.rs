@@ -1,4 +1,7 @@
-use std::sync::Mutex;
+use std::sync::{
+    mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    Mutex,
+};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -15,7 +18,7 @@ use tauri::{
 };
 
 struct ReminderState(Mutex<Option<String>>);
-struct ReminderScheduleState(Mutex<u64>);
+struct ReminderScheduleState(Sender<Vec<ScheduledReminder>>);
 
 #[derive(Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -84,18 +87,10 @@ fn show_reminder_window_inner(
 
 #[tauri::command]
 fn schedule_reminders(
-    app: tauri::AppHandle,
     state: State<'_, ReminderScheduleState>,
     reminders: Vec<ScheduledReminder>,
 ) -> Result<(), String> {
-    let generation = {
-        let mut current = state.0.lock().map_err(|error| error.to_string())?;
-        *current += 1;
-        *current
-    };
-
-    thread::spawn(move || run_reminder_schedule(app, generation, reminders));
-    Ok(())
+    state.0.send(reminders).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -113,23 +108,30 @@ fn clear_active_reminder_group(state: State<'_, ReminderState>) -> Result<(), St
     Ok(())
 }
 
-fn run_reminder_schedule(
-    app: tauri::AppHandle,
-    generation: u64,
-    reminders: Vec<ScheduledReminder>,
-) {
-    let mut pending: Vec<ScheduledReminder> = reminders
+fn normalize_reminders(reminders: Vec<ScheduledReminder>) -> Vec<ScheduledReminder> {
+    reminders
         .into_iter()
         .filter(|reminder| reminder.due_at > 0)
-        .collect();
+        .collect()
+}
+
+fn run_reminder_scheduler(app: tauri::AppHandle, receiver: Receiver<Vec<ScheduledReminder>>) {
+    let mut pending = Vec::new();
 
     loop {
-        if !is_reminder_schedule_current(&app, generation) {
-            return;
+        if pending.is_empty() {
+            let Ok(reminders) = receiver.recv() else {
+                return;
+            };
+            pending = normalize_reminders(reminders);
+        }
+
+        while let Ok(reminders) = receiver.try_recv() {
+            pending = normalize_reminders(reminders);
         }
 
         if pending.is_empty() {
-            return;
+            continue;
         }
 
         let now = current_timestamp_millis();
@@ -145,10 +147,6 @@ fn run_reminder_schedule(
         }
 
         if !due_items.is_empty() {
-            if !is_reminder_schedule_current(&app, generation) {
-                return;
-            }
-
             let reminder_group = serde_json::json!({
                 "id": format!("reminder-{}", now),
                 "firedAt": now,
@@ -165,30 +163,42 @@ fn run_reminder_schedule(
             });
 
             if let Ok(reminder_group) = serde_json::to_string(&reminder_group) {
+                let fired_ids = due_items
+                    .iter()
+                    .map(|reminder| reminder.id.clone())
+                    .collect::<Vec<_>>();
                 if let Some(state) = app.try_state::<ReminderState>() {
                     if let Ok(mut active_group) = state.0.lock() {
                         *active_group = Some(reminder_group.clone());
                     }
                 }
-                let _ = show_reminder_window_inner(&app, reminder_group);
+                match show_reminder_window_inner(&app, reminder_group) {
+                    Ok(()) => {
+                        let _ = app.emit(
+                            "dotime-reminder-fired",
+                            serde_json::json!({ "ids": fired_ids, "firedAt": now }),
+                        );
+                    }
+                    Err(error) => {
+                        eprintln!("failed to show reminder window: {error}");
+                    }
+                }
             }
         }
 
         pending = future_items;
         let next_due_at = pending.iter().map(|reminder| reminder.due_at).min();
         let Some(next_due_at) = next_due_at else {
-            return;
+            continue;
         };
 
         let delay_ms = (next_due_at - current_timestamp_millis()).clamp(0, 60_000);
-        thread::sleep(Duration::from_millis(delay_ms as u64));
+        match receiver.recv_timeout(Duration::from_millis(delay_ms as u64)) {
+            Ok(reminders) => pending = normalize_reminders(reminders),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => return,
+        }
     }
-}
-
-fn is_reminder_schedule_current(app: &tauri::AppHandle, generation: u64) -> bool {
-    app.try_state::<ReminderScheduleState>()
-        .and_then(|state| state.0.lock().ok().map(|current| *current == generation))
-        .unwrap_or(false)
 }
 
 fn current_timestamp_millis() -> i64 {
@@ -268,11 +278,15 @@ fn set_native_window_opacity(_window: tauri::Window, _opacity: f64) -> Result<()
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let (reminder_schedule_sender, reminder_schedule_receiver) = mpsc::channel();
+
     tauri::Builder::default()
         .manage(ReminderState(Mutex::new(None)))
-        .manage(ReminderScheduleState(Mutex::new(0)))
-        .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
+        .manage(ReminderScheduleState(reminder_schedule_sender))
+        .setup(move |app| {
+            let reminder_app = app.handle().clone();
+            thread::spawn(move || run_reminder_scheduler(reminder_app, reminder_schedule_receiver));
+
             let show_item = MenuItem::with_id(app, "show-main", "显示主窗口", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出 doTime", true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;

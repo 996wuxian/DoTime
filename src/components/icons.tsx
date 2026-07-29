@@ -19,6 +19,8 @@ import {
   IconCircleCheck as TbCircleCheck,
   IconClock as TbClock,
   IconClockHour4 as TbClockHour4,
+  IconDatabaseExport as TbDatabaseExport,
+  IconDownload as TbDownload,
   IconFlag as TbFlag,
   IconFlame as TbFlame,
   IconGripVertical as TbGripVertical,
@@ -34,6 +36,7 @@ import {
   IconSquare as TbSquare,
   IconSun as TbSun,
   IconTrash as TbTrash,
+  IconUpload as TbUpload,
   IconWindowMaximize as TbWindowMaximize,
   IconX as TbX,
 } from "@tabler/icons-react";
@@ -119,3 +122,6 @@ export const IconRestore = wrap(TbWindowMaximize);
 export const IconBell = wrap(TbBell);
 export const IconBellRinging = wrap(TbBellRinging);
 export const IconAlarmSnooze = wrap(TbAlarmSnooze);
+export const IconDatabaseExport = wrap(TbDatabaseExport);
+export const IconDownload = wrap(TbDownload);
+export const IconUpload = wrap(TbUpload);

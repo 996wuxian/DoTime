@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Todo } from "../types";
 import {
+  REMINDER_ACTION_EVENT,
+  REMINDER_GROUP_EVENT,
   SNOOZE_MINUTES,
-  TODO_STORAGE_KEY,
   type ActiveReminderGroup,
+  type ReminderActionPayload,
   mergeActiveReminderItems,
   readActiveReminderGroup,
   saveActiveReminderGroup,
@@ -14,11 +15,6 @@ import {
   IconChevronDown,
   IconClose,
 } from "./icons";
-
-const REMINDER_GROUP_EVENT = "dotime-reminder-group";
-const REMINDER_UPDATED_EVENT = "dotime-reminder-updated";
-
-type ReminderAction = "dismiss" | "snooze";
 
 function formatClockTime(value: number) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -41,24 +37,9 @@ function parseReminderGroup(value: unknown): ActiveReminderGroup | null {
   }
 }
 
-function loadTodos(): Todo[] {
-  try {
-    const raw = localStorage.getItem(TODO_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Todo[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveTodos(todos: Todo[]) {
-  localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(todos));
-}
-
-async function emitReminderUpdated() {
+async function emitReminderAction(payload: ReminderActionPayload) {
   const { emit } = await import("@tauri-apps/api/event");
-  await emit(REMINDER_UPDATED_EVENT);
+  await emit(REMINDER_ACTION_EVENT, payload);
 }
 
 async function clearActiveReminder() {
@@ -77,6 +58,7 @@ export function ReminderPopup() {
   const [snoozeMinutes, setSnoozeMinutes] =
     useState<(typeof SNOOZE_MINUTES)[number]>(10);
   const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const sortedItems = useMemo(
     () => [...(group?.items ?? [])].sort((a, b) => a.dueAt - b.dueAt),
@@ -94,7 +76,7 @@ export function ReminderPopup() {
   );
 
   const applyAction = useCallback(
-    async (action: ReminderAction, ids: string[]) => {
+    async (action: ReminderActionPayload["action"], ids: string[]) => {
       const uniqueIds = [...new Set(ids)];
       if (uniqueIds.length === 0 || group == null) return;
 
@@ -103,30 +85,27 @@ export function ReminderPopup() {
       const snoozedUntil =
         action === "snooze" ? now + snoozeMinutes * 60 * 1000 : null;
 
-      const todos = loadTodos();
-      saveTodos(
-        todos.map((todo) =>
-          idSet.has(todo.id)
-            ? {
-                ...todo,
-                reminderLastFiredAt: now,
-                reminderSnoozedUntil: snoozedUntil,
-              }
-            : todo,
-        ),
-      );
-
       const nextItems = group.items.filter((item) => !idSet.has(item.id));
       const nextGroup =
         nextItems.length > 0
           ? { ...group, updatedAt: now, items: nextItems }
           : null;
 
-      saveActiveReminderGroup(nextGroup);
-      setGroup(nextGroup);
-      await emitReminderUpdated();
-      await closeIfEmpty(nextGroup);
-      setSnoozeMenuOpen(false);
+      try {
+        setActionError(null);
+        await emitReminderAction({
+          action,
+          ids: uniqueIds,
+          firedAt: now,
+          snoozedUntil,
+        });
+        saveActiveReminderGroup(nextGroup);
+        setGroup(nextGroup);
+        await closeIfEmpty(nextGroup);
+        setSnoozeMenuOpen(false);
+      } catch {
+        setActionError("提醒状态保存失败，请重试。");
+      }
     },
     [closeIfEmpty, group, snoozeMinutes],
   );
@@ -230,6 +209,12 @@ export function ReminderPopup() {
             <IconClose size={17} />
           </button>
         </div>
+
+        {actionError && (
+          <p className="reminder-toast__error" role="alert">
+            {actionError}
+          </p>
+        )}
 
         <div className="reminder-toast__list" role="list">
           {sortedItems.map((item) => (

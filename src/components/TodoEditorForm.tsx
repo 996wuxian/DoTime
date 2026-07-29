@@ -6,7 +6,7 @@ import type {
 } from "react";
 import type { Urgency } from "../types";
 import { URGENCY_LABELS } from "../types";
-import { PRESET_MINUTES } from "../utils/time";
+import { formatDateKey, PRESET_MINUTES } from "../utils/time";
 import {
   getDefaultReminderTime,
   normalizeReminderTime,
@@ -18,6 +18,7 @@ import {
   IconClockHour4,
   IconClose,
   IconBell,
+  IconCalendarEvent,
   IconChevronDown,
   IconChevronUp,
   IconFlag,
@@ -28,6 +29,7 @@ export type TodoStatus = "idle" | "active" | "done";
 
 export interface TodoDraft {
   title: string;
+  date: string;
   urgency: Urgency;
   plannedSeconds: number;
   countdownEnabled: boolean;
@@ -67,9 +69,10 @@ const STATUS_LABELS: Record<TodoStatus, string> = {
   done: "已完成",
 };
 
-export function createDefaultTodoDraft(): TodoDraft {
+export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
   return {
     title: "",
+    date,
     urgency: "medium",
     plannedSeconds: 25 * 60,
     countdownEnabled: false,
@@ -311,17 +314,36 @@ export function TodoEditorForm({
         </button>
       </div>
 
-      <label className="field">
-        <span className="field__label">任务内容</span>
-        <input
-          className="field__input"
-          value={draft.title}
-          onChange={(event) => updateDraft("title", event.target.value)}
-          placeholder="今天要完成什么？"
-          autoFocus={autoFocus}
-          maxLength={120}
-        />
-      </label>
+      <div className="todo-form__primary-row">
+        <label className="field">
+          <span className="field__label">任务内容</span>
+          <input
+            className="field__input"
+            name="title"
+            autoComplete="off"
+            value={draft.title}
+            onChange={(event) => updateDraft("title", event.target.value)}
+            placeholder="今天要完成什么？"
+            autoFocus={autoFocus}
+            maxLength={120}
+          />
+        </label>
+        <label className="field field--date">
+          <span className="field__label">
+            <IconCalendarEvent size={14} />
+            任务日期
+          </span>
+          <input
+            className="field__input field__input--date"
+            name="date"
+            type="date"
+            autoComplete="off"
+            value={draft.date}
+            onChange={(event) => updateDraft("date", event.target.value)}
+            required
+          />
+        </label>
+      </div>
 
       <div className="todo-form__meta-row">
         <div className="field field--urgency">

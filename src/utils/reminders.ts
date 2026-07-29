@@ -1,7 +1,21 @@
 import type { Todo } from "../types";
 
-export const TODO_STORAGE_KEY = "dotime-todos-v1";
 export const ACTIVE_REMINDER_STORAGE_KEY = "dotime-active-reminder-v1";
+export const REMINDER_GROUP_EVENT = "dotime-reminder-group";
+export const REMINDER_ACTION_EVENT = "dotime-reminder-action";
+export const REMINDER_FIRED_EVENT = "dotime-reminder-fired";
+
+export type ReminderActionPayload = {
+  action: "dismiss" | "snooze";
+  ids: string[];
+  firedAt: number;
+  snoozedUntil: number | null;
+};
+
+export type ReminderFiredPayload = {
+  ids: string[];
+  firedAt: number;
+};
 
 export type ActiveReminderItem = {
   id: string;
@@ -18,6 +32,48 @@ export type ActiveReminderGroup = {
 };
 
 export const SNOOZE_MINUTES = [5, 10, 30, 60] as const;
+
+export function parseReminderActionPayload(
+  value: unknown,
+): ReminderActionPayload | null {
+  if (typeof value !== "object" || value == null) return null;
+  const payload = value as Partial<ReminderActionPayload>;
+  if (payload.action !== "dismiss" && payload.action !== "snooze") return null;
+  if (!Array.isArray(payload.ids) || !payload.ids.every((id) => typeof id === "string")) {
+    return null;
+  }
+  if (typeof payload.firedAt !== "number" || !Number.isFinite(payload.firedAt)) {
+    return null;
+  }
+  if (
+    payload.snoozedUntil != null &&
+    (typeof payload.snoozedUntil !== "number" ||
+      !Number.isFinite(payload.snoozedUntil))
+  ) {
+    return null;
+  }
+
+  return {
+    action: payload.action,
+    ids: [...new Set(payload.ids)],
+    firedAt: payload.firedAt,
+    snoozedUntil: payload.snoozedUntil ?? null,
+  };
+}
+
+export function parseReminderFiredPayload(
+  value: unknown,
+): ReminderFiredPayload | null {
+  if (typeof value !== "object" || value == null) return null;
+  const payload = value as Partial<ReminderFiredPayload>;
+  if (!Array.isArray(payload.ids) || !payload.ids.every((id) => typeof id === "string")) {
+    return null;
+  }
+  if (typeof payload.firedAt !== "number" || !Number.isFinite(payload.firedAt)) {
+    return null;
+  }
+  return { ids: [...new Set(payload.ids)], firedAt: payload.firedAt };
+}
 
 export function getDefaultReminderTime(now = new Date()): string {
   const date = new Date(now);

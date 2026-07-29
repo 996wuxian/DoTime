@@ -15,12 +15,19 @@ interface TodoFormProps {
     reminderEnabled: boolean,
     reminderTime: string | null,
     recordTimeEnabled: boolean,
+    date?: string,
   ) => void;
   open: boolean;
+  selectedDate: string;
   onOpenChange: (open: boolean) => void;
 }
 
-export function TodoForm({ onAdd, open, onOpenChange }: TodoFormProps) {
+export function TodoForm({
+  onAdd,
+  open,
+  selectedDate,
+  onOpenChange,
+}: TodoFormProps) {
   const handleSubmit = (draft: TodoDraft) => {
     onAdd(
       draft.title,
@@ -30,6 +37,7 @@ export function TodoForm({ onAdd, open, onOpenChange }: TodoFormProps) {
       draft.reminderEnabled,
       draft.reminderTime,
       draft.recordTimeEnabled,
+      draft.date,
     );
     onOpenChange(false);
   };
@@ -38,7 +46,7 @@ export function TodoForm({ onAdd, open, onOpenChange }: TodoFormProps) {
 
   return (
     <TodoEditorForm
-      initialDraft={createDefaultTodoDraft()}
+      initialDraft={createDefaultTodoDraft(selectedDate)}
       status="idle"
       title="新建待办"
       titleIcon={<IconPlus size={18} />}

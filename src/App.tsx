@@ -5,6 +5,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { MiniTodoBar } from "./components/MiniTodoBar";
+import { DataActions } from "./components/DataActions";
+import { DateNavigator } from "./components/DateNavigator";
 import { TodoEditorForm } from "./components/TodoEditorForm";
 import type { TodoDraft, TodoStatus } from "./components/TodoEditorForm";
 import { TodoForm } from "./components/TodoForm";
@@ -14,9 +16,6 @@ import {
   toggleMaximizeFromTitlebar,
 } from "./components/WindowControls";
 import {
-  IconCalendarEvent,
-  IconChevronLeft,
-  IconChevronRight,
   IconChevronUp,
   IconCircleCheck,
   IconClockHour4,
@@ -34,7 +33,6 @@ import { useTodos } from "./hooks/useTodos";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
 import {
   formatDateKey,
-  formatDisplayDate,
   formatDurationCompact,
 } from "./utils/time";
 import {
@@ -106,6 +104,7 @@ function App() {
   const {
     dayTodos,
     stats,
+    todoDateSummaries,
     addTodo,
     removeTodo,
     reorderTodo,
@@ -116,7 +115,10 @@ function App() {
     stopTiming,
     getLiveElapsed,
     getCountdownRemaining,
-    shiftDate,
+    exportTodosData,
+    exportSelectedDateData,
+    importTodosData,
+    storageNotice,
   } = useTodos(selectedDate);
 
   useEffect(() => {
@@ -481,6 +483,7 @@ function App() {
     if (!editingTodo) return;
     updateTodo(editingTodo.id, draft);
     setEditingTodoId(null);
+    setSelectedDate(draft.date);
   };
 
   const getTodoStatus = (): TodoStatus => {
@@ -645,37 +648,19 @@ function App() {
               </span>
             </div>
           </section>
-          <div className="date-nav">
-            <button
-              type="button"
-              className="btn btn-ghost btn-icon-only"
-              onClick={() => setSelectedDate((d) => shiftDate(d, -1))}
-              aria-label="前一天"
-              title="前一天"
-            >
-              <IconChevronLeft size={18} />
-            </button>
-            <button
-              type="button"
-              className="date-nav__current"
-              onClick={() => setSelectedDate(formatDateKey())}
-              title="回到今天"
-            >
-              <IconCalendarEvent size={14} />
-              <span className="date-nav__text">
-                {formatDisplayDate(selectedDate)}
-              </span>
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-icon-only"
-              onClick={() => setSelectedDate((d) => shiftDate(d, 1))}
-              aria-label="后一天"
-              title="后一天"
-            >
-              <IconChevronRight size={18} />
-            </button>
-          </div>
+          <DateNavigator
+            value={selectedDate}
+            todoSummaries={todoDateSummaries}
+            onChange={setSelectedDate}
+          />
+          <DataActions
+            notice={storageNotice}
+            selectedDate={selectedDate}
+            selectedTodoCount={dayTodos.length}
+            onExportAll={exportTodosData}
+            onExportSelectedDate={exportSelectedDateData}
+            onImport={importTodosData}
+          />
           <button
             type="button"
             className="btn btn-primary btn-icon-only titlebar-add-todo"
@@ -761,6 +746,7 @@ function App() {
               key={editingTodo.id}
               initialDraft={{
                 title: editingTodo.title,
+                date: editingTodo.date,
                 urgency: editingTodo.urgency,
                 plannedSeconds:
                   editingTodo.plannedSeconds > 0
@@ -784,6 +770,7 @@ function App() {
             <TodoForm
               onAdd={addTodo}
               open={todoFormOpen}
+              selectedDate={selectedDate}
               onOpenChange={handleOpenNewTodo}
             />
           )}

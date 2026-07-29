@@ -37,6 +37,11 @@ export interface Todo {
   completedAt: number | null;
 }
 
+export interface TodoDateSummary {
+  total: number;
+  pending: number;
+}
+
 export const URGENCY_LABELS: Record<Urgency, string> = {
   low: "低",
   medium: "中",
