@@ -7,6 +7,7 @@ import type { ComponentType } from "react";
 import {
   IconAlarmSnooze as TbAlarmSnooze,
   IconCalendarEvent as TbCalendarEvent,
+  IconChartBar as TbChartBar,
   IconArrowBarToDown as TbArrowBarToDown,
   IconArrowBarToUp as TbArrowBarToUp,
   IconBell as TbBell,
@@ -111,6 +112,7 @@ export const IconClockHour4 = wrap(TbClockHour4);
 export const IconListCheck = wrap(TbListCheck);
 export const IconCircleCheck = wrap(TbCircleCheck);
 export const IconCalendarEvent = wrap(TbCalendarEvent);
+export const IconChartBar = wrap(TbChartBar);
 export const IconFlag = wrap(TbFlag);
 export const IconFlame = wrap(TbFlame);
 export const IconPencil = wrap(TbPencil);

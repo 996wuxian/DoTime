@@ -512,6 +512,7 @@ export function useTodos(selectedDate: string) {
   );
 
   return {
+    allTodos: todos,
     dayTodos,
     stats,
     todoDateSummaries,

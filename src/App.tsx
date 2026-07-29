@@ -5,6 +5,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { MiniTodoBar } from "./components/MiniTodoBar";
+import { StatisticsCenter } from "./components/StatisticsCenter";
 import { DataActions } from "./components/DataActions";
 import { DateNavigator } from "./components/DateNavigator";
 import { TodoEditorForm } from "./components/TodoEditorForm";
@@ -17,6 +18,7 @@ import {
 } from "./components/WindowControls";
 import {
   IconChevronUp,
+  IconChartBar,
   IconCircleCheck,
   IconClockHour4,
   IconClose,
@@ -29,6 +31,7 @@ import {
   IconThemeSun,
   IconTrash,
 } from "./components/icons";
+import type { StatisticsPeriod } from "./domain/statistics";
 import { useTodos } from "./hooks/useTodos";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
 import {
@@ -84,6 +87,9 @@ function App() {
   const [miniAutoHideRevealed, setMiniAutoHideRevealed] = useState(true);
   const [miniOpacity, setMiniOpacity] = useState(() => loadMiniOpacity());
   const [searchOpen, setSearchOpen] = useState(false);
+  const [mainView, setMainView] = useState<"todos" | "statistics">("todos");
+  const [statisticsPeriod, setStatisticsPeriod] =
+    useState<StatisticsPeriod>("week");
   const [searchTitle, setSearchTitle] = useState("");
   const [searchMissed, setSearchMissed] = useState(false);
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(
@@ -102,6 +108,7 @@ function App() {
   const dayTodoIdsRef = useRef<string[]>([]);
   const [draggingTodoId, setDraggingTodoId] = useState<string | null>(null);
   const {
+    allTodos,
     dayTodos,
     stats,
     todoDateSummaries,
@@ -251,10 +258,14 @@ function App() {
 
   const handleOpenNewTodo = (open: boolean) => {
     setTodoFormOpen(open);
-    if (open) setEditingTodoId(null);
+    if (open) {
+      setEditingTodoId(null);
+      setMainView("todos");
+    }
   };
 
   const handleStartEdit = (id: string) => {
+    setMainView("todos");
     setEditingTodoId(id);
     setTodoFormOpen(false);
   };
@@ -456,6 +467,7 @@ function App() {
     }
 
     setSearchMissed(false);
+    setMainView("todos");
     setTodoFormOpen(false);
     setEditingTodoId(null);
     scrollTodoIntoView(matchedTodo.id);
@@ -591,10 +603,12 @@ function App() {
     <div className="app">
       <header
         className="titlebar"
-        data-tauri-drag-region
-        onDoubleClick={() => void toggleMaximizeFromTitlebar()}
       >
-        <div className="brand" data-tauri-drag-region>
+        <div
+          className="brand"
+          data-tauri-drag-region
+          onDoubleClick={() => void toggleMaximizeFromTitlebar()}
+        >
           <img
             src="/logo.png"
             alt="doTime"
@@ -611,7 +625,11 @@ function App() {
           </div>
         </div>
 
-        <div className="titlebar-drag" data-tauri-drag-region />
+        <div
+          className="titlebar-drag"
+          data-tauri-drag-region
+          onDoubleClick={() => void toggleMaximizeFromTitlebar()}
+        />
 
         <div className="titlebar-actions">
           <section className="stats-row" aria-label="日期统计">
@@ -661,6 +679,24 @@ function App() {
             onExportSelectedDate={exportSelectedDateData}
             onImport={importTodosData}
           />
+          <button
+            type="button"
+            className={`btn btn-ghost btn-icon-only statistics-toggle ${
+              mainView === "statistics" ? "is-active" : ""
+            }`}
+            onClick={() => {
+              setMainView((view) =>
+                view === "statistics" ? "todos" : "statistics",
+              );
+              setTodoFormOpen(false);
+              setEditingTodoId(null);
+            }}
+            aria-label={mainView === "statistics" ? "返回待办" : "查看耗时统计"}
+            aria-pressed={mainView === "statistics"}
+            title={mainView === "statistics" ? "返回待办" : "耗时统计"}
+          >
+            <IconChartBar size={17} />
+          </button>
           <button
             type="button"
             className="btn btn-primary btn-icon-only titlebar-add-todo"
@@ -740,8 +776,25 @@ function App() {
       </header>
 
       <main ref={appBodyRef} className="app-body">
-        <div className="app-content">
-          {editingTodo ? (
+        <div
+          className={`app-content ${
+            mainView === "statistics" ? "is-statistics-view" : ""
+          }`}
+        >
+          {mainView === "statistics" ? (
+            <StatisticsCenter
+              todos={allTodos}
+              anchorDate={selectedDate}
+              period={statisticsPeriod}
+              onPeriodChange={setStatisticsPeriod}
+              onAnchorDateChange={setSelectedDate}
+              onSelectDate={(date) => {
+                setSelectedDate(date);
+                setMainView("todos");
+                appBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          ) : editingTodo ? (
             <TodoEditorForm
               key={editingTodo.id}
               initialDraft={{
@@ -779,7 +832,7 @@ function App() {
             />
           )}
 
-          {!showingEditor && (
+          {mainView === "todos" && !showingEditor && (
             <>
               <section
                 className={`todo-list ${
@@ -825,7 +878,7 @@ function App() {
             </>
           )}
         </div>
-        {!showingEditor && dayTodos.length > 0 && (
+        {mainView === "todos" && !showingEditor && dayTodos.length > 0 && (
           <button
             type="button"
             className="btn btn-ghost btn-icon-only todo-scroll-top"

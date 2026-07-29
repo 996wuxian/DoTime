@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TodoDateSummary } from "../types";
 import { shiftDateKey } from "../utils/calendar";
-import { formatDateKey, formatDisplayDate } from "../utils/time";
+import { formatDisplayDate } from "../utils/time";
 import {
   IconCalendarEvent,
   IconChevronLeft,
@@ -23,7 +23,6 @@ export function DateNavigator({
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const today = formatDateKey();
 
   useEffect(() => {
     if (!open) return;
@@ -86,16 +85,6 @@ export function DateNavigator({
           <IconChevronRight size={18} />
         </button>
       </div>
-
-      {value !== today && (
-        <button
-          type="button"
-          className="btn btn-ghost date-navigator__today"
-          onClick={() => onChange(today)}
-        >
-          今天
-        </button>
-      )}
 
       {open && (
         <CalendarPopover
