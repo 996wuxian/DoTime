@@ -756,6 +756,8 @@ function App() {
                 reminderEnabled: editingTodo.reminderEnabled,
                 reminderTime: editingTodo.reminderTime,
                 recordTimeEnabled: editingTodo.recordTimeEnabled,
+                recurrence: editingTodo.recurrence,
+                recurrenceEditScope: "series",
               }}
               status={getTodoStatus()}
               title="编辑待办"
@@ -765,12 +767,14 @@ function App() {
               autoFocus
               onSubmit={handleSubmitEdit}
               onCancel={() => setEditingTodoId(null)}
+              todoDateSummaries={todoDateSummaries}
             />
           ) : (
             <TodoForm
               onAdd={addTodo}
               open={todoFormOpen}
               selectedDate={selectedDate}
+              todoDateSummaries={todoDateSummaries}
               onOpenChange={handleOpenNewTodo}
             />
           )}

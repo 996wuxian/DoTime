@@ -1,6 +1,27 @@
 /** 紧急程度 */
 export type Urgency = "low" | "medium" | "high" | "critical";
 
+export type RecurrenceFrequency = "daily" | "weekdays" | "weekly" | "monthly";
+export type RecurrenceEditScope = "single" | "series";
+
+export interface RecurrenceRule {
+  frequency: RecurrenceFrequency;
+  /** ISO weekday values: 1 = Monday, 7 = Sunday. */
+  weekdays: number[];
+  monthDay: number | null;
+  endDate: string | null;
+}
+
+export interface RecurrenceTemplate {
+  title: string;
+  urgency: Urgency;
+  plannedSeconds: number;
+  countdownEnabled: boolean;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
+  recordTimeEnabled: boolean;
+}
+
 export interface Todo {
   id: string;
   title: string;
@@ -35,6 +56,10 @@ export interface Todo {
   actualDurationSeconds: number | null;
   createdAt: number;
   completedAt: number | null;
+  /** Shared identifier for occurrences in one recurring series. */
+  recurrenceSeriesId: string | null;
+  recurrence: RecurrenceRule | null;
+  recurrenceTemplate: RecurrenceTemplate | null;
 }
 
 export interface TodoDateSummary {
@@ -54,4 +79,11 @@ export const URGENCY_ORDER: Record<Urgency, number> = {
   high: 1,
   medium: 2,
   low: 3,
+};
+
+export const RECURRENCE_LABELS: Record<RecurrenceFrequency, string> = {
+  daily: "每天",
+  weekdays: "工作日",
+  weekly: "每周",
+  monthly: "每月",
 };

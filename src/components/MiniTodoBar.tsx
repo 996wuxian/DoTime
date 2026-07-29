@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { Todo } from "../types";
-import { URGENCY_LABELS } from "../types";
+import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
 import { formatDuration } from "../utils/time";
 import {
   IconCheck,
@@ -14,6 +14,7 @@ import {
   IconPlayerPause,
   IconPlayerPlay,
   IconRestore,
+  IconRepeat,
   IconTrash,
 } from "./icons";
 
@@ -325,6 +326,12 @@ export function MiniTodoBar({
                 <span className="mini-todo__meta-item mini-todo__meta-item--reminder">
                   <IconBell size={13} />
                   提醒 {todo.reminderTime}
+                </span>
+              )}
+              {todo.recurrence && (
+                <span className="mini-todo__meta-item">
+                  <IconRepeat size={13} />
+                  {RECURRENCE_LABELS[todo.recurrence.frequency]}
                 </span>
               )}
             </div>

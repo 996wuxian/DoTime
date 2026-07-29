@@ -33,6 +33,7 @@ import {
   IconPlayerPlay as TbPlayerPlay,
   IconPlayerStop as TbPlayerStop,
   IconPlus as TbPlus,
+  IconRepeat as TbRepeat,
   IconSquare as TbSquare,
   IconSun as TbSun,
   IconTrash as TbTrash,
@@ -122,6 +123,7 @@ export const IconRestore = wrap(TbWindowMaximize);
 export const IconBell = wrap(TbBell);
 export const IconBellRinging = wrap(TbBellRinging);
 export const IconAlarmSnooze = wrap(TbAlarmSnooze);
+export const IconRepeat = wrap(TbRepeat);
 export const IconDatabaseExport = wrap(TbDatabaseExport);
 export const IconDownload = wrap(TbDownload);
 export const IconUpload = wrap(TbUpload);

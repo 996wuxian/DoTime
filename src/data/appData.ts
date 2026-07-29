@@ -1,5 +1,15 @@
-import type { Todo, Urgency } from "../types";
-import { URGENCY_LABELS, URGENCY_ORDER } from "../types";
+import type {
+  RecurrenceRule,
+  RecurrenceTemplate,
+  Todo,
+  Urgency,
+} from "../types";
+import {
+  RECURRENCE_LABELS,
+  URGENCY_LABELS,
+  URGENCY_ORDER,
+} from "../types";
+import { normalizeRecurrenceRule } from "../domain/recurrence";
 import { normalizeReminderTime } from "../utils/reminders";
 import { formatDisplayDate, formatDurationHuman } from "../utils/time";
 
@@ -137,6 +147,33 @@ function parseTodo(value: unknown): Todo | null {
     : 0;
   const reminderTime = normalizeReminderTime(value.reminderTime);
 
+  const recurrence = isRecord(value.recurrence)
+    ? normalizeRecurrenceRule(
+        {
+          frequency:
+            value.recurrence.frequency === "daily" ||
+            value.recurrence.frequency === "weekdays" ||
+            value.recurrence.frequency === "weekly" ||
+            value.recurrence.frequency === "monthly"
+              ? value.recurrence.frequency
+              : "daily",
+          weekdays: Array.isArray(value.recurrence.weekdays)
+            ? value.recurrence.weekdays.filter(isFiniteNumber)
+            : [],
+          monthDay: isFiniteNumber(value.recurrence.monthDay)
+            ? value.recurrence.monthDay
+            : null,
+          endDate: isDateKey(value.recurrence.endDate)
+            ? value.recurrence.endDate
+            : null,
+        },
+        value.date,
+      )
+    : null;
+  const recurrenceTemplate = recurrence != null
+    ? parseRecurrenceTemplate(value.recurrenceTemplate, value)
+    : null;
+
   return {
     id: value.id,
     title: value.title.trim(),
@@ -171,6 +208,42 @@ function parseTodo(value: unknown): Todo | null {
       : null,
     createdAt: isFiniteNumber(value.createdAt) ? value.createdAt : Date.now(),
     completedAt: isFiniteNumber(value.completedAt) ? value.completedAt : null,
+    recurrenceSeriesId:
+      recurrence != null && typeof value.recurrenceSeriesId === "string"
+        ? value.recurrenceSeriesId
+        : null,
+    recurrence,
+    recurrenceTemplate,
+  };
+}
+
+function parseRecurrenceTemplate(
+  value: unknown,
+  fallback: UnknownRecord,
+): RecurrenceTemplate {
+  const template = isRecord(value) ? value : fallback;
+  const plannedSeconds = isFiniteNumber(template.plannedSeconds)
+    ? Math.max(0, template.plannedSeconds)
+    : 0;
+  const reminderTime = normalizeReminderTime(template.reminderTime);
+
+  return {
+    title:
+      typeof template.title === "string" && template.title.trim()
+        ? template.title.trim()
+        : String(fallback.title),
+    urgency: isUrgency(template.urgency) ? template.urgency : "medium",
+    plannedSeconds,
+    countdownEnabled:
+      typeof template.countdownEnabled === "boolean"
+        ? template.countdownEnabled
+        : plannedSeconds > 0,
+    reminderEnabled: Boolean(template.reminderEnabled) && reminderTime != null,
+    reminderTime,
+    recordTimeEnabled:
+      typeof template.recordTimeEnabled === "boolean"
+        ? template.recordTimeEnabled
+        : true,
   };
 }
 
@@ -342,6 +415,10 @@ function formatTodoTextBlock(todo: Todo, index: number): string {
     `累计耗时：${formatDurationHuman(todo.elapsedSeconds)}`,
   ];
 
+  if (todo.recurrence != null) {
+    lines.push(`重复：${formatRecurrenceRule(todo.recurrence)}`);
+  }
+
   if (todo.reminderSnoozedUntil != null) {
     lines.push(`稍后提醒：${formatTimestamp(todo.reminderSnoozedUntil)}`);
   }
@@ -355,6 +432,21 @@ function formatTodoTextBlock(todo: Todo, index: number): string {
   }
 
   return lines.join(TEXT_LINE_BREAK);
+}
+
+function formatRecurrenceRule(rule: RecurrenceRule): string {
+  const parts = [RECURRENCE_LABELS[rule.frequency]];
+  if (rule.frequency === "weekly" && rule.weekdays.length > 0) {
+    const weekdayLabels = ["一", "二", "三", "四", "五", "六", "日"];
+    parts.push(
+      rule.weekdays.map((day) => `周${weekdayLabels[day - 1]}`).join("、"),
+    );
+  }
+  if (rule.frequency === "monthly" && rule.monthDay != null) {
+    parts.push(`${rule.monthDay} 日`);
+  }
+  if (rule.endDate != null) parts.push(`截至 ${formatDisplayDate(rule.endDate)}`);
+  return parts.join(" · ");
 }
 
 export function exportAppDataAsText(

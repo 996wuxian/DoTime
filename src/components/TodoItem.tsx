@@ -1,6 +1,6 @@
 import type { PointerEvent } from "react";
 import type { Todo } from "../types";
-import { URGENCY_LABELS } from "../types";
+import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
 import {
   formatClockTime,
   formatDuration,
@@ -17,6 +17,7 @@ import {
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
+  IconRepeat,
   IconTrash,
 } from "./icons";
 
@@ -146,6 +147,12 @@ export function TodoItem({
               >
                 <IconBell size={13} />
                 {reminderFired ? "已提醒" : "提醒"} {todo.reminderTime}
+              </span>
+            )}
+            {todo.recurrence && (
+              <span className="meta-item meta-recurrence">
+                <IconRepeat size={13} />
+                {RECURRENCE_LABELS[todo.recurrence.frequency]}
               </span>
             )}
             {(liveElapsed > 0 || todo.isTiming) && (

@@ -4,7 +4,9 @@ import {
   applyReminderAction,
   applyReminderFired,
   startTodoTiming,
+  stopTodoTimingWithRecurrence,
   toggleTodoCompletion,
+  toggleTodoCompletionWithRecurrence,
   updateTodoDetails,
 } from "./todoState";
 
@@ -29,6 +31,9 @@ function createTodo(overrides: Partial<Todo> = {}): Todo {
     actualDurationSeconds: null,
     createdAt: 1,
     completedAt: null,
+    recurrenceSeriesId: null,
+    recurrence: null,
+    recurrenceTemplate: null,
     ...overrides,
   };
 }
@@ -148,11 +153,144 @@ describe("todo timing state", () => {
       reminderEnabled: true,
       reminderTime: "09:00",
       recordTimeEnabled: true,
+      recurrence: null,
+      recurrenceEditScope: "series",
     });
 
     expect(result[0].date).toEqual("2026-07-30");
     expect(result[0].sortOrder).toEqual(0);
     expect(result[0].reminderLastFiredAt).toEqual(null);
     expect(result[0].reminderSnoozedUntil).toEqual(null);
+  });
+
+  it("creates one next occurrence when a recurring todo is completed", () => {
+    const todo = createTodo({
+      recurrenceSeriesId: "series-1",
+      recurrence: {
+        frequency: "daily",
+        weekdays: [],
+        monthDay: null,
+        endDate: null,
+      },
+      recurrenceTemplate: {
+        title: "测试待办",
+        urgency: "medium",
+        plannedSeconds: 1500,
+        countdownEnabled: true,
+        reminderEnabled: false,
+        reminderTime: null,
+        recordTimeEnabled: true,
+      },
+    });
+
+    const result = toggleTodoCompletionWithRecurrence([todo], todo.id, 1000);
+
+    expect(result).toHaveLength(2);
+    expect(result.find((item) => item.id === todo.id)?.completed).toEqual(true);
+    expect(result.find((item) => item.id !== todo.id)?.date).toEqual("2026-07-30");
+  });
+
+  it("creates one next occurrence when recurring timing is stopped", () => {
+    const todo = createTodo({
+      isTiming: true,
+      timingStartedAt: 1000,
+      recurrenceSeriesId: "series-1",
+      recurrence: {
+        frequency: "daily",
+        weekdays: [],
+        monthDay: null,
+        endDate: null,
+      },
+      recurrenceTemplate: {
+        title: "测试待办",
+        urgency: "medium",
+        plannedSeconds: 1500,
+        countdownEnabled: true,
+        reminderEnabled: false,
+        reminderTime: null,
+        recordTimeEnabled: true,
+      },
+    });
+
+    const result = stopTodoTimingWithRecurrence([todo], todo.id, 5000);
+
+    expect(result).toHaveLength(2);
+    expect(result.find((item) => item.id === todo.id)?.actualDurationSeconds).toEqual(4);
+    expect(result.find((item) => item.id !== todo.id)?.completed).toEqual(false);
+  });
+
+  it("keeps the series template when editing only one occurrence", () => {
+    const todo = createTodo({
+      title: "系列标题",
+      recurrenceSeriesId: "series-1",
+      recurrence: {
+        frequency: "daily",
+        weekdays: [],
+        monthDay: null,
+        endDate: null,
+      },
+      recurrenceTemplate: {
+        title: "系列标题",
+        urgency: "medium",
+        plannedSeconds: 1500,
+        countdownEnabled: true,
+        reminderEnabled: false,
+        reminderTime: null,
+        recordTimeEnabled: true,
+      },
+    });
+
+    const result = updateTodoDetails([todo], todo.id, {
+      title: "仅本次标题",
+      date: todo.date,
+      urgency: todo.urgency,
+      plannedSeconds: todo.plannedSeconds,
+      countdownEnabled: todo.countdownEnabled,
+      reminderEnabled: todo.reminderEnabled,
+      reminderTime: todo.reminderTime,
+      recordTimeEnabled: todo.recordTimeEnabled,
+      recurrence: todo.recurrence,
+      recurrenceEditScope: "single",
+    });
+
+    expect(result[0].title).toEqual("仅本次标题");
+    expect(result[0].recurrenceTemplate?.title).toEqual("系列标题");
+  });
+
+  it("updates the series template for this and following occurrences", () => {
+    const todo = createTodo({
+      title: "旧系列标题",
+      recurrenceSeriesId: "series-1",
+      recurrence: {
+        frequency: "daily",
+        weekdays: [],
+        monthDay: null,
+        endDate: null,
+      },
+      recurrenceTemplate: {
+        title: "旧系列标题",
+        urgency: "medium",
+        plannedSeconds: 1500,
+        countdownEnabled: true,
+        reminderEnabled: false,
+        reminderTime: null,
+        recordTimeEnabled: true,
+      },
+    });
+
+    const result = updateTodoDetails([todo], todo.id, {
+      title: "新系列标题",
+      date: todo.date,
+      urgency: todo.urgency,
+      plannedSeconds: todo.plannedSeconds,
+      countdownEnabled: todo.countdownEnabled,
+      reminderEnabled: todo.reminderEnabled,
+      reminderTime: todo.reminderTime,
+      recordTimeEnabled: todo.recordTimeEnabled,
+      recurrence: todo.recurrence,
+      recurrenceEditScope: "series",
+    });
+
+    expect(result[0].recurrenceTemplate?.title).toEqual("新系列标题");
   });
 });

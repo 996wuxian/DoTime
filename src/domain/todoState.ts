@@ -1,4 +1,8 @@
-import type { Todo } from "../types";
+import type {
+  RecurrenceEditScope,
+  RecurrenceRule,
+  Todo,
+} from "../types";
 import type {
   ReminderActionPayload,
   ReminderFiredPayload,
@@ -8,6 +12,11 @@ import {
   normalizeReminderTime,
 } from "../utils/reminders";
 import type { Urgency } from "../types";
+import {
+  appendNextOccurrence,
+  createRecurrenceTemplate,
+  normalizeRecurrenceRule,
+} from "./recurrence";
 
 export type TodoDetailsUpdate = {
   title: string;
@@ -18,7 +27,13 @@ export type TodoDetailsUpdate = {
   reminderEnabled: boolean;
   reminderTime: string | null;
   recordTimeEnabled: boolean;
+  recurrence: RecurrenceRule | null;
+  recurrenceEditScope: RecurrenceEditScope;
 };
+
+function createSeriesId(now = Date.now()): string {
+  return `series-${now}-${Math.random().toString(36).slice(2, 9)}`;
+}
 
 export function updateTodoDetails(
   todos: Todo[],
@@ -30,6 +45,35 @@ export function updateTodoDetails(
 
   const currentTodo = todos.find((todo) => todo.id === id);
   if (currentTodo == null) return todos;
+  const updateSeries =
+    updates.recurrenceEditScope === "series" ||
+    currentTodo.recurrenceSeriesId == null;
+  const seriesRecurrence = updateSeries
+    ? normalizeRecurrenceRule(updates.recurrence, updates.date)
+    : currentTodo.recurrence;
+  const occurrenceRecurrence =
+    updates.recurrenceEditScope === "single"
+      ? normalizeRecurrenceRule(updates.recurrence, updates.date)
+      : seriesRecurrence;
+  const nextSeriesId =
+    seriesRecurrence == null
+      ? null
+      : currentTodo.recurrenceSeriesId ?? createSeriesId();
+  const nextTemplate =
+    seriesRecurrence == null
+      ? null
+      : updateSeries
+        ? createRecurrenceTemplate({
+            ...updates,
+            plannedSeconds: updates.countdownEnabled
+              ? Math.max(60, updates.plannedSeconds)
+              : 0,
+            reminderTime: updates.reminderEnabled
+              ? normalizeReminderTime(updates.reminderTime) ??
+                getDefaultReminderTime()
+              : null,
+          })
+        : currentTodo.recurrenceTemplate;
   const dateChanged = currentTodo.date !== updates.date;
   const targetSortOrders = todos
     .filter((todo) => todo.id !== id && todo.date === updates.date)
@@ -39,7 +83,17 @@ export function updateTodoDetails(
     ? targetMinSortOrder - 1000
     : 1000;
 
-  return todos.map((todo) => {
+  const retainedTodos = updateSeries && currentTodo.recurrenceSeriesId != null
+    ? todos.filter(
+        (todo) =>
+          !(
+            todo.recurrenceSeriesId === currentTodo.recurrenceSeriesId &&
+            !todo.completed &&
+            todo.date > currentTodo.date
+          ),
+      )
+    : todos;
+  const updatedTodos = retainedTodos.map((todo) => {
     if (todo.id !== id) return todo;
 
     const keepTimingState = updates.recordTimeEnabled || !todo.isTiming;
@@ -72,8 +126,60 @@ export function updateTodoDetails(
         : null,
       isTiming: keepTimingState ? todo.isTiming : false,
       timingStartedAt: keepTimingState ? todo.timingStartedAt : null,
+      recurrenceSeriesId: nextSeriesId,
+      recurrence: occurrenceRecurrence,
+      recurrenceTemplate: nextTemplate,
     };
   });
+
+  const updatedCurrent = updatedTodos.find((todo) => todo.id === id);
+  return updatedCurrent?.completed && updateSeries
+    ? appendNextOccurrence(updatedTodos, updatedCurrent, Date.now())
+    : updatedTodos;
+}
+
+export function toggleTodoCompletionWithRecurrence(
+  todos: Todo[],
+  id: string,
+  now: number,
+): Todo[] {
+  const original = todos.find((todo) => todo.id === id);
+  if (original == null) return todos;
+  const updatedTodos = todos.map((todo) =>
+    todo.id === id ? toggleTodoCompletion(todo, now) : todo,
+  );
+  if (original.completed) return updatedTodos;
+  const completedTodo = updatedTodos.find((todo) => todo.id === id);
+  return completedTodo == null
+    ? updatedTodos
+    : appendNextOccurrence(updatedTodos, completedTodo, now);
+}
+
+export function stopTodoTimingWithRecurrence(
+  todos: Todo[],
+  id: string,
+  now: number,
+): Todo[] {
+  const current = todos.find((todo) => todo.id === id);
+  if (current == null || !current.isTiming || current.timingStartedAt == null) {
+    return todos;
+  }
+
+  const extra = Math.floor((now - current.timingStartedAt) / 1000);
+  const total = current.elapsedSeconds + extra;
+  const completedTodo: Todo = {
+    ...current,
+    isTiming: false,
+    timingStartedAt: null,
+    elapsedSeconds: total,
+    actualDurationSeconds: total,
+    completed: true,
+    completedAt: now,
+  };
+  const updatedTodos = todos.map((todo) =>
+    todo.id === id ? completedTodo : todo,
+  );
+  return appendNextOccurrence(updatedTodos, completedTodo, now);
 }
 
 export function startTodoTiming(

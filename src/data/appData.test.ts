@@ -49,6 +49,9 @@ function createTodo(overrides: Partial<Todo> = {}): Todo {
     actualDurationSeconds: null,
     createdAt: 1,
     completedAt: null,
+    recurrenceSeriesId: null,
+    recurrence: null,
+    recurrenceTemplate: null,
     ...overrides,
   };
 }

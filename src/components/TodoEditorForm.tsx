@@ -4,25 +4,32 @@ import type {
   ReactNode,
   WheelEvent,
 } from "react";
-import type { Urgency } from "../types";
-import { URGENCY_LABELS } from "../types";
+import type {
+  RecurrenceEditScope,
+  RecurrenceFrequency,
+  RecurrenceRule,
+  Urgency,
+} from "../types";
+import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
 import { formatDateKey, PRESET_MINUTES } from "../utils/time";
 import {
   getDefaultReminderTime,
   normalizeReminderTime,
 } from "../utils/reminders";
 import { CountdownDial } from "./CountdownDial";
+import { DatePickerField } from "./DatePickerField";
+import { MonthDaySelect } from "./MonthDaySelect";
 import {
   IconCheck,
   IconClock,
   IconClockHour4,
   IconClose,
   IconBell,
-  IconCalendarEvent,
   IconChevronDown,
   IconChevronUp,
   IconFlag,
   IconFlame,
+  IconRepeat,
 } from "./icons";
 
 export type TodoStatus = "idle" | "active" | "done";
@@ -36,6 +43,8 @@ export interface TodoDraft {
   reminderEnabled: boolean;
   reminderTime: string | null;
   recordTimeEnabled: boolean;
+  recurrence: RecurrenceRule | null;
+  recurrenceEditScope: RecurrenceEditScope;
 }
 
 interface TodoEditorFormProps {
@@ -48,9 +57,25 @@ interface TodoEditorFormProps {
   autoFocus?: boolean;
   onSubmit: (draft: TodoDraft) => void;
   onCancel: () => void;
+  todoDateSummaries: ReadonlyMap<string, import("../types").TodoDateSummary>;
 }
 
 const URGENCIES: Urgency[] = ["low", "medium", "high", "critical"];
+const RECURRENCE_FREQUENCIES: RecurrenceFrequency[] = [
+  "daily",
+  "weekdays",
+  "weekly",
+  "monthly",
+];
+const WEEKDAYS = [
+  { value: 1, label: "一" },
+  { value: 2, label: "二" },
+  { value: 3, label: "三" },
+  { value: 4, label: "四" },
+  { value: 5, label: "五" },
+  { value: 6, label: "六" },
+  { value: 7, label: "日" },
+];
 const HOURS = Array.from({ length: 24 }, (_, hour) =>
   String(hour).padStart(2, "0"),
 );
@@ -79,6 +104,8 @@ export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
     reminderEnabled: false,
     reminderTime: getDefaultReminderTime(),
     recordTimeEnabled: true,
+    recurrence: null,
+    recurrenceEditScope: "series",
   };
 }
 
@@ -92,6 +119,7 @@ export function TodoEditorForm({
   autoFocus = false,
   onSubmit,
   onCancel,
+  todoDateSummaries,
 }: TodoEditorFormProps) {
   const [draft, setDraft] = useState<TodoDraft>(initialDraft);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
@@ -121,6 +149,54 @@ export function TodoEditorForm({
         ? normalizeReminderTime(current.reminderTime) ?? getDefaultReminderTime()
         : current.reminderTime,
     }));
+  };
+
+  const handleRecurrenceToggle = (enabled: boolean) => {
+    setDraft((current) => {
+      if (!enabled) {
+        return {
+          ...current,
+          recurrence: null,
+          recurrenceEditScope: "series",
+        };
+      }
+      const date = new Date(`${current.date}T00:00:00`);
+      const isoWeekday = date.getDay() === 0 ? 7 : date.getDay();
+      return {
+        ...current,
+        recurrenceEditScope: "series",
+        recurrence: {
+          frequency: "daily",
+          weekdays: [isoWeekday],
+          monthDay: date.getDate(),
+          endDate: null,
+        },
+      };
+    });
+  };
+
+  const updateRecurrence = <K extends keyof RecurrenceRule>(
+    key: K,
+    value: RecurrenceRule[K],
+  ) => {
+    setDraft((current) =>
+      current.recurrence == null
+        ? current
+        : {
+            ...current,
+            recurrence: { ...current.recurrence, [key]: value },
+            recurrenceEditScope: "series",
+          },
+    );
+  };
+
+  const toggleRecurrenceWeekday = (weekday: number) => {
+    if (draft.recurrence == null) return;
+    const current = draft.recurrence.weekdays;
+    const next = current.includes(weekday)
+      ? current.filter((day) => day !== weekday)
+      : [...current, weekday].sort((a, b) => a - b);
+    if (next.length > 0) updateRecurrence("weekdays", next);
   };
 
   const toggleReminderTimePicker = () => {
@@ -328,21 +404,15 @@ export function TodoEditorForm({
             maxLength={120}
           />
         </label>
-        <label className="field field--date">
-          <span className="field__label">
-            <IconCalendarEvent size={14} />
-            任务日期
-          </span>
-          <input
-            className="field__input field__input--date"
-            name="date"
-            type="date"
-            autoComplete="off"
-            value={draft.date}
-            onChange={(event) => updateDraft("date", event.target.value)}
-            required
-          />
-        </label>
+        <DatePickerField
+          label="任务日期"
+          value={draft.date}
+          fallbackDate={draft.date}
+          todoSummaries={todoDateSummaries}
+          onChange={(date) => {
+            if (date) updateDraft("date", date);
+          }}
+        />
       </div>
 
       <div className="todo-form__meta-row">
@@ -420,6 +490,124 @@ export function TodoEditorForm({
           </button>
         ))}
       </div>
+
+      <section className="recurrence-panel" aria-label="重复任务设置">
+        <div className="field__label-row">
+          <span className="field__label">
+            <IconRepeat size={14} />
+            重复任务
+          </span>
+          <label className="switch-control">
+            <input
+              type="checkbox"
+              checked={draft.recurrence != null}
+              onChange={(event) =>
+                handleRecurrenceToggle(event.currentTarget.checked)
+              }
+            />
+            <span className="switch-control__track" aria-hidden />
+            <span className="switch-control__text">
+              {draft.recurrence == null ? "关闭" : "已开启"}
+            </span>
+          </label>
+        </div>
+
+        {draft.recurrence != null && (
+          <div className="recurrence-panel__body">
+            <div
+              className="recurrence-frequency"
+              role="group"
+              aria-label="重复频率"
+            >
+              {RECURRENCE_FREQUENCIES.map((frequency) => (
+                <button
+                  key={frequency}
+                  type="button"
+                  className={`recurrence-frequency__option ${
+                    draft.recurrence?.frequency === frequency
+                      ? "is-active"
+                      : ""
+                  }`}
+                  onClick={() => updateRecurrence("frequency", frequency)}
+                >
+                  {RECURRENCE_LABELS[frequency]}
+                </button>
+              ))}
+            </div>
+
+            {draft.recurrence.frequency === "weekly" && (
+              <div className="recurrence-weekdays" aria-label="每周重复日期">
+                {WEEKDAYS.map((weekday) => (
+                  <button
+                    key={weekday.value}
+                    type="button"
+                    className={
+                      draft.recurrence?.weekdays.includes(weekday.value)
+                        ? "is-active"
+                        : ""
+                    }
+                    aria-pressed={draft.recurrence?.weekdays.includes(
+                      weekday.value,
+                    ) ?? false}
+                    onClick={() => toggleRecurrenceWeekday(weekday.value)}
+                  >
+                    {weekday.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="recurrence-panel__limits">
+              {draft.recurrence.frequency === "monthly" && (
+                <div className="field recurrence-panel__month-day">
+                  <span className="field__label">每月日期</span>
+                  <MonthDaySelect
+                    value={draft.recurrence.monthDay ?? 1}
+                    onChange={(day) => updateRecurrence("monthDay", day)}
+                  />
+                </div>
+              )}
+              <DatePickerField
+                label="结束日期（可选）"
+                value={draft.recurrence.endDate}
+                fallbackDate={draft.date}
+                todoSummaries={todoDateSummaries}
+                minDate={draft.date}
+                optional
+                onChange={(date) => updateRecurrence("endDate", date)}
+              />
+            </div>
+
+          </div>
+        )}
+
+        {initialDraft.recurrence != null && (
+          <div
+            className="recurrence-edit-scope"
+            role="group"
+            aria-label="编辑重复任务范围"
+          >
+            <button
+              type="button"
+              className={
+                draft.recurrenceEditScope === "single" ? "is-active" : ""
+              }
+              onClick={() => updateDraft("recurrenceEditScope", "single")}
+            >
+              仅本次
+            </button>
+            <button
+              type="button"
+              className={
+                draft.recurrenceEditScope === "series" ? "is-active" : ""
+              }
+              onClick={() => updateDraft("recurrenceEditScope", "series")}
+            >
+              本次及后续
+            </button>
+          </div>
+        )}
+      </section>
 
       <div className="todo-reminder-row">
         <div className="field field--reminder" aria-label="提醒设置">

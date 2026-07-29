@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Todo, TodoDateSummary, Urgency } from "../types";
+import type { RecurrenceRule } from "../types";
 import {
   APP_DATA_STORAGE_KEY,
   createAppDataDocument,
@@ -14,10 +15,15 @@ import {
   applyReminderAction,
   applyReminderFired,
   startTodoTiming,
-  toggleTodoCompletion,
+  stopTodoTimingWithRecurrence,
+  toggleTodoCompletionWithRecurrence,
   updateTodoDetails,
   type TodoDetailsUpdate,
 } from "../domain/todoState";
+import {
+  createRecurrenceTemplate,
+  normalizeRecurrenceRule,
+} from "../domain/recurrence";
 import {
   REMINDER_ACTION_EVENT,
   REMINDER_FIRED_EVENT,
@@ -309,6 +315,7 @@ export function useTodos(selectedDate: string) {
       reminderTime: string | null,
       recordTimeEnabled: boolean,
       date?: string,
+      recurrence?: RecurrenceRule | null,
     ) => {
       const trimmed = title.trim();
       if (!trimmed) return;
@@ -318,6 +325,11 @@ export function useTodos(selectedDate: string) {
           ...prev
             .filter((item) => item.date === todoDate)
             .map((item) => item.sortOrder),
+        );
+        const now = Date.now();
+        const normalizedRecurrence = normalizeRecurrenceRule(
+          recurrence ?? null,
+          todoDate,
         );
         const todo: Todo = {
           id: createId(),
@@ -339,9 +351,17 @@ export function useTodos(selectedDate: string) {
           timingStartedAt: null,
           elapsedSeconds: 0,
           actualDurationSeconds: null,
-          createdAt: Date.now(),
+          createdAt: now,
           completedAt: null,
+          recurrenceSeriesId:
+            normalizedRecurrence == null
+              ? null
+              : `series-${now}-${Math.random().toString(36).slice(2, 9)}`,
+          recurrence: normalizedRecurrence,
+          recurrenceTemplate: null,
         };
+        todo.recurrenceTemplate =
+          normalizedRecurrence == null ? null : createRecurrenceTemplate(todo);
 
         return [todo, ...prev];
       });
@@ -403,11 +423,7 @@ export function useTodos(selectedDate: string) {
 
   const toggleComplete = useCallback((id: string) => {
     const now = Date.now();
-    setTodos((prev) =>
-      prev.map((todo) =>
-        todo.id === id ? toggleTodoCompletion(todo, now) : todo,
-      ),
-    );
+    setTodos((prev) => toggleTodoCompletionWithRecurrence(prev, id, now));
   }, []);
 
   const updateTodo = useCallback(
@@ -440,22 +456,7 @@ export function useTodos(selectedDate: string) {
 
   const stopTiming = useCallback((id: string) => {
     const now = Date.now();
-    setTodos((prev) =>
-      prev.map((t) => {
-        if (t.id !== id || !t.isTiming || !t.timingStartedAt) return t;
-        const extra = Math.floor((now - t.timingStartedAt) / 1000);
-        const total = t.elapsedSeconds + extra;
-        return {
-          ...t,
-          isTiming: false,
-          timingStartedAt: null,
-          elapsedSeconds: total,
-          actualDurationSeconds: total,
-          completed: true,
-          completedAt: now,
-        };
-      }),
-    );
+    setTodos((prev) => stopTodoTimingWithRecurrence(prev, id, now));
   }, []);
 
   /** 获取实时已用秒数（含进行中片段） */

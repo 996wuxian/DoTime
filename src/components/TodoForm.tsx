@@ -1,4 +1,6 @@
 import type { Urgency } from "../types";
+import type { RecurrenceRule } from "../types";
+import type { TodoDateSummary } from "../types";
 import {
   createDefaultTodoDraft,
   TodoEditorForm,
@@ -16,9 +18,11 @@ interface TodoFormProps {
     reminderTime: string | null,
     recordTimeEnabled: boolean,
     date?: string,
+    recurrence?: RecurrenceRule | null,
   ) => void;
   open: boolean;
   selectedDate: string;
+  todoDateSummaries: ReadonlyMap<string, TodoDateSummary>;
   onOpenChange: (open: boolean) => void;
 }
 
@@ -26,6 +30,7 @@ export function TodoForm({
   onAdd,
   open,
   selectedDate,
+  todoDateSummaries,
   onOpenChange,
 }: TodoFormProps) {
   const handleSubmit = (draft: TodoDraft) => {
@@ -38,6 +43,7 @@ export function TodoForm({
       draft.reminderTime,
       draft.recordTimeEnabled,
       draft.date,
+      draft.recurrence,
     );
     onOpenChange(false);
   };
@@ -55,6 +61,7 @@ export function TodoForm({
       autoFocus
       onSubmit={handleSubmit}
       onCancel={() => onOpenChange(false)}
+      todoDateSummaries={todoDateSummaries}
     />
   );
 }
