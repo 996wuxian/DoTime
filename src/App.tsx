@@ -5,6 +5,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { MiniTodoBar } from "./components/MiniTodoBar";
+import { GlobalSearch } from "./components/GlobalSearch";
 import { StatisticsCenter } from "./components/StatisticsCenter";
 import { DataActions } from "./components/DataActions";
 import { DateNavigator } from "./components/DateNavigator";
@@ -26,7 +27,6 @@ import {
   IconDockTop,
   IconPencil,
   IconPlus,
-  IconSearch,
   IconThemeMoon,
   IconThemeSun,
   IconTrash,
@@ -86,12 +86,9 @@ function App() {
   const [miniAutoHideEnabled, setMiniAutoHideEnabled] = useState(false);
   const [miniAutoHideRevealed, setMiniAutoHideRevealed] = useState(true);
   const [miniOpacity, setMiniOpacity] = useState(() => loadMiniOpacity());
-  const [searchOpen, setSearchOpen] = useState(false);
   const [mainView, setMainView] = useState<"todos" | "statistics">("todos");
   const [statisticsPeriod, setStatisticsPeriod] =
     useState<StatisticsPeriod>("week");
-  const [searchTitle, setSearchTitle] = useState("");
-  const [searchMissed, setSearchMissed] = useState(false);
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(
     null,
   );
@@ -99,8 +96,6 @@ function App() {
     null,
   );
   const appBodyRef = useRef<HTMLElement | null>(null);
-  const searchContainerRef = useRef<HTMLDivElement | null>(null);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const confirmDeleteButtonRef = useRef<HTMLButtonElement | null>(null);
   const todoItemRefs = useRef(new Map<string, HTMLElement>());
   const highlightTimerRef = useRef<number | null>(null);
@@ -195,11 +190,6 @@ function App() {
   }, [activeMiniIndex, miniIndex]);
 
   useEffect(() => {
-    if (!searchOpen) return;
-    window.requestAnimationFrame(() => searchInputRef.current?.focus());
-  }, [searchOpen]);
-
-  useEffect(() => {
     if (!pendingDeleteTodoId) return;
     window.requestAnimationFrame(() => confirmDeleteButtonRef.current?.focus());
   }, [pendingDeleteTodoId]);
@@ -214,26 +204,6 @@ function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [pendingDeleteTodoId]);
-
-  useEffect(() => {
-    if (!searchOpen) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (
-        target instanceof Node &&
-        searchContainerRef.current?.contains(target)
-      ) {
-        return;
-      }
-
-      setSearchOpen(false);
-      setSearchMissed(false);
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [searchOpen]);
 
   useEffect(
     () => () => {
@@ -449,29 +419,6 @@ function App() {
 
   const handleScrollToTop = () => {
     appBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const handleSearchTodo = () => {
-    const keyword = searchTitle.trim().toLocaleLowerCase();
-    if (!keyword) {
-      setSearchMissed(true);
-      return;
-    }
-
-    const matchedTodo = dayTodos.find((todo) =>
-      todo.title.toLocaleLowerCase().includes(keyword),
-    );
-    if (!matchedTodo) {
-      setSearchMissed(true);
-      return;
-    }
-
-    setSearchMissed(false);
-    setMainView("todos");
-    setTodoFormOpen(false);
-    setEditingTodoId(null);
-    scrollTodoIntoView(matchedTodo.id);
-    flashTodo(matchedTodo.id);
   };
 
   const moveMiniTodo = (direction: -1 | 1) => {
@@ -706,49 +653,19 @@ function App() {
           >
             <IconPlus size={17} />
           </button>
-          <div ref={searchContainerRef} className="titlebar-search">
-            <button
-              type="button"
-              className="btn btn-ghost btn-icon-only titlebar-search__toggle"
-              onClick={() => {
-                setSearchOpen((open) => !open);
-                setSearchMissed(false);
-              }}
-              aria-label="搜索待办"
-              title="搜索待办"
-            >
-              <IconSearch size={17} />
-            </button>
-            {searchOpen && (
-              <form
-                className="todo-search-popover"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  handleSearchTodo();
-                }}
-              >
-                <input
-                  ref={searchInputRef}
-                  className={`todo-search-popover__input ${
-                    searchMissed ? "is-invalid" : ""
-                  }`}
-                  value={searchTitle}
-                  onChange={(event) => {
-                    setSearchTitle(event.target.value);
-                    setSearchMissed(false);
-                  }}
-                  placeholder="输入待办标题"
-                  aria-label="输入待办标题"
-                />
-                <button
-                  type="submit"
-                  className="btn btn-primary btn-sm todo-search-popover__submit"
-                >
-                  确认
-                </button>
-              </form>
-            )}
-          </div>
+          <GlobalSearch
+            todos={allTodos}
+            anchorDate={selectedDate}
+            todoDateSummaries={todoDateSummaries}
+            onSelectTodo={(todo) => {
+              setSelectedDate(todo.date);
+              setMainView("todos");
+              setTodoFormOpen(false);
+              setEditingTodoId(null);
+              scrollTodoIntoView(todo.id);
+              flashTodo(todo.id);
+            }}
+          />
           <button
             type="button"
             className="btn btn-ghost btn-icon-only theme-toggle"

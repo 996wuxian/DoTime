@@ -11,6 +11,7 @@ interface DatePickerFieldProps {
   todoSummaries: ReadonlyMap<string, TodoDateSummary>;
   minDate?: string;
   optional?: boolean;
+  emptyLabel?: string;
   onChange: (date: string | null) => void;
 }
 
@@ -27,6 +28,7 @@ export function DatePickerField({
   todoSummaries,
   minDate,
   optional = false,
+  emptyLabel = "不设结束日期",
   onChange,
 }: DatePickerFieldProps) {
   const [open, setOpen] = useState(false);
@@ -121,7 +123,7 @@ export function DatePickerField({
           aria-haspopup="dialog"
         >
           <IconCalendarEvent size={15} />
-          <span>{value == null ? "不设结束日期" : formatDisplayDate(value)}</span>
+          <span>{value == null ? emptyLabel : formatDisplayDate(value)}</span>
         </button>
         {optional && value != null && (
           <button

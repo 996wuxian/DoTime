@@ -23,6 +23,7 @@ import {
   IconDatabaseExport as TbDatabaseExport,
   IconDownload as TbDownload,
   IconFlag as TbFlag,
+  IconFilter as TbFilter,
   IconFlame as TbFlame,
   IconGripVertical as TbGripVertical,
   IconListCheck as TbListCheck,
@@ -114,6 +115,7 @@ export const IconCircleCheck = wrap(TbCircleCheck);
 export const IconCalendarEvent = wrap(TbCalendarEvent);
 export const IconChartBar = wrap(TbChartBar);
 export const IconFlag = wrap(TbFlag);
+export const IconFilter = wrap(TbFilter);
 export const IconFlame = wrap(TbFlame);
 export const IconPencil = wrap(TbPencil);
 export const IconGripVertical = wrap(TbGripVertical);
