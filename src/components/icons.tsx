@@ -12,6 +12,7 @@ import {
   IconArrowBarToUp as TbArrowBarToUp,
   IconBell as TbBell,
   IconBellRinging as TbBellRinging,
+  IconBookmark as TbBookmark,
   IconCheck as TbCheck,
   IconChevronDown as TbChevronDown,
   IconChevronLeft as TbChevronLeft,
@@ -22,6 +23,7 @@ import {
   IconClockHour4 as TbClockHour4,
   IconDatabaseExport as TbDatabaseExport,
   IconDownload as TbDownload,
+  IconDeviceFloppy as TbDeviceFloppy,
   IconFlag as TbFlag,
   IconFilter as TbFilter,
   IconFlame as TbFlame,
@@ -30,6 +32,7 @@ import {
   IconMinus as TbMinus,
   IconMoon as TbMoon,
   IconSearch as TbSearch,
+  IconSettings as TbSettings,
   IconPlayerPause as TbPlayerPause,
   IconPencil as TbPencil,
   IconPlayerPlay as TbPlayerPlay,
@@ -126,8 +129,11 @@ export const IconDockTop = wrap(TbArrowBarToUp);
 export const IconRestore = wrap(TbWindowMaximize);
 export const IconBell = wrap(TbBell);
 export const IconBellRinging = wrap(TbBellRinging);
+export const IconBookmark = wrap(TbBookmark);
 export const IconAlarmSnooze = wrap(TbAlarmSnooze);
 export const IconRepeat = wrap(TbRepeat);
 export const IconDatabaseExport = wrap(TbDatabaseExport);
 export const IconDownload = wrap(TbDownload);
+export const IconDeviceFloppy = wrap(TbDeviceFloppy);
+export const IconSettings = wrap(TbSettings);
 export const IconUpload = wrap(TbUpload);

@@ -22,6 +22,22 @@ export interface RecurrenceTemplate {
   recordTimeEnabled: boolean;
 }
 
+export interface TaskTemplate {
+  id: string;
+  name: string;
+  title: string;
+  urgency: Urgency;
+  plannedSeconds: number;
+  countdownEnabled: boolean;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
+  recordTimeEnabled: boolean;
+  recurrence: RecurrenceRule | null;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Todo {
   id: string;
   title: string;

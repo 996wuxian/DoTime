@@ -33,6 +33,7 @@ import {
 } from "./components/icons";
 import type { StatisticsPeriod } from "./domain/statistics";
 import { useTodos } from "./hooks/useTodos";
+import { useTaskTemplates } from "./hooks/useTaskTemplates";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
 import {
   formatDateKey,
@@ -122,6 +123,14 @@ function App() {
     importTodosData,
     storageNotice,
   } = useTodos(selectedDate);
+  const {
+    templates,
+    notice: templateNotice,
+    addTemplate,
+    renameTemplate,
+    removeTemplate,
+    moveTemplate,
+  } = useTaskTemplates();
 
   useEffect(() => {
     saveTheme(theme);
@@ -746,6 +755,12 @@ function App() {
               selectedDate={selectedDate}
               todoDateSummaries={todoDateSummaries}
               onOpenChange={handleOpenNewTodo}
+              templates={templates}
+              templateNotice={templateNotice}
+              onAddTemplate={addTemplate}
+              onRenameTemplate={renameTemplate}
+              onRemoveTemplate={removeTemplate}
+              onMoveTemplate={moveTemplate}
             />
           )}
 

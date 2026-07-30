@@ -8,6 +8,7 @@ import type {
   RecurrenceEditScope,
   RecurrenceFrequency,
   RecurrenceRule,
+  TaskTemplate,
   Urgency,
 } from "../types";
 import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
@@ -19,6 +20,7 @@ import {
 import { CountdownDial } from "./CountdownDial";
 import { DatePickerField } from "./DatePickerField";
 import { MonthDaySelect } from "./MonthDaySelect";
+import { TaskTemplateControls } from "./TaskTemplateControls";
 import {
   IconCheck,
   IconClock,
@@ -58,6 +60,14 @@ interface TodoEditorFormProps {
   onSubmit: (draft: TodoDraft) => void;
   onCancel: () => void;
   todoDateSummaries: ReadonlyMap<string, import("../types").TodoDateSummary>;
+  templates?: readonly TaskTemplate[];
+  templateNotice?: string | null;
+  onSaveTemplate?: (
+    draft: TodoDraft,
+    name: string,
+    includeRecurrence: boolean,
+  ) => TaskTemplate | null;
+  onManageTemplates?: () => void;
 }
 
 const URGENCIES: Urgency[] = ["low", "medium", "high", "critical"];
@@ -120,6 +130,10 @@ export function TodoEditorForm({
   onSubmit,
   onCancel,
   todoDateSummaries,
+  templates,
+  templateNotice = null,
+  onSaveTemplate,
+  onManageTemplates,
 }: TodoEditorFormProps) {
   const [draft, setDraft] = useState<TodoDraft>(initialDraft);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
@@ -373,6 +387,27 @@ export function TodoEditorForm({
     });
   };
 
+  const applyTemplate = (template: TaskTemplate) => {
+    setDraft((current) => ({
+      ...current,
+      title: template.title,
+      urgency: template.urgency,
+      plannedSeconds: template.plannedSeconds,
+      countdownEnabled: template.countdownEnabled,
+      reminderEnabled: template.reminderEnabled,
+      reminderTime: template.reminderTime,
+      recordTimeEnabled: template.recordTimeEnabled,
+      recurrence: template.recurrence
+        ? {
+            ...template.recurrence,
+            weekdays: [...template.recurrence.weekdays],
+            endDate: null,
+          }
+        : null,
+      recurrenceEditScope: "series",
+    }));
+  };
+
   return (
     <form className={className} onSubmit={handleSubmit}>
       <div className="todo-form__header">
@@ -389,6 +424,19 @@ export function TodoEditorForm({
           取消
         </button>
       </div>
+
+      {templates && onSaveTemplate && onManageTemplates && (
+        <TaskTemplateControls
+          templates={templates}
+          draft={draft}
+          notice={templateNotice}
+          onApply={applyTemplate}
+          onSave={(name, includeRecurrence) =>
+            onSaveTemplate(draft, name, includeRecurrence)
+          }
+          onManage={onManageTemplates}
+        />
+      )}
 
       <div className="todo-form__primary-row">
         <label className="field">
