@@ -185,6 +185,7 @@ function App() {
     : null;
   const showingEditor = todoFormOpen || editingTodo != null;
   const unfinishedTodos = dayTodos.filter((todo) => !todo.completed);
+  const canEnterMiniMode = unfinishedTodos.length > 0;
   const activeMiniIndex =
     unfinishedTodos.length === 0
       ? 0
@@ -197,6 +198,10 @@ function App() {
   useEffect(() => {
     if (miniIndex !== activeMiniIndex) setMiniIndex(activeMiniIndex);
   }, [activeMiniIndex, miniIndex]);
+
+  useEffect(() => {
+    if (miniMode && !canEnterMiniMode) void handleExitMiniMode();
+  }, [canEnterMiniMode, miniMode]);
 
   useEffect(() => {
     if (!pendingDeleteTodoId) return;
@@ -250,6 +255,8 @@ function App() {
   };
 
   const handleEnterMiniMode = async () => {
+    if (!canEnterMiniMode) return;
+
     setEditingTodoId(null);
     setTodoFormOpen(false);
     setMiniIndex(0);
@@ -692,8 +699,13 @@ function App() {
             type="button"
             className="btn btn-ghost btn-icon-only dock-toggle"
             onClick={() => void handleEnterMiniMode()}
-            aria-label="进入顶部迷你模式"
-            title="进入顶部迷你模式"
+            disabled={!canEnterMiniMode}
+            aria-label={
+              canEnterMiniMode
+                ? "进入顶部迷你模式"
+                : "暂无未完成待办，无法进入顶部迷你模式"
+            }
+            title={canEnterMiniMode ? "进入顶部迷你模式" : "暂无未完成待办"}
           >
             <IconDockTop size={17} />
           </button>

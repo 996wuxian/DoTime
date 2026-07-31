@@ -1276,7 +1276,7 @@ a,
 .statistics-legend span {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 0;
 }
 
 .statistics-legend i {
@@ -1284,6 +1284,7 @@ a,
   height: 9px;
   display: inline-block;
   flex: 0 0 9px;
+  margin-right: 6px;
   border-radius: 2px;
 }
 
