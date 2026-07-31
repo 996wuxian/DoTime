@@ -135,7 +135,7 @@ button {
 }
 
 .app-content {
-  max-width: 720px;
+  max-width: 850px;
   width: 100%;
   margin: 0 auto;
   padding: 0 20px;
@@ -3049,7 +3049,7 @@ a,
 
 .todo-scroll-top {
   position: fixed;
-  right: max(20px, calc((100vw - 720px) / 2 - 56px));
+  right: max(20px, calc((100vw - 850px) / 2 - 56px));
   bottom: 24px;
   z-index: 20;
   width: 38px;
