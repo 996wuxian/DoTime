@@ -3403,8 +3403,9 @@ a,
 }
 
 .status-badge--active {
-  color: #b7ceff;
-  background: rgba(110, 168, 255, 0.16);
+  color: #5eead4;
+  background: rgba(45, 212, 191, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.22);
 }
 
 .status-badge--done {
@@ -3451,7 +3452,8 @@ a,
 
 :root[data-theme="light"] .status-badge--active {
   color: #0f766e;
-  background: #ccfbf1;
+  background: rgba(20, 184, 166, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.16);
 }
 
 :root[data-theme="light"] .status-badge--done {
@@ -3505,9 +3507,33 @@ a,
   z-index: 0;
 }
 
+.todo-subtasks__list::before {
+  top: -7px;
+}
+
+.todo-item.has-record-elapsed .todo-subtasks__list::before {
+  top: -25px;
+}
+
+.todo-item.has-reminder .todo-subtasks__list::before {
+  top: -25px;
+}
+
+.todo-item.has-countdown .todo-subtasks__list::before {
+  top: -25px;
+}
+
+.todo-item.has-countdown:not(.is-completed) .todo-subtasks__list::before {
+  top: -37px;
+}
+
 .todo-subtasks__list:not(:has(> .todo-subtask + .todo-subtask))::before,
 .todo-subtasks__children:not(:has(> .todo-subtask + .todo-subtask))::before {
   display: none;
+}
+
+.todo-subtasks__list:not(:has(> .todo-subtask + .todo-subtask))::before {
+  display: block;
 }
 
 .todo-subtasks__children {
@@ -3520,6 +3546,10 @@ a,
   min-width: 0;
   display: grid;
   gap: 4px;
+}
+
+.todo-subtask.is-dragging {
+  opacity: 0.82;
 }
 
 .todo-subtask::before {
@@ -3719,6 +3749,15 @@ a,
 
 .todo-subtask__actions button.is-danger {
   color: var(--danger);
+}
+
+.todo-subtask__actions button.todo-subtask__sort {
+  color: var(--text-dim);
+  cursor: grab;
+}
+
+.todo-subtask__actions button.todo-subtask__sort:active {
+  cursor: grabbing;
 }
 
 .todo-subtask-form {

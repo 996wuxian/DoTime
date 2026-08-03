@@ -7,7 +7,9 @@ import {
   pauseTodoTiming,
   removeTodoSubtask,
   renameTodoSubtask,
+  reorderTodoSubtask,
   startTodoTiming,
+  stopTodoSubtaskTiming,
   stopTodoTimingWithRecurrence,
   syncTodoSubtaskElapsedFromParent,
   toggleTodoSubtask,
@@ -193,6 +195,54 @@ describe("todo timing state", () => {
     expect(child?.completedAt).toEqual(5000);
   });
 
+  it("completes the parent todo when all subtasks are completed", () => {
+    const todo = createTodo({
+      isTiming: true,
+      timingStartedAt: 1000,
+      elapsedSeconds: 20,
+      subtasks: [
+        subtask({
+          id: "subtask-1",
+          title: "已完成",
+          completed: true,
+          completedAt: 1500,
+        }),
+        subtask({
+          id: "subtask-2",
+          title: "最后一个",
+        }),
+      ],
+    });
+
+    const result = toggleTodoSubtask([todo], todo.id, "subtask-2", 5000);
+
+    expect(result[0].completed).toEqual(true);
+    expect(result[0].completedAt).toEqual(5000);
+    expect(result[0].isTiming).toEqual(false);
+    expect(result[0].elapsedSeconds).toEqual(24);
+    expect(result[0].actualDurationSeconds).toEqual(24);
+  });
+
+  it("keeps the parent todo pending while any subtask is still pending", () => {
+    const todo = createTodo({
+      subtasks: [
+        subtask({
+          id: "subtask-1",
+          title: "待完成",
+        }),
+        subtask({
+          id: "subtask-2",
+          title: "完成中",
+        }),
+      ],
+    });
+
+    const result = toggleTodoSubtask([todo], todo.id, "subtask-2", 5000);
+
+    expect(result[0].completed).toEqual(false);
+    expect(result[0].subtasks?.[1].completed).toEqual(true);
+  });
+
   it("resumes an elapsed task when completion is cancelled", () => {
     const todo = createTodo({
       completed: true,
@@ -207,6 +257,100 @@ describe("todo timing state", () => {
     expect(result.isTiming).toEqual(true);
     expect(result.timingStartedAt).toEqual(1000);
     expect(result.actualDurationSeconds).toEqual(null);
+  });
+
+  it("uncompletes all subtasks when parent completion is cancelled", () => {
+    const todo = createTodo({
+      completed: true,
+      completedAt: 500,
+      elapsedSeconds: 120,
+      actualDurationSeconds: 120,
+      subtasks: [
+        subtask({
+          id: "subtask-1",
+          title: "一级",
+          recordTimeEnabled: true,
+          completed: true,
+          completedAt: 400,
+          elapsedSeconds: 60,
+          actualDurationSeconds: 60,
+          children: [
+            subtask({
+              id: "subtask-2",
+              title: "二级",
+              countdownEnabled: true,
+              plannedSeconds: 1500,
+              recordTimeEnabled: true,
+              completed: true,
+              completedAt: 450,
+              elapsedSeconds: 30,
+              actualDurationSeconds: 30,
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const result = toggleTodoCompletion(todo, 1000);
+    const parent = result.subtasks?.[0];
+    const child = parent?.children[0];
+
+    expect(result.completed).toEqual(false);
+    expect(parent?.completed).toEqual(false);
+    expect(parent?.completedAt).toEqual(null);
+    expect(parent?.isTiming).toEqual(true);
+    expect(parent?.timingStartedAt).toEqual(1000);
+    expect(parent?.actualDurationSeconds).toEqual(null);
+    expect(child?.completed).toEqual(false);
+    expect(child?.completedAt).toEqual(null);
+    expect(child?.isTiming).toEqual(true);
+    expect(child?.timingStartedAt).toEqual(1000);
+    expect(child?.actualDurationSeconds).toEqual(null);
+  });
+
+  it("uncompletes the parent todo when one completed subtask is cancelled", () => {
+    const todo = createTodo({
+      completed: true,
+      completedAt: 500,
+      elapsedSeconds: 120,
+      actualDurationSeconds: 120,
+      subtasks: [
+        subtask({
+          id: "subtask-1",
+          title: "取消完成",
+          plannedSeconds: 1500,
+          countdownEnabled: true,
+          recordTimeEnabled: true,
+          completed: true,
+          completedAt: 400,
+          elapsedSeconds: 20,
+          actualDurationSeconds: 20,
+        }),
+        subtask({
+          id: "subtask-2",
+          title: "保持完成",
+          completed: true,
+          completedAt: 450,
+          actualDurationSeconds: 30,
+        }),
+      ],
+    });
+
+    const result = toggleTodoSubtask([todo], todo.id, "subtask-1", 1000);
+    const cancelledSubtask = result[0].subtasks?.[0];
+    const unchangedSubtask = result[0].subtasks?.[1];
+
+    expect(result[0].completed).toEqual(false);
+    expect(result[0].completedAt).toEqual(null);
+    expect(result[0].isTiming).toEqual(true);
+    expect(result[0].timingStartedAt).toEqual(1000);
+    expect(result[0].actualDurationSeconds).toEqual(null);
+    expect(cancelledSubtask?.completed).toEqual(false);
+    expect(cancelledSubtask?.isTiming).toEqual(true);
+    expect(cancelledSubtask?.timingStartedAt).toEqual(1000);
+    expect(cancelledSubtask?.elapsedSeconds).toEqual(20);
+    expect(cancelledSubtask?.actualDurationSeconds).toEqual(null);
+    expect(unchangedSubtask?.completed).toEqual(true);
   });
 
   it("does not resume when time recording is disabled", () => {
@@ -302,6 +446,39 @@ describe("todo timing state", () => {
     expect(result[0].reminderSnoozedUntil).toEqual(null);
   });
 
+  it("clears time data when an edited todo becomes a plain task", () => {
+    const todo = createTodo({
+      countdownEnabled: true,
+      recordTimeEnabled: true,
+      plannedSeconds: 1500,
+      isTiming: true,
+      timingStartedAt: 1000,
+      elapsedSeconds: 120,
+      actualDurationSeconds: 300,
+    });
+
+    const result = updateTodoDetails([todo], todo.id, {
+      title: todo.title,
+      date: todo.date,
+      urgency: todo.urgency,
+      plannedSeconds: todo.plannedSeconds,
+      countdownEnabled: false,
+      reminderEnabled: todo.reminderEnabled,
+      reminderTime: todo.reminderTime,
+      recordTimeEnabled: false,
+      recurrence: todo.recurrence,
+      recurrenceEditScope: "series",
+    });
+
+    expect(result[0].countdownEnabled).toEqual(false);
+    expect(result[0].recordTimeEnabled).toEqual(false);
+    expect(result[0].plannedSeconds).toEqual(0);
+    expect(result[0].isTiming).toEqual(false);
+    expect(result[0].timingStartedAt).toEqual(null);
+    expect(result[0].elapsedSeconds).toEqual(0);
+    expect(result[0].actualDurationSeconds).toEqual(null);
+  });
+
   it("creates one next occurrence when a recurring todo is completed", () => {
     const todo = createTodo({
       recurrenceSeriesId: "series-1",
@@ -383,6 +560,35 @@ describe("todo timing state", () => {
     expect(completedSubtask?.isTiming).toEqual(false);
     expect(completedSubtask?.elapsedSeconds).toEqual(8);
     expect(completedSubtask?.actualDurationSeconds).toEqual(8);
+  });
+
+  it("completes the parent todo when the last subtask timing is stopped", () => {
+    const todo = createTodo({
+      subtasks: [
+        subtask({
+          id: "subtask-1",
+          title: "已完成",
+          completed: true,
+          completedAt: 1500,
+        }),
+        subtask({
+          id: "subtask-2",
+          title: "计时中",
+          recordTimeEnabled: true,
+          isTiming: true,
+          timingStartedAt: 2000,
+          elapsedSeconds: 5,
+        }),
+      ],
+    });
+
+    const result = stopTodoSubtaskTiming([todo], todo.id, "subtask-2", 5000);
+    const completedSubtask = result[0].subtasks?.[1];
+
+    expect(result[0].completed).toEqual(true);
+    expect(result[0].completedAt).toEqual(5000);
+    expect(completedSubtask?.completed).toEqual(true);
+    expect(completedSubtask?.elapsedSeconds).toEqual(8);
   });
 
   it("keeps the series template when editing only one occurrence", () => {
@@ -583,5 +789,62 @@ describe("todo timing state", () => {
     expect(renamed[0].subtasks?.[0].children[0].title).toEqual("新下级");
     expect(toggled[0].subtasks?.[0].children[0].completed).toEqual(true);
     expect(removed[0].subtasks).toEqual([]);
+  });
+
+  it("reorders top-level subtasks", () => {
+    const todo = createTodo({
+      subtasks: [
+        subtask({ id: "subtask-1", title: "第一" }),
+        subtask({ id: "subtask-2", title: "第二" }),
+        subtask({ id: "subtask-3", title: "第三" }),
+      ],
+    });
+
+    const result = reorderTodoSubtask([todo], todo.id, "subtask-3", "subtask-1");
+
+    expect(result[0].subtasks?.map((item) => item.id)).toEqual([
+      "subtask-3",
+      "subtask-1",
+      "subtask-2",
+    ]);
+  });
+
+  it("reorders second-level subtasks only within the same parent", () => {
+    const todo = createTodo({
+      subtasks: [
+        subtask({
+          id: "subtask-1",
+          title: "父级 1",
+          children: [
+            subtask({ id: "subtask-2", title: "子级 1" }),
+            subtask({ id: "subtask-3", title: "子级 2" }),
+          ],
+        }),
+        subtask({
+          id: "subtask-4",
+          title: "父级 2",
+          children: [subtask({ id: "subtask-5", title: "另一个子级" })],
+        }),
+      ],
+    });
+
+    const reordered = reorderTodoSubtask(
+      [todo],
+      todo.id,
+      "subtask-3",
+      "subtask-2",
+    );
+    const crossParent = reorderTodoSubtask(
+      reordered,
+      todo.id,
+      "subtask-3",
+      "subtask-5",
+    );
+
+    expect(reordered[0].subtasks?.[0].children.map((item) => item.id)).toEqual([
+      "subtask-3",
+      "subtask-2",
+    ]);
+    expect(crossParent).toStrictEqual(reordered);
   });
 });

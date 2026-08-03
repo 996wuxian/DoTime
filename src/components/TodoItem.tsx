@@ -1,4 +1,4 @@
-import { useMemo, useState, type PointerEvent } from "react";
+import { useMemo, useRef, useState, type PointerEvent } from "react";
 import type { Todo, TodoSubtask } from "../types";
 import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
 import {
@@ -42,6 +42,7 @@ interface TodoItemProps {
   onSyncSubtask: (subtaskId: string) => void;
   onToggleSubtask: (subtaskId: string) => void;
   onRemoveSubtask: (subtaskId: string) => void;
+  onReorderSubtask: (draggedSubtaskId: string, targetSubtaskId: string) => void;
   onStartSubtask: (subtaskId: string) => void;
   onPauseSubtask: (subtaskId: string) => void;
   onStopSubtask: (subtaskId: string) => void;
@@ -79,6 +80,12 @@ function getSubtaskLiveElapsed(subtask: TodoSubtask): number {
   return subtask.elapsedSeconds;
 }
 
+type SubtaskDragState = {
+  pointerId: number;
+  draggedId: string;
+  lastTargetId: string | null;
+};
+
 function SubtaskRow({
   subtask,
   depth,
@@ -87,9 +94,11 @@ function SubtaskRow({
   onStartAdd,
   onStartEdit,
   onSync,
+  draggingSubtaskId,
   onToggleCollapse,
   onToggle,
   onRemove,
+  onDragHandlePointerDown,
   onStart,
   onPause,
   onStop,
@@ -101,9 +110,13 @@ function SubtaskRow({
   onStartAdd: (parentId: string | null) => void;
   onStartEdit: (id: string) => void;
   onSync: (id: string) => void;
+  draggingSubtaskId: string | null;
   onToggleCollapse: (id: string) => void;
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
+  onDragHandlePointerDown: (
+    id: string,
+  ) => (event: PointerEvent<HTMLButtonElement>) => void;
   onStart: (id: string) => void;
   onPause: (id: string) => void;
   onStop: (id: string) => void;
@@ -120,7 +133,12 @@ function SubtaskRow({
   const showRecordElapsed = liveElapsed > 0 || subtask.isTiming;
 
   return (
-    <li className={`todo-subtask todo-subtask--level-${depth}`}>
+    <li
+      className={`todo-subtask todo-subtask--level-${depth} ${
+        draggingSubtaskId === subtask.id ? "is-dragging" : ""
+      }`}
+      data-subtask-id={subtask.id}
+    >
       <div className="todo-subtask__row">
         <span className="todo-subtask__branch" aria-hidden />
         <button
@@ -149,17 +167,15 @@ function SubtaskRow({
               <span className={`badge badge--${subtask.urgency} todo-subtask__badge`}>
                 {URGENCY_LABELS[subtask.urgency]}
               </span>
-              <span
-                className={`status-badge status-badge--${
-                  subtask.completed
-                    ? "done"
-                    : subtask.isTiming
-                      ? "active"
-                      : "idle"
-                } todo-subtask__status`}
-              >
-                {statusLabel}
-              </span>
+              {!subtask.completed && (
+                <span
+                  className={`status-badge status-badge--${
+                    subtask.isTiming ? "active" : "idle"
+                  } todo-subtask__status`}
+                >
+                  {statusLabel}
+                </span>
+              )}
               {depth === 1 && childStats.total > 0 && (
                 <button
                   type="button"
@@ -219,7 +235,7 @@ function SubtaskRow({
               >
                 <IconPencil size={14} />
               </button>
-              {countdownSyncEnabled && (
+              {countdownSyncEnabled && !subtask.completed && (
                 <button
                   type="button"
                   onClick={() => onSync(subtask.id)}
@@ -271,6 +287,15 @@ function SubtaskRow({
                   </button>
                 </>
               )}
+              <button
+                type="button"
+                className="todo-subtask__sort"
+                onPointerDown={onDragHandlePointerDown(subtask.id)}
+                aria-label="拖拽排序子待办"
+                title="长按拖拽排序"
+              >
+                <IconGripVertical size={14} />
+              </button>
             </div>
         </>
       </div>
@@ -287,9 +312,11 @@ function SubtaskRow({
               onStartAdd={onStartAdd}
               onStartEdit={onStartEdit}
               onSync={onSync}
+              draggingSubtaskId={draggingSubtaskId}
               onToggleCollapse={onToggleCollapse}
               onToggle={onToggle}
               onRemove={onRemove}
+              onDragHandlePointerDown={onDragHandlePointerDown}
               onStart={onStart}
               onPause={onPause}
               onStop={onStop}
@@ -319,6 +346,7 @@ export function TodoItem({
   onSyncSubtask,
   onToggleSubtask,
   onRemoveSubtask,
+  onReorderSubtask,
   onStartSubtask,
   onPauseSubtask,
   onStopSubtask,
@@ -329,8 +357,12 @@ export function TodoItem({
     () => new Set(),
   );
   const countdownEnabled = todo.countdownEnabled;
+  const timeTrackingEnabled = countdownEnabled || todo.recordTimeEnabled;
   const countdownSyncEnabled = countdownEnabled && todo.plannedSeconds > 0;
+  const reminderEnabled = todo.reminderEnabled && Boolean(todo.reminderTime);
   const subtasks = todo.subtasks ?? [];
+  const subtaskDragStateRef = useRef<SubtaskDragState | null>(null);
+  const [draggingSubtaskId, setDraggingSubtaskId] = useState<string | null>(null);
   const subtaskStats = useMemo(() => getSubtaskStats(subtasks), [subtasks]);
   const showSubtasks = subtasks.length > 0;
   const statusLabel = todo.completed
@@ -353,6 +385,61 @@ export function TodoItem({
     todo.reminderLastFiredAt != null &&
     todo.reminderLastFiredAt >= reminderDueAt;
 
+  const finishSubtaskDrag = () => {
+    window.removeEventListener("pointermove", handleSubtaskDragMove);
+    window.removeEventListener("pointerup", handleSubtaskDragEnd);
+    window.removeEventListener("pointercancel", handleSubtaskDragEnd);
+    subtaskDragStateRef.current = null;
+    setDraggingSubtaskId(null);
+  };
+
+  const handleSubtaskDragMove = (event: globalThis.PointerEvent) => {
+    const dragState = subtaskDragStateRef.current;
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+
+    event.preventDefault();
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    const targetItem = target?.closest<HTMLElement>("[data-subtask-id]");
+    const targetId = targetItem?.dataset.subtaskId;
+    if (
+      !targetId ||
+      targetId === dragState.draggedId ||
+      targetId === dragState.lastTargetId
+    ) {
+      return;
+    }
+
+    onReorderSubtask(dragState.draggedId, targetId);
+    dragState.lastTargetId = targetId;
+  };
+
+  const handleSubtaskDragEnd = (event: globalThis.PointerEvent) => {
+    const dragState = subtaskDragStateRef.current;
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+    finishSubtaskDrag();
+  };
+
+  const handleSubtaskDragHandlePointerDown =
+    (id: string) => (event: PointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      finishSubtaskDrag();
+      subtaskDragStateRef.current = {
+        pointerId: event.pointerId,
+        draggedId: id,
+        lastTargetId: null,
+      };
+      setDraggingSubtaskId(id);
+      window.addEventListener("pointermove", handleSubtaskDragMove, {
+        passive: false,
+      });
+      window.addEventListener("pointerup", handleSubtaskDragEnd);
+      window.addEventListener("pointercancel", handleSubtaskDragEnd);
+    };
+
   return (
     <article
       ref={itemRef}
@@ -360,6 +447,11 @@ export function TodoItem({
       className={[
         "todo-item",
         "card",
+        countdownEnabled ? "has-countdown" : "",
+        reminderEnabled ? "has-reminder" : "",
+        !countdownEnabled && timeTrackingEnabled && (liveElapsed > 0 || todo.isTiming)
+          ? "has-record-elapsed"
+          : "",
         todo.completed ? "is-completed" : "",
         todo.isTiming ? "is-timing" : "",
         overtime ? "is-overtime" : "",
@@ -403,13 +495,15 @@ export function TodoItem({
             <span className={`badge badge--${todo.urgency}`}>
               {URGENCY_LABELS[todo.urgency]}
             </span>
-            <span
-              className={`status-badge status-badge--${
-                todo.completed ? "done" : todo.isTiming ? "active" : "idle"
-              }`}
-            >
-              {statusLabel}
-            </span>
+            {!todo.completed && (
+              <span
+                className={`status-badge status-badge--${
+                  todo.isTiming ? "active" : "idle"
+                }`}
+              >
+                {statusLabel}
+              </span>
+            )}
             {subtaskStats.total > 0 && (
               <button
                 type="button"
@@ -451,13 +545,13 @@ export function TodoItem({
                 {RECURRENCE_LABELS[todo.recurrence.frequency]}
               </span>
             )}
-            {(liveElapsed > 0 || todo.isTiming) && (
+            {timeTrackingEnabled && (liveElapsed > 0 || todo.isTiming) && (
               <span className="meta-item meta-elapsed">
                 <IconClockHour4 size={13} />
                 已用 {formatDuration(liveElapsed)}
               </span>
             )}
-            {todo.actualDurationSeconds != null && !todo.isTiming && (
+            {timeTrackingEnabled && todo.actualDurationSeconds != null && !todo.isTiming && (
               <span className="meta-item meta-done">
                 <IconCheck size={13} />
                 完成耗时 {formatDurationHuman(todo.actualDurationSeconds)}
@@ -563,6 +657,7 @@ export function TodoItem({
                   depth={1}
                   countdownSyncEnabled={countdownSyncEnabled}
                   collapsedIds={collapsedSubtaskIds}
+                  draggingSubtaskId={draggingSubtaskId}
                   onStartAdd={(parentId) => {
                     onAddSubtask(parentId);
                   }}
@@ -581,6 +676,7 @@ export function TodoItem({
                   }
                   onToggle={onToggleSubtask}
                   onRemove={onRemoveSubtask}
+                  onDragHandlePointerDown={handleSubtaskDragHandlePointerDown}
                   onStart={onStartSubtask}
                   onPause={onPauseSubtask}
                   onStop={onStopSubtask}

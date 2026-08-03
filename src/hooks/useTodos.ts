@@ -19,6 +19,7 @@ import {
   pauseTodoSubtaskTiming,
   removeTodoSubtask,
   renameTodoSubtask,
+  reorderTodoSubtask,
   startTodoSubtaskTiming,
   startTodoTiming,
   stopTodoSubtaskTiming,
@@ -391,6 +392,16 @@ export function useTodos(selectedDate: string) {
     setTodos((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const clearDayTodos = useCallback(() => {
+    setTodos((prev) => prev.filter((todo) => todo.date !== selectedDate));
+    setManualSortDates((prev) => {
+      if (!prev.has(selectedDate)) return prev;
+      const next = new Set(prev);
+      next.delete(selectedDate);
+      return next;
+    });
+  }, [selectedDate]);
+
   const reorderTodo = useCallback(
     (draggedId: string, targetId: string) => {
       if (draggedId === targetId) return;
@@ -500,6 +511,15 @@ export function useTodos(selectedDate: string) {
     setTodos((prev) => removeTodoSubtask(prev, todoId, subtaskId));
   }, []);
 
+  const reorderSubtask = useCallback(
+    (todoId: string, draggedSubtaskId: string, targetSubtaskId: string) => {
+      setTodos((prev) =>
+        reorderTodoSubtask(prev, todoId, draggedSubtaskId, targetSubtaskId),
+      );
+    },
+    [],
+  );
+
   const startSubtaskTiming = useCallback((todoId: string, subtaskId: string) => {
     const now = Date.now();
     setTodos((prev) => startTodoSubtaskTiming(prev, todoId, subtaskId, now));
@@ -589,6 +609,7 @@ export function useTodos(selectedDate: string) {
     todoDateSummaries,
     addTodo,
     removeTodo,
+    clearDayTodos,
     reorderTodo,
     toggleComplete,
     updateTodo,
@@ -598,6 +619,7 @@ export function useTodos(selectedDate: string) {
     syncSubtaskElapsedFromParent,
     toggleSubtask,
     removeSubtask,
+    reorderSubtask,
     startSubtaskTiming,
     pauseSubtaskTiming,
     stopSubtaskTiming,

@@ -74,10 +74,19 @@ function startSubtaskTiming(subtask: TodoSubtask, now: number): TodoSubtask {
 
 function toggleSubtaskCompletion(subtask: TodoSubtask, now: number): TodoSubtask {
   if (subtask.completed) {
+    const elapsedSeconds = Math.max(
+      subtask.elapsedSeconds,
+      subtask.actualDurationSeconds ?? 0,
+    );
+    const shouldResumeTiming = subtask.recordTimeEnabled;
+
     return {
       ...subtask,
       completed: false,
       completedAt: null,
+      isTiming: shouldResumeTiming,
+      timingStartedAt: shouldResumeTiming ? now : null,
+      elapsedSeconds,
       actualDurationSeconds: null,
     };
   }
@@ -109,6 +118,24 @@ function completeSubtask(subtask: TodoSubtask, now: number): TodoSubtask {
   };
 }
 
+function uncompleteSubtask(subtask: TodoSubtask, now: number): TodoSubtask {
+  const elapsedSeconds = Math.max(
+    subtask.elapsedSeconds,
+    subtask.actualDurationSeconds ?? 0,
+  );
+  const shouldResumeTiming = subtask.recordTimeEnabled;
+
+  return {
+    ...subtask,
+    completed: false,
+    completedAt: null,
+    isTiming: shouldResumeTiming,
+    timingStartedAt: shouldResumeTiming ? now : null,
+    elapsedSeconds,
+    actualDurationSeconds: null,
+  };
+}
+
 function updateSubtasks(
   subtasks: readonly TodoSubtask[] = [],
   updater: (subtask: TodoSubtask, depth: 1 | 2) => TodoSubtask | null,
@@ -125,6 +152,74 @@ function updateSubtasks(
       };
     })
     .filter((subtask): subtask is TodoSubtask => subtask != null);
+}
+
+function reorderSubtasksInSiblings(
+  subtasks: readonly TodoSubtask[] = [],
+  draggedId: string,
+  targetId: string,
+): { subtasks: TodoSubtask[]; changed: boolean } {
+  const draggedIndex = subtasks.findIndex((subtask) => subtask.id === draggedId);
+  const targetIndex = subtasks.findIndex((subtask) => subtask.id === targetId);
+
+  if (draggedIndex >= 0 || targetIndex >= 0) {
+    if (draggedIndex < 0 || targetIndex < 0 || draggedIndex === targetIndex) {
+      return { subtasks: [...subtasks], changed: false };
+    }
+
+    const reordered = [...subtasks];
+    const [dragged] = reordered.splice(draggedIndex, 1);
+    reordered.splice(targetIndex, 0, dragged);
+    return { subtasks: reordered, changed: true };
+  }
+
+  let changed = false;
+  const nextSubtasks = subtasks.map((subtask) => {
+    const childResult = reorderSubtasksInSiblings(
+      subtask.children,
+      draggedId,
+      targetId,
+    );
+    if (!childResult.changed) return subtask;
+    changed = true;
+    return { ...subtask, children: childResult.subtasks };
+  });
+
+  return { subtasks: nextSubtasks, changed };
+}
+
+function areAllSubtasksCompleted(subtasks: readonly TodoSubtask[] = []): boolean {
+  if (subtasks.length === 0) return false;
+
+  return subtasks.every(
+    (subtask) =>
+      subtask.completed && subtask.children.every((child) => child.completed),
+  );
+}
+
+function completeTodoAfterSubtasks(todo: Todo, now: number): Todo {
+  if (todo.completed || !areAllSubtasksCompleted(todo.subtasks)) return todo;
+  return toggleTodoCompletion(todo, now);
+}
+
+function uncompleteTodoAfterSubtasks(todo: Todo, now: number): Todo {
+  if (!todo.completed || areAllSubtasksCompleted(todo.subtasks)) return todo;
+
+  const elapsedSeconds = Math.max(
+    todo.elapsedSeconds,
+    todo.actualDurationSeconds ?? 0,
+  );
+  const shouldResumeTiming = todo.recordTimeEnabled && elapsedSeconds > 0;
+
+  return {
+    ...todo,
+    completed: false,
+    completedAt: null,
+    isTiming: shouldResumeTiming,
+    timingStartedAt: shouldResumeTiming ? now : null,
+    elapsedSeconds,
+    actualDurationSeconds: null,
+  };
 }
 
 export function addTodoSubtask(
@@ -267,18 +362,23 @@ export function toggleTodoSubtask(
   subtaskId: string,
   now: number,
 ): Todo[] {
-  return todos.map((todo) =>
-    todo.id === todoId
-      ? {
-          ...todo,
-          subtasks: updateSubtasks(todo.subtasks, (subtask) =>
-            subtask.id === subtaskId
-              ? toggleSubtaskCompletion(subtask, now)
-              : subtask,
-          ),
-        }
-      : todo,
-  );
+  return todos.map((todo) => {
+    if (todo.id !== todoId) return todo;
+
+    const updatedTodo = {
+      ...todo,
+      subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+        subtask.id === subtaskId
+          ? toggleSubtaskCompletion(subtask, now)
+          : subtask,
+      ),
+    };
+
+    return completeTodoAfterSubtasks(
+      uncompleteTodoAfterSubtasks(updatedTodo, now),
+      now,
+    );
+  });
 }
 
 export function startTodoSubtaskTiming(
@@ -328,23 +428,25 @@ export function stopTodoSubtaskTiming(
   subtaskId: string,
   now: number,
 ): Todo[] {
-  return todos.map((todo) =>
-    todo.id === todoId
-      ? {
-          ...todo,
-          subtasks: updateSubtasks(todo.subtasks, (subtask) => {
-            if (subtask.id !== subtaskId) return subtask;
-            const settled = settleSubtaskTiming(subtask, now);
-            return {
-              ...settled,
-              completed: true,
-              completedAt: now,
-              actualDurationSeconds: settled.elapsedSeconds,
-            };
-          }),
-        }
-      : todo,
-  );
+  return todos.map((todo) => {
+    if (todo.id !== todoId) return todo;
+
+    const updatedTodo = {
+      ...todo,
+      subtasks: updateSubtasks(todo.subtasks, (subtask) => {
+        if (subtask.id !== subtaskId) return subtask;
+        const settled = settleSubtaskTiming(subtask, now);
+        return {
+          ...settled,
+          completed: true,
+          completedAt: now,
+          actualDurationSeconds: settled.elapsedSeconds,
+        };
+      }),
+    };
+
+    return completeTodoAfterSubtasks(updatedTodo, now);
+  });
 }
 
 export function removeTodoSubtask(
@@ -362,6 +464,25 @@ export function removeTodoSubtask(
         }
       : todo,
   );
+}
+
+export function reorderTodoSubtask(
+  todos: Todo[],
+  todoId: string,
+  draggedSubtaskId: string,
+  targetSubtaskId: string,
+): Todo[] {
+  if (draggedSubtaskId === targetSubtaskId) return todos;
+
+  return todos.map((todo) => {
+    if (todo.id !== todoId) return todo;
+    const result = reorderSubtasksInSiblings(
+      todo.subtasks,
+      draggedSubtaskId,
+      targetSubtaskId,
+    );
+    return result.changed ? { ...todo, subtasks: result.subtasks } : todo;
+  });
 }
 
 export function updateTodoDetails(
@@ -425,7 +546,8 @@ export function updateTodoDetails(
   const updatedTodos = retainedTodos.map((todo) => {
     if (todo.id !== id) return todo;
 
-    const keepTimingState = updates.recordTimeEnabled || !todo.isTiming;
+    const keepTimeData = updates.countdownEnabled || updates.recordTimeEnabled;
+    const keepTimingState = keepTimeData || !todo.isTiming;
     const nextReminderTime = updates.reminderEnabled
       ? normalizeReminderTime(updates.reminderTime) ?? getDefaultReminderTime()
       : null;
@@ -455,6 +577,8 @@ export function updateTodoDetails(
         : null,
       isTiming: keepTimingState ? todo.isTiming : false,
       timingStartedAt: keepTimingState ? todo.timingStartedAt : null,
+      elapsedSeconds: keepTimeData ? todo.elapsedSeconds : 0,
+      actualDurationSeconds: keepTimeData ? todo.actualDurationSeconds : null,
       recurrenceSeriesId: nextSeriesId,
       recurrence: occurrenceRecurrence,
       recurrenceTemplate: nextTemplate,
@@ -578,6 +702,9 @@ export function toggleTodoCompletion(todo: Todo, now: number): Todo {
       timingStartedAt: shouldResumeTiming ? now : null,
       elapsedSeconds,
       actualDurationSeconds: null,
+      subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+        uncompleteSubtask(subtask, now),
+      ),
     };
   }
 

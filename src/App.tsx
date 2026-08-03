@@ -44,6 +44,7 @@ import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
 import {
   formatDateKey,
   formatDurationCompact,
+  formatDisplayDate,
 } from "./utils/time";
 import {
   collapseMiniWindowMode,
@@ -163,6 +164,7 @@ function App() {
   const [pendingDeleteTodoId, setPendingDeleteTodoId] = useState<string | null>(
     null,
   );
+  const [pendingClearAll, setPendingClearAll] = useState(false);
   const [pendingDeleteSubtask, setPendingDeleteSubtask] =
     useState<SubtaskDeleteTarget | null>(null);
   const [pendingSyncSubtask, setPendingSyncSubtask] =
@@ -182,6 +184,7 @@ function App() {
     todoDateSummaries,
     addTodo,
     removeTodo,
+    clearDayTodos,
     reorderTodo,
     toggleComplete,
     updateTodo,
@@ -190,6 +193,7 @@ function App() {
     syncSubtaskElapsedFromParent,
     toggleSubtask,
     removeSubtask,
+    reorderSubtask,
     startSubtaskTiming,
     pauseSubtaskTiming,
     stopSubtaskTiming,
@@ -321,17 +325,19 @@ function App() {
   useEffect(() => {
     if (
       !pendingDeleteTodoId &&
+      !pendingClearAll &&
       pendingDeleteSubtask == null &&
       pendingSyncSubtask == null
     ) {
       return;
     }
     window.requestAnimationFrame(() => confirmDeleteButtonRef.current?.focus());
-  }, [pendingDeleteSubtask, pendingDeleteTodoId, pendingSyncSubtask]);
+  }, [pendingClearAll, pendingDeleteSubtask, pendingDeleteTodoId, pendingSyncSubtask]);
 
   useEffect(() => {
     if (
       !pendingDeleteTodoId &&
+      !pendingClearAll &&
       pendingDeleteSubtask == null &&
       pendingSyncSubtask == null
     ) {
@@ -341,6 +347,7 @@ function App() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setPendingDeleteTodoId(null);
+        setPendingClearAll(false);
         setPendingDeleteSubtask(null);
         setPendingSyncSubtask(null);
       }
@@ -348,7 +355,7 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [pendingDeleteSubtask, pendingDeleteTodoId, pendingSyncSubtask]);
+  }, [pendingClearAll, pendingDeleteSubtask, pendingDeleteTodoId, pendingSyncSubtask]);
 
   useEffect(
     () => () => {
@@ -485,6 +492,20 @@ function App() {
     }
 
     setPendingDeleteTodoId(id);
+  };
+
+  const handleOpenClearAll = () => {
+    if (dayTodos.length === 0) return;
+    setPendingClearAll(true);
+  };
+
+  const handleCancelClearAll = () => {
+    setPendingClearAll(false);
+  };
+
+  const handleConfirmClearAll = () => {
+    clearDayTodos();
+    setPendingClearAll(false);
   };
 
   const handleCancelDeleteTodo = () => {
@@ -740,6 +761,64 @@ function App() {
     </div>
   ) : null;
 
+  const clearAllConfirmDialog = pendingClearAll ? (
+    <div
+      className="confirm-overlay"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) handleCancelClearAll();
+      }}
+    >
+      <section
+        className="confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="clear-all-confirm-title"
+        aria-describedby="clear-all-confirm-desc"
+      >
+        <div className="confirm-dialog__icon" aria-hidden>
+          <IconTrash size={20} />
+        </div>
+        <div className="confirm-dialog__content">
+          <div className="confirm-dialog__header">
+            <h2 id="clear-all-confirm-title">删除当日的全部待办？</h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon-only confirm-dialog__close"
+              onClick={handleCancelClearAll}
+              aria-label="取消删除当日全部待办"
+              title="取消删除当日全部待办"
+            >
+              <IconClose size={16} />
+            </button>
+          </div>
+          <p id="clear-all-confirm-desc">
+            将删除 {formatDisplayDate(selectedDate)} 当天的全部 {dayTodos.length}{" "}
+            个待办（包含子待办和计时记录），此操作不可撤销。
+          </p>
+          <div className="confirm-dialog__actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleCancelClearAll}
+            >
+              取消
+            </button>
+            <button
+              ref={confirmDeleteButtonRef}
+              type="button"
+              className="btn btn-danger btn-sm"
+              onClick={handleConfirmClearAll}
+            >
+              <IconTrash size={14} />
+              全部删除
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  ) : null;
+
   const syncConfirmDialog = pendingSyncSubtask != null ? (
     <div
       className="confirm-overlay"
@@ -826,6 +905,7 @@ function App() {
           onRestore={() => void handleExitMiniMode()}
         />
         {deleteConfirmDialog}
+        {clearAllConfirmDialog}
         {syncConfirmDialog}
       </div>
     );
@@ -972,6 +1052,20 @@ function App() {
             ) : (
               <IconThemeMoon size={17} />
             )}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon-only btn-delete titlebar-clear-all"
+            onClick={handleOpenClearAll}
+            disabled={dayTodos.length === 0}
+            aria-label={
+              dayTodos.length > 0 ? "删除当日全部待办" : "当日暂无待办，无法删除"
+            }
+            title={
+              dayTodos.length > 0 ? "删除当日全部待办" : "当日暂无待办，无法删除"
+            }
+          >
+            <IconTrash size={17} />
           </button>
           <button
             type="button"
@@ -1135,6 +1229,9 @@ function App() {
                       onRemoveSubtask={(subtaskId) =>
                         setPendingDeleteSubtask({ todoId: todo.id, subtaskId })
                       }
+                      onReorderSubtask={(draggedSubtaskId, targetSubtaskId) =>
+                        reorderSubtask(todo.id, draggedSubtaskId, targetSubtaskId)
+                      }
                       onStartSubtask={(subtaskId) =>
                         startSubtaskTiming(todo.id, subtaskId)
                       }
@@ -1170,6 +1267,7 @@ function App() {
         )}
       </main>
       {deleteConfirmDialog}
+      {clearAllConfirmDialog}
       {syncConfirmDialog}
     </div>
   );
