@@ -37,9 +37,12 @@ import {
   IconSearch as TbSearch,
   IconSettings as TbSettings,
   IconPlayerPause as TbPlayerPause,
+  IconPlayerPauseFilled as TbPlayerPauseFilled,
   IconPencil as TbPencil,
   IconPlayerPlay as TbPlayerPlay,
+  IconPlayerPlayFilled as TbPlayerPlayFilled,
   IconPlayerStop as TbPlayerStop,
+  IconPlayerStopFilled as TbPlayerStopFilled,
   IconPlus as TbPlus,
   IconRepeat as TbRepeat,
   IconSquare as TbSquare,
@@ -112,8 +115,11 @@ export const IconChevronRight = wrap(TbChevronRight);
 export const IconChevronUp = wrap(TbChevronUp);
 export const IconChevronDown = wrap(TbChevronDown);
 export const IconPlayerPlay = wrap(TbPlayerPlay);
+export const IconPlayerPlayFilled = wrap(TbPlayerPlayFilled, { stroke: 0 });
 export const IconPlayerPause = wrap(TbPlayerPause);
+export const IconPlayerPauseFilled = wrap(TbPlayerPauseFilled, { stroke: 0 });
 export const IconPlayerStop = wrap(TbPlayerStop);
+export const IconPlayerStopFilled = wrap(TbPlayerStopFilled, { stroke: 0 });
 export const IconClock = wrap(TbClock);
 export const IconClockHour4 = wrap(TbClockHour4);
 export const IconListCheck = wrap(TbListCheck);

@@ -2322,7 +2322,7 @@ a,
 .todo-form__meta-row {
   display: grid;
   grid-template-columns: minmax(260px, 0.95fr) minmax(300px, 1.05fr);
-  gap: 16px;
+  gap: 14px;
   align-items: start;
 }
 
@@ -2394,12 +2394,18 @@ a,
 }
 
 .field--urgency,
-.field--timer {
+.field--timer,
+.field--reminder {
   min-width: 0;
 }
 
 .field--timer {
   align-items: stretch;
+}
+
+.field--timer.is-hidden,
+.preset-row.is-disabled {
+  display: none;
 }
 
 .field__label {
@@ -2553,6 +2559,16 @@ a,
   box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
+.todo-task-mode {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.todo-task-mode__option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .preset-row {
   display: flex;
   flex-wrap: nowrap;
@@ -2561,10 +2577,6 @@ a,
   overflow-x: auto;
   padding-bottom: 2px;
   scrollbar-width: thin;
-}
-
-.preset-row.is-disabled {
-  opacity: 0.48;
 }
 
 .recurrence-panel {
@@ -2581,6 +2593,7 @@ a,
   gap: 12px;
 }
 
+.todo-task-mode,
 .recurrence-frequency,
 .recurrence-edit-scope {
   display: grid;
@@ -2593,16 +2606,26 @@ a,
   background: var(--bg-elevated);
 }
 
+.todo-task-mode__option,
 .recurrence-frequency__option,
 .recurrence-edit-scope button {
+  min-width: 0;
   min-height: 32px;
   padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border-radius: 5px;
   color: var(--text-muted);
   font-size: 0.76rem;
   font-weight: 700;
+  cursor: pointer;
+  user-select: none;
 }
 
+.todo-task-mode__option:hover,
+.todo-task-mode__option:focus-within,
 .recurrence-frequency__option:hover,
 .recurrence-frequency__option:focus-visible,
 .recurrence-edit-scope button:hover,
@@ -2612,6 +2635,7 @@ a,
   background: var(--primary-soft);
 }
 
+.todo-task-mode__option.is-active,
 .recurrence-frequency__option.is-active,
 .recurrence-edit-scope button.is-active {
   color: #07120d;
@@ -2728,32 +2752,16 @@ a,
   width: min(320px, 100%);
 }
 
+:root[data-theme="light"] .todo-task-mode__option.is-active,
 :root[data-theme="light"] .recurrence-frequency__option.is-active,
 :root[data-theme="light"] .recurrence-edit-scope button.is-active {
   color: #ffffff;
   background: #0f766e;
 }
 
-.todo-reminder-row {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.95fr) minmax(300px, 1.05fr);
-  gap: 16px;
-  align-items: start;
-  padding: 12px 0 2px;
-}
-
-.field--reminder,
-.field--record-time {
-  min-width: 0;
-}
-
-.field--record-time {
-  align-self: start;
-}
-
 .todo-reminder-time {
   position: relative;
-  width: 220px;
+  width: 100%;
   max-width: 100%;
   gap: 8px;
   z-index: 30;
@@ -3038,6 +3046,7 @@ a,
 
 .todo-item {
   position: relative;
+  --todo-subtask-tree-mask: var(--bg-card);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -3157,11 +3166,21 @@ a,
 }
 
 .todo-item.is-timing {
+  --todo-subtask-tree-mask: linear-gradient(
+      rgba(110, 168, 255, 0.1),
+      rgba(110, 168, 255, 0.1)
+    ),
+    var(--bg-card);
   border-color: rgba(110, 168, 255, 0.45);
   background: linear-gradient(180deg, rgba(110, 168, 255, 0.1), var(--bg-card));
 }
 
 .todo-item.is-overtime {
+  --todo-subtask-tree-mask: linear-gradient(
+      rgba(255, 123, 138, 0.1),
+      rgba(255, 123, 138, 0.1)
+    ),
+    var(--bg-card);
   border-color: rgba(255, 123, 138, 0.5);
   background: linear-gradient(180deg, rgba(255, 123, 138, 0.1), var(--bg-card));
 }
@@ -3169,7 +3188,6 @@ a,
 .todo-item.is-completed {
   opacity: 0.72;
   padding: 12px 14px;
-  gap: 8px;
 }
 
 .todo-item__top {
@@ -3336,8 +3354,8 @@ a,
 }
 
 .badge--medium {
-  background: rgba(61, 214, 140, 0.16);
-  color: #9ef0c4;
+  background: #e1f2ed;
+  color: #047857;
 }
 
 .badge--high {
@@ -3360,7 +3378,7 @@ a,
 }
 
 :root[data-theme="light"] .badge--medium {
-  background: #d1fae5;
+  background: #e1f2ed;
   color: #047857;
 }
 
@@ -3390,8 +3408,39 @@ a,
 }
 
 .status-badge--done {
-  color: #9ef0c4;
-  background: rgba(61, 214, 140, 0.14);
+  color: #047857;
+  background: #e1f2ed;
+}
+
+.todo-item__subtask-progress {
+  height: 23px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 999px;
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.todo-item__subtask-progress .g-icon,
+.todo-subtask__child-progress .g-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.todo-item__subtask-progress:hover,
+.todo-item__subtask-progress:focus-visible {
+  outline: none;
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.12);
 }
 
 :root[data-theme="light"] .status-badge {
@@ -3407,7 +3456,7 @@ a,
 
 :root[data-theme="light"] .status-badge--done {
   color: #047857;
-  background: #d1fae5;
+  background: #e1f2ed;
 }
 
 .progress-bar {
@@ -3424,6 +3473,319 @@ a,
   border-radius: inherit;
   background: linear-gradient(90deg, #5eead4, #14b8a6);
   transition: width 0.4s linear;
+}
+
+.todo-subtasks {
+  margin: 0px 0 0 30px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.todo-subtasks__list,
+.todo-subtasks__children {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  list-style: none;
+}
+
+.todo-subtasks__list::before,
+.todo-subtasks__children::before {
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 18px;
+  bottom: 18px;
+  width: 0;
+  border-left: 2px dashed rgba(148, 163, 184, 0.34);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.todo-subtasks__list:not(:has(> .todo-subtask + .todo-subtask))::before,
+.todo-subtasks__children:not(:has(> .todo-subtask + .todo-subtask))::before {
+  display: none;
+}
+
+.todo-subtasks__children {
+  margin: 4px 0 0 28px;
+  padding: 0;
+}
+
+.todo-subtask {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.todo-subtask::before {
+  content: "";
+  position: absolute;
+  left: -22px;
+  top: 4px;
+  width: 6px;
+  height: 20px;
+  background: var(--todo-subtask-tree-mask);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.todo-subtask:last-child::after {
+  content: "";
+  position: absolute;
+  left: -22px;
+  top: calc(50% + 1px);
+  bottom: -6px;
+  width: 6px;
+  background: var(--todo-subtask-tree-mask);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.todo-subtask__row {
+  position: relative;
+  min-width: 0;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  border-radius: 7px;
+  transition: background 0.12s ease;
+}
+
+.todo-subtask__row::before {
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 50%;
+  width: 14px;
+  height: 8px;
+  border-left: 2px dashed rgba(148, 163, 184, 0.34);
+  border-bottom: 2px dashed rgba(148, 163, 184, 0.34);
+  border-bottom-left-radius: 7px;
+  transform: translateY(-8px);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.todo-subtask__row:hover,
+.todo-subtask__row:focus-within {
+  background: rgba(148, 163, 184, 0.055);
+}
+
+.todo-subtask__branch {
+  display: none;
+}
+
+.todo-subtask__check {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-width: 1px;
+  border-radius: 6px;
+}
+
+.todo-subtask__main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.todo-subtask__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 3px 4px;
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-subtask__title:hover,
+.todo-subtask__title:focus-visible {
+  outline: none;
+  color: var(--text);
+}
+
+.todo-subtask__title.is-completed {
+  color: var(--text-dim);
+  text-decoration: line-through;
+}
+
+.todo-subtask__badge,
+.todo-subtask__status {
+  height: 20px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.62rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.todo-subtask__elapsed {
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--primary-hover);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.todo-subtask__time-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.todo-subtask__time-label {
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-weight: 600;
+}
+
+.todo-subtask__child-progress {
+  height: 22px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 999px;
+  color: var(--text-dim);
+  background: rgba(148, 163, 184, 0.08);
+  font-size: 0.66rem;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.todo-subtask__child-progress:hover,
+.todo-subtask__child-progress:focus-visible {
+  outline: none;
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.13);
+}
+
+.todo-subtask__actions {
+  padding-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.12s ease;
+  white-space: nowrap;
+}
+
+.todo-subtask__row:hover .todo-subtask__actions,
+.todo-subtask__row:focus-within .todo-subtask__actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.todo-subtask__actions button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+
+.todo-subtask__actions button:hover,
+.todo-subtask__actions button:focus-visible {
+  outline: none;
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.todo-subtask__actions button.is-danger {
+  color: var(--danger);
+}
+
+.todo-subtask-form {
+  min-width: 0;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 5px;
+}
+
+.todo-subtask-form--level-1 {
+  margin-left: 20px;
+}
+
+.todo-subtask-form--level-2 {
+  margin-left: 40px;
+}
+
+.todo-subtask__row .todo-subtask-form {
+  grid-column: 2 / -1;
+  margin-left: 0;
+}
+
+.todo-subtask-form input {
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid rgba(110, 168, 255, 0.45);
+  border-radius: 7px;
+  outline: none;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 0.76rem;
+}
+
+.todo-subtask-form input:focus {
+  border-color: rgba(110, 168, 255, 0.7);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.todo-subtask-form button {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 7px;
+  color: var(--text-muted);
+  background: rgba(148, 163, 184, 0.08);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.todo-subtask-form button[type="submit"] {
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+}
+
+.todo-subtask-form button:hover:not(:disabled),
+.todo-subtask-form button:focus-visible:not(:disabled) {
+  outline: none;
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.todo-subtask-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .todo-item.is-overtime .progress-bar__fill {
@@ -3480,16 +3842,6 @@ a,
   color: var(--text-dim);
 }
 
-.todo-item__actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-height: 0;
-  margin-top: -4px;
-}
-
 .todo-item__top-actions {
   display: inline-flex;
   align-items: center;
@@ -3497,6 +3849,27 @@ a,
   margin-left: auto;
   flex-shrink: 0;
   align-self: flex-start;
+}
+
+.todo-item__timer-action {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+
+.todo-item__timer-action:hover:not(:disabled),
+.todo-item__timer-action:focus-visible {
+  outline: none;
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.todo-item__timer-action.is-danger {
+  color: var(--danger);
 }
 
 .btn-drag-handle {
@@ -4469,8 +4842,7 @@ body.is-reminder-window #root {
   }
 
   .todo-form__meta-row,
-  .todo-form__primary-row,
-  .todo-reminder-row {
+  .todo-form__primary-row {
     grid-template-columns: 1fr;
   }
 
@@ -4631,6 +5003,51 @@ body.is-reminder-window #root {
   .todo-form__header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .todo-subtasks {
+    margin-left: 26px;
+    padding-left: 0;
+  }
+
+  .todo-subtasks__children {
+    margin-left: 22px;
+    padding-left: 0;
+  }
+
+  .todo-subtask__row {
+    grid-template-columns: 18px minmax(0, 1fr) auto auto;
+    gap: 5px;
+  }
+
+  .todo-subtask__row::before {
+    left: -16px;
+    width: 11px;
+  }
+
+  .todo-subtasks__list::before,
+  .todo-subtasks__children::before {
+    left: -16px;
+  }
+
+  .todo-subtask::before {
+    left: -18px;
+  }
+
+  .todo-subtask:last-child::after {
+    left: -18px;
+  }
+
+  .todo-subtask__actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .todo-subtask-form,
+  .todo-subtask-form--level-1,
+  .todo-subtask-form--level-2 {
+    margin-left: 0;
+    grid-template-columns: minmax(0, 1fr) 42px 42px;
   }
 
   .todo-form__header-actions {

@@ -2,6 +2,7 @@ import type {
   RecurrenceEditScope,
   RecurrenceRule,
   Todo,
+  TodoSubtask,
 } from "../types";
 import type {
   ReminderActionPayload,
@@ -31,8 +32,336 @@ export type TodoDetailsUpdate = {
   recurrenceEditScope: RecurrenceEditScope;
 };
 
+export type SubtaskDetails = Pick<
+  TodoSubtask,
+  | "title"
+  | "urgency"
+  | "plannedSeconds"
+  | "countdownEnabled"
+  | "recordTimeEnabled"
+>;
+
 function createSeriesId(now = Date.now()): string {
   return `series-${now}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function createSubtaskId(now = Date.now()): string {
+  return `subtask-${now}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function settleSubtaskTiming(subtask: TodoSubtask, now: number): TodoSubtask {
+  if (!subtask.isTiming || subtask.timingStartedAt == null) return subtask;
+  const extra = Math.floor((now - subtask.timingStartedAt) / 1000);
+  return {
+    ...subtask,
+    isTiming: false,
+    timingStartedAt: null,
+    elapsedSeconds: subtask.elapsedSeconds + extra,
+  };
+}
+
+function startSubtaskTiming(subtask: TodoSubtask, now: number): TodoSubtask {
+  if (subtask.completed || subtask.isTiming || !subtask.recordTimeEnabled) {
+    return subtask;
+  }
+
+  return {
+    ...subtask,
+    isTiming: true,
+    timingStartedAt: now,
+  };
+}
+
+function toggleSubtaskCompletion(subtask: TodoSubtask, now: number): TodoSubtask {
+  if (subtask.completed) {
+    return {
+      ...subtask,
+      completed: false,
+      completedAt: null,
+      actualDurationSeconds: null,
+    };
+  }
+
+  const settled = settleSubtaskTiming(subtask, now);
+  return {
+    ...settled,
+    completed: true,
+    completedAt: now,
+    actualDurationSeconds:
+      settled.elapsedSeconds > 0
+        ? settled.elapsedSeconds
+        : settled.actualDurationSeconds,
+  };
+}
+
+function completeSubtask(subtask: TodoSubtask, now: number): TodoSubtask {
+  const settled = settleSubtaskTiming(subtask, now);
+  if (settled.completed) return settled;
+
+  return {
+    ...settled,
+    completed: true,
+    completedAt: now,
+    actualDurationSeconds:
+      settled.elapsedSeconds > 0
+        ? settled.elapsedSeconds
+        : settled.actualDurationSeconds,
+  };
+}
+
+function updateSubtasks(
+  subtasks: readonly TodoSubtask[] = [],
+  updater: (subtask: TodoSubtask, depth: 1 | 2) => TodoSubtask | null,
+  depth: 1 | 2 = 1,
+): TodoSubtask[] {
+  return subtasks
+    .map((subtask) => {
+      const updated = updater(subtask, depth);
+      if (updated == null) return null;
+      if (depth === 2) return updated;
+      return {
+        ...updated,
+        children: updateSubtasks(updated.children, updater, 2),
+      };
+    })
+    .filter((subtask): subtask is TodoSubtask => subtask != null);
+}
+
+export function addTodoSubtask(
+  todos: Todo[],
+  todoId: string,
+  parentSubtaskId: string | null,
+  details: SubtaskDetails,
+  now: number,
+): Todo[] {
+  const trimmedTitle = details.title.trim();
+  if (!trimmedTitle) return todos;
+
+  const subtask: TodoSubtask = {
+    id: createSubtaskId(now),
+    title: trimmedTitle,
+    urgency: details.urgency,
+    plannedSeconds: details.countdownEnabled
+      ? Math.max(60, details.plannedSeconds)
+      : 0,
+    countdownEnabled: details.countdownEnabled,
+    recordTimeEnabled: details.recordTimeEnabled,
+    completed: false,
+    isTiming: false,
+    timingStartedAt: null,
+    elapsedSeconds: 0,
+    actualDurationSeconds: null,
+    createdAt: now,
+    completedAt: null,
+    children: [],
+  };
+
+  return todos.map((todo) => {
+    if (todo.id !== todoId) return todo;
+    if (parentSubtaskId == null) {
+      return { ...todo, subtasks: [...(todo.subtasks ?? []), subtask] };
+    }
+
+    return {
+      ...todo,
+      subtasks: updateSubtasks(todo.subtasks, (current, depth) => {
+        if (current.id !== parentSubtaskId) return current;
+        if (depth === 2) return current;
+        return { ...current, children: [...current.children, subtask] };
+      }),
+    };
+  });
+}
+
+export function renameTodoSubtask(
+  todos: Todo[],
+  todoId: string,
+  subtaskId: string,
+  title: string,
+): Todo[] {
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) return todos;
+
+  return todos.map((todo) =>
+    todo.id === todoId
+      ? {
+          ...todo,
+          subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+            subtask.id === subtaskId
+              ? { ...subtask, title: trimmedTitle }
+              : subtask,
+          ),
+        }
+      : todo,
+  );
+}
+
+export function updateTodoSubtaskDetails(
+  todos: Todo[],
+  todoId: string,
+  subtaskId: string,
+  details: SubtaskDetails,
+): Todo[] {
+  const trimmedTitle = details.title.trim();
+  if (!trimmedTitle) return todos;
+
+  return todos.map((todo) =>
+    todo.id === todoId
+      ? {
+          ...todo,
+          subtasks: updateSubtasks(todo.subtasks, (subtask) => {
+            if (subtask.id !== subtaskId) return subtask;
+            const keepTimingState = details.recordTimeEnabled || !subtask.isTiming;
+            return {
+              ...subtask,
+              title: trimmedTitle,
+              urgency: details.urgency,
+              countdownEnabled: details.countdownEnabled,
+              plannedSeconds: details.countdownEnabled
+                ? Math.max(60, details.plannedSeconds)
+                : 0,
+              recordTimeEnabled: details.recordTimeEnabled,
+              isTiming: keepTimingState ? subtask.isTiming : false,
+              timingStartedAt: keepTimingState ? subtask.timingStartedAt : null,
+            };
+          }),
+        }
+      : todo,
+  );
+}
+
+export function syncTodoSubtaskElapsedFromParent(
+  todos: Todo[],
+  todoId: string,
+  subtaskId: string,
+  now: number,
+): Todo[] {
+  return todos.map((todo) => {
+    if (todo.id !== todoId || !todo.countdownEnabled || todo.plannedSeconds <= 0) {
+      return todo;
+    }
+
+    const parentElapsedSeconds =
+      todo.isTiming && todo.timingStartedAt != null
+        ? todo.elapsedSeconds + Math.floor((now - todo.timingStartedAt) / 1000)
+        : todo.elapsedSeconds;
+
+    return {
+      ...todo,
+      subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+        subtask.id === subtaskId
+          ? {
+              ...subtask,
+              elapsedSeconds: Math.max(0, parentElapsedSeconds),
+              timingStartedAt: subtask.isTiming ? now : subtask.timingStartedAt,
+            }
+          : subtask,
+      ),
+    };
+  });
+}
+
+export function toggleTodoSubtask(
+  todos: Todo[],
+  todoId: string,
+  subtaskId: string,
+  now: number,
+): Todo[] {
+  return todos.map((todo) =>
+    todo.id === todoId
+      ? {
+          ...todo,
+          subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+            subtask.id === subtaskId
+              ? toggleSubtaskCompletion(subtask, now)
+              : subtask,
+          ),
+        }
+      : todo,
+  );
+}
+
+export function startTodoSubtaskTiming(
+  todos: Todo[],
+  todoId: string,
+  subtaskId: string,
+  now: number,
+): Todo[] {
+  return todos.map((todo) =>
+    todo.id === todoId
+      ? {
+          ...todo,
+          subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+            subtask.id === subtaskId &&
+            !subtask.completed &&
+            !subtask.isTiming &&
+            subtask.recordTimeEnabled
+              ? startSubtaskTiming(subtask, now)
+              : subtask,
+          ),
+        }
+      : todo,
+  );
+}
+
+export function pauseTodoSubtaskTiming(
+  todos: Todo[],
+  todoId: string,
+  subtaskId: string,
+  now: number,
+): Todo[] {
+  return todos.map((todo) =>
+    todo.id === todoId
+      ? {
+          ...todo,
+          subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+            subtask.id === subtaskId ? settleSubtaskTiming(subtask, now) : subtask,
+          ),
+        }
+      : todo,
+  );
+}
+
+export function stopTodoSubtaskTiming(
+  todos: Todo[],
+  todoId: string,
+  subtaskId: string,
+  now: number,
+): Todo[] {
+  return todos.map((todo) =>
+    todo.id === todoId
+      ? {
+          ...todo,
+          subtasks: updateSubtasks(todo.subtasks, (subtask) => {
+            if (subtask.id !== subtaskId) return subtask;
+            const settled = settleSubtaskTiming(subtask, now);
+            return {
+              ...settled,
+              completed: true,
+              completedAt: now,
+              actualDurationSeconds: settled.elapsedSeconds,
+            };
+          }),
+        }
+      : todo,
+  );
+}
+
+export function removeTodoSubtask(
+  todos: Todo[],
+  todoId: string,
+  subtaskId: string,
+): Todo[] {
+  return todos.map((todo) =>
+    todo.id === todoId
+      ? {
+          ...todo,
+          subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+            subtask.id === subtaskId ? null : subtask,
+          ),
+        }
+      : todo,
+  );
 }
 
 export function updateTodoDetails(
@@ -175,6 +504,9 @@ export function stopTodoTimingWithRecurrence(
     actualDurationSeconds: total,
     completed: true,
     completedAt: now,
+    subtasks: updateSubtasks(current.subtasks, (subtask) =>
+      completeSubtask(subtask, now),
+    ),
   };
   const updatedTodos = todos.map((todo) =>
     todo.id === id ? completedTodo : todo,
@@ -196,7 +528,37 @@ export function startTodoTiming(
     ) {
       return todo;
     }
-    return { ...todo, isTiming: true, timingStartedAt: now };
+    return {
+      ...todo,
+      isTiming: true,
+      timingStartedAt: now,
+      subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+        startSubtaskTiming(subtask, now),
+      ),
+    };
+  });
+}
+
+export function pauseTodoTiming(
+  todos: Todo[],
+  id: string,
+  now: number,
+): Todo[] {
+  return todos.map((todo) => {
+    if (todo.id !== id || !todo.isTiming || todo.timingStartedAt == null) {
+      return todo;
+    }
+
+    const extra = Math.floor((now - todo.timingStartedAt) / 1000);
+    return {
+      ...todo,
+      isTiming: false,
+      timingStartedAt: null,
+      elapsedSeconds: todo.elapsedSeconds + extra,
+      subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+        settleSubtaskTiming(subtask, now),
+      ),
+    };
   });
 }
 
@@ -233,6 +595,9 @@ export function toggleTodoCompletion(todo: Todo, now: number): Todo {
     elapsedSeconds,
     actualDurationSeconds:
       elapsedSeconds > 0 ? elapsedSeconds : todo.actualDurationSeconds,
+    subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+      completeSubtask(subtask, now),
+    ),
   };
 }
 

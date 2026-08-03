@@ -9,7 +9,10 @@ import { GlobalSearch } from "./components/GlobalSearch";
 import { StatisticsCenter } from "./components/StatisticsCenter";
 import { DataActions } from "./components/DataActions";
 import { DateNavigator } from "./components/DateNavigator";
-import { TodoEditorForm } from "./components/TodoEditorForm";
+import {
+  createDefaultTodoDraft,
+  TodoEditorForm,
+} from "./components/TodoEditorForm";
 import type { TodoDraft } from "./components/TodoEditorForm";
 import { TodoForm } from "./components/TodoForm";
 import { TodoItem } from "./components/TodoItem";
@@ -28,6 +31,7 @@ import {
   IconDockTop,
   IconPencil,
   IconPlus,
+  IconRepeat,
   IconThemeMoon,
   IconThemeSun,
   IconTrash,
@@ -35,6 +39,7 @@ import {
 import type { StatisticsPeriod } from "./domain/statistics";
 import { useTodos } from "./hooks/useTodos";
 import { useTaskTemplates } from "./hooks/useTaskTemplates";
+import type { Todo, TodoSubtask } from "./types";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
 import {
   formatDateKey,
@@ -69,6 +74,58 @@ type TodoDragState = {
   longPressTimer: number;
 };
 
+type SubtaskEditorTarget = {
+  todoId: string;
+  parentSubtaskId: string | null;
+} & (
+  | { mode: "add" }
+  | { mode: "edit"; subtaskId: string }
+);
+
+type SubtaskDeleteTarget = {
+  todoId: string;
+  subtaskId: string;
+};
+
+type SubtaskSyncTarget = {
+  todoId: string;
+  subtaskId: string;
+};
+
+function findTodoSubtask(
+  subtasks: readonly TodoSubtask[] = [],
+  id: string,
+): TodoSubtask | null {
+  for (const subtask of subtasks) {
+    if (subtask.id === id) return subtask;
+    const child = findTodoSubtask(subtask.children, id);
+    if (child != null) return child;
+  }
+  return null;
+}
+
+function getSubtaskEditorDraft(
+  target: SubtaskEditorTarget | null,
+  todos: readonly Todo[],
+  selectedDate: string,
+): TodoDraft {
+  if (target?.mode !== "edit") return createDefaultTodoDraft(selectedDate);
+  const todo = todos.find((item) => item.id === target.todoId);
+  const subtask =
+    todo == null ? null : findTodoSubtask(todo.subtasks, target.subtaskId);
+  if (subtask == null) return createDefaultTodoDraft(selectedDate);
+
+  return {
+    ...createDefaultTodoDraft(selectedDate),
+    title: subtask.title,
+    urgency: subtask.urgency,
+    plannedSeconds:
+      subtask.plannedSeconds > 0 ? subtask.plannedSeconds : 25 * 60,
+    countdownEnabled: subtask.countdownEnabled,
+    recordTimeEnabled: subtask.recordTimeEnabled,
+  };
+}
+
 function clampMiniOpacity(value: number) {
   return Math.min(MINI_OPACITY_MAX, Math.max(MINI_OPACITY_MIN, value));
 }
@@ -89,6 +146,8 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(() => formatDateKey());
   const [todoFormOpen, setTodoFormOpen] = useState(false);
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
+  const [subtaskEditorTarget, setSubtaskEditorTarget] =
+    useState<SubtaskEditorTarget | null>(null);
   const [theme, setTheme] = useState(() => loadTheme());
   const [miniMode, setMiniMode] = useState(false);
   const [miniIndex, setMiniIndex] = useState(0);
@@ -104,6 +163,10 @@ function App() {
   const [pendingDeleteTodoId, setPendingDeleteTodoId] = useState<string | null>(
     null,
   );
+  const [pendingDeleteSubtask, setPendingDeleteSubtask] =
+    useState<SubtaskDeleteTarget | null>(null);
+  const [pendingSyncSubtask, setPendingSyncSubtask] =
+    useState<SubtaskSyncTarget | null>(null);
   const [hasBodyOverflow, setHasBodyOverflow] = useState(false);
   const appBodyRef = useRef<HTMLElement | null>(null);
   const confirmDeleteButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -122,6 +185,14 @@ function App() {
     reorderTodo,
     toggleComplete,
     updateTodo,
+    addSubtask,
+    updateSubtask,
+    syncSubtaskElapsedFromParent,
+    toggleSubtask,
+    removeSubtask,
+    startSubtaskTiming,
+    pauseSubtaskTiming,
+    stopSubtaskTiming,
     startTiming,
     pauseTiming,
     stopTiming,
@@ -192,7 +263,8 @@ function App() {
   const editingTodo = editingTodoId
     ? dayTodos.find((todo) => todo.id === editingTodoId) ?? null
     : null;
-  const showingEditor = todoFormOpen || editingTodo != null;
+  const showingEditor =
+    todoFormOpen || editingTodo != null || subtaskEditorTarget != null;
   const unfinishedTodos = dayTodos.filter((todo) => !todo.completed);
   const canEnterMiniMode = unfinishedTodos.length > 0;
   const activeMiniIndex =
@@ -203,6 +275,40 @@ function App() {
   const pendingDeleteTodo = pendingDeleteTodoId
     ? dayTodos.find((todo) => todo.id === pendingDeleteTodoId) ?? null
     : null;
+  const pendingDeleteSubtaskTodo = pendingDeleteSubtask
+    ? dayTodos.find((todo) => todo.id === pendingDeleteSubtask.todoId) ?? null
+    : null;
+  const pendingDeleteSubtaskItem =
+    pendingDeleteSubtaskTodo == null || pendingDeleteSubtask == null
+      ? null
+      : findTodoSubtask(
+          pendingDeleteSubtaskTodo.subtasks,
+          pendingDeleteSubtask.subtaskId,
+        );
+  const pendingDeleteTitle =
+    pendingDeleteSubtask != null ? "删除这个子待办？" : "删除这个待办？";
+  const pendingDeleteDescription =
+    pendingDeleteSubtask != null
+      ? pendingDeleteSubtaskItem
+        ? `「${pendingDeleteSubtaskItem.title}」将被移除，包含它的下级子待办。`
+        : "这个子待办将从列表中移除。"
+      : pendingDeleteTodo
+        ? `「${pendingDeleteTodo.title}」将从今天的列表中移除。`
+        : "这个待办将从列表中移除。";
+  const pendingSyncSubtaskTodo = pendingSyncSubtask
+    ? dayTodos.find((todo) => todo.id === pendingSyncSubtask.todoId) ?? null
+    : null;
+  const pendingSyncSubtaskItem =
+    pendingSyncSubtaskTodo == null || pendingSyncSubtask == null
+      ? null
+      : findTodoSubtask(
+          pendingSyncSubtaskTodo.subtasks,
+          pendingSyncSubtask.subtaskId,
+        );
+  const pendingSyncDescription =
+    pendingSyncSubtaskTodo != null && pendingSyncSubtaskItem != null
+      ? `「${pendingSyncSubtaskItem.title}」的已用时间将同步为父待办「${pendingSyncSubtaskTodo.title}」当前的已用时间。`
+      : "这个子待办的已用时间将同步为父待办当前的已用时间。";
 
   useEffect(() => {
     if (miniIndex !== activeMiniIndex) setMiniIndex(activeMiniIndex);
@@ -213,20 +319,36 @@ function App() {
   }, [canEnterMiniMode, miniMode]);
 
   useEffect(() => {
-    if (!pendingDeleteTodoId) return;
+    if (
+      !pendingDeleteTodoId &&
+      pendingDeleteSubtask == null &&
+      pendingSyncSubtask == null
+    ) {
+      return;
+    }
     window.requestAnimationFrame(() => confirmDeleteButtonRef.current?.focus());
-  }, [pendingDeleteTodoId]);
+  }, [pendingDeleteSubtask, pendingDeleteTodoId, pendingSyncSubtask]);
 
   useEffect(() => {
-    if (!pendingDeleteTodoId) return;
+    if (
+      !pendingDeleteTodoId &&
+      pendingDeleteSubtask == null &&
+      pendingSyncSubtask == null
+    ) {
+      return;
+    }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPendingDeleteTodoId(null);
+      if (event.key === "Escape") {
+        setPendingDeleteTodoId(null);
+        setPendingDeleteSubtask(null);
+        setPendingSyncSubtask(null);
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [pendingDeleteTodoId]);
+  }, [pendingDeleteSubtask, pendingDeleteTodoId, pendingSyncSubtask]);
 
   useEffect(
     () => () => {
@@ -276,6 +398,7 @@ function App() {
     setTodoFormOpen(open);
     if (open) {
       setEditingTodoId(null);
+      setSubtaskEditorTarget(null);
       setMainView("todos");
     }
   };
@@ -284,6 +407,29 @@ function App() {
     setMainView("todos");
     setEditingTodoId(id);
     setTodoFormOpen(false);
+    setSubtaskEditorTarget(null);
+  };
+
+  const handleStartAddSubtask = (
+    todoId: string,
+    parentSubtaskId: string | null,
+  ) => {
+    setMainView("todos");
+    setEditingTodoId(null);
+    setTodoFormOpen(false);
+    setSubtaskEditorTarget({ mode: "add", todoId, parentSubtaskId });
+  };
+
+  const handleStartEditSubtask = (todoId: string, subtaskId: string) => {
+    setMainView("todos");
+    setEditingTodoId(null);
+    setTodoFormOpen(false);
+    setSubtaskEditorTarget({
+      mode: "edit",
+      todoId,
+      parentSubtaskId: null,
+      subtaskId,
+    });
   };
 
   const handleEnterMiniMode = async () => {
@@ -291,6 +437,7 @@ function App() {
 
     setEditingTodoId(null);
     setTodoFormOpen(false);
+    setSubtaskEditorTarget(null);
     setMiniIndex(0);
     setMiniAutoHideEnabled(false);
     setMiniAutoHideRevealed(true);
@@ -342,12 +489,31 @@ function App() {
 
   const handleCancelDeleteTodo = () => {
     setPendingDeleteTodoId(null);
+    setPendingDeleteSubtask(null);
   };
 
   const handleConfirmDeleteTodo = () => {
-    if (!pendingDeleteTodoId) return;
-    removeTodo(pendingDeleteTodoId);
+    if (pendingDeleteSubtask != null) {
+      removeSubtask(pendingDeleteSubtask.todoId, pendingDeleteSubtask.subtaskId);
+      setPendingDeleteSubtask(null);
+      return;
+    }
+
+    if (pendingDeleteTodoId) removeTodo(pendingDeleteTodoId);
     setPendingDeleteTodoId(null);
+  };
+
+  const handleCancelSyncSubtask = () => {
+    setPendingSyncSubtask(null);
+  };
+
+  const handleConfirmSyncSubtask = () => {
+    if (pendingSyncSubtask == null) return;
+    syncSubtaskElapsedFromParent(
+      pendingSyncSubtask.todoId,
+      pendingSyncSubtask.subtaskId,
+    );
+    setPendingSyncSubtask(null);
   };
 
   const finishTodoDrag = () => {
@@ -493,7 +659,33 @@ function App() {
     setSelectedDate(draft.date);
   };
 
-  const deleteConfirmDialog = pendingDeleteTodoId ? (
+  const handleSubmitSubtask = (draft: TodoDraft) => {
+    if (subtaskEditorTarget == null) return;
+    const details = {
+      title: draft.title,
+      urgency: draft.urgency,
+      plannedSeconds: draft.plannedSeconds,
+      countdownEnabled: draft.countdownEnabled,
+      recordTimeEnabled: draft.recordTimeEnabled,
+    };
+    if (subtaskEditorTarget.mode === "edit") {
+      updateSubtask(
+        subtaskEditorTarget.todoId,
+        subtaskEditorTarget.subtaskId,
+        details,
+      );
+    } else {
+      addSubtask(
+        subtaskEditorTarget.todoId,
+        subtaskEditorTarget.parentSubtaskId,
+        details,
+      );
+    }
+    setSubtaskEditorTarget(null);
+  };
+
+  const deleteConfirmDialog =
+    pendingDeleteTodoId || pendingDeleteSubtask != null ? (
     <div
       className="confirm-overlay"
       role="presentation"
@@ -513,7 +705,7 @@ function App() {
         </div>
         <div className="confirm-dialog__content">
           <div className="confirm-dialog__header">
-            <h2 id="delete-confirm-title">删除这个待办？</h2>
+            <h2 id="delete-confirm-title">{pendingDeleteTitle}</h2>
             <button
               type="button"
               className="btn btn-ghost btn-icon-only confirm-dialog__close"
@@ -524,11 +716,7 @@ function App() {
               <IconClose size={16} />
             </button>
           </div>
-          <p id="delete-confirm-desc">
-            {pendingDeleteTodo
-              ? `「${pendingDeleteTodo.title}」将从今天的列表中移除。`
-              : "这个待办将从列表中移除。"}
-          </p>
+          <p id="delete-confirm-desc">{pendingDeleteDescription}</p>
           <div className="confirm-dialog__actions">
             <button
               type="button"
@@ -545,6 +733,61 @@ function App() {
             >
               <IconTrash size={14} />
               删除
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  ) : null;
+
+  const syncConfirmDialog = pendingSyncSubtask != null ? (
+    <div
+      className="confirm-overlay"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) handleCancelSyncSubtask();
+      }}
+    >
+      <section
+        className="confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="sync-confirm-title"
+        aria-describedby="sync-confirm-desc"
+      >
+        <div className="confirm-dialog__icon" aria-hidden>
+          <IconRepeat size={20} />
+        </div>
+        <div className="confirm-dialog__content">
+          <div className="confirm-dialog__header">
+            <h2 id="sync-confirm-title">同步父待办已用时间？</h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon-only confirm-dialog__close"
+              onClick={handleCancelSyncSubtask}
+              aria-label="取消同步"
+              title="取消同步"
+            >
+              <IconClose size={16} />
+            </button>
+          </div>
+          <p id="sync-confirm-desc">{pendingSyncDescription}</p>
+          <div className="confirm-dialog__actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleCancelSyncSubtask}
+            >
+              取消
+            </button>
+            <button
+              ref={confirmDeleteButtonRef}
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={handleConfirmSyncSubtask}
+            >
+              <IconRepeat size={14} />
+              同步
             </button>
           </div>
         </div>
@@ -583,6 +826,7 @@ function App() {
           onRestore={() => void handleExitMiniMode()}
         />
         {deleteConfirmDialog}
+        {syncConfirmDialog}
       </div>
     );
   }
@@ -766,6 +1010,35 @@ function App() {
                 appBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
               }}
             />
+          ) : subtaskEditorTarget ? (
+            <TodoEditorForm
+              key={`${subtaskEditorTarget.todoId}-${
+                subtaskEditorTarget.mode === "edit"
+                  ? subtaskEditorTarget.subtaskId
+                  : subtaskEditorTarget.parentSubtaskId ?? "root"
+              }`}
+              initialDraft={getSubtaskEditorDraft(
+                subtaskEditorTarget,
+                dayTodos,
+                selectedDate,
+              )}
+              title={subtaskEditorTarget.mode === "edit" ? "编辑子待办" : "新增子待办"}
+              titleIcon={
+                subtaskEditorTarget.mode === "edit" ? (
+                  <IconPencil size={18} />
+                ) : (
+                  <IconPlus size={18} />
+                )
+              }
+              submitLabel={
+                subtaskEditorTarget.mode === "edit" ? "保存修改" : "添加子待办"
+              }
+              className="todo-form card"
+              autoFocus
+              onSubmit={handleSubmitSubtask}
+              onCancel={() => setSubtaskEditorTarget(null)}
+              todoDateSummaries={todoDateSummaries}
+            />
           ) : editingTodo ? (
             <TodoEditorForm
               key={editingTodo.id}
@@ -845,6 +1118,32 @@ function App() {
                       onToggle={() => toggleComplete(todo.id)}
                       onRemove={() => handleRemoveTodo(todo.id)}
                       onEdit={() => handleStartEdit(todo.id)}
+                      onAddSubtask={(parentSubtaskId) =>
+                        handleStartAddSubtask(todo.id, parentSubtaskId)
+                      }
+                      onEditSubtask={(subtaskId) =>
+                        handleStartEditSubtask(todo.id, subtaskId)
+                      }
+                      onSyncSubtask={(subtaskId) => {
+                        setPendingDeleteTodoId(null);
+                        setPendingDeleteSubtask(null);
+                        setPendingSyncSubtask({ todoId: todo.id, subtaskId });
+                      }}
+                      onToggleSubtask={(subtaskId) =>
+                        toggleSubtask(todo.id, subtaskId)
+                      }
+                      onRemoveSubtask={(subtaskId) =>
+                        setPendingDeleteSubtask({ todoId: todo.id, subtaskId })
+                      }
+                      onStartSubtask={(subtaskId) =>
+                        startSubtaskTiming(todo.id, subtaskId)
+                      }
+                      onPauseSubtask={(subtaskId) =>
+                        pauseSubtaskTiming(todo.id, subtaskId)
+                      }
+                      onStopSubtask={(subtaskId) =>
+                        stopSubtaskTiming(todo.id, subtaskId)
+                      }
                       onDragHandlePointerDown={handleTodoDragHandlePointerDown(
                         todo.id,
                       )}
@@ -871,6 +1170,7 @@ function App() {
         )}
       </main>
       {deleteConfirmDialog}
+      {syncConfirmDialog}
     </div>
   );
 }

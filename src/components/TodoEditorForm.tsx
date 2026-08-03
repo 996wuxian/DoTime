@@ -94,6 +94,7 @@ const TIME_PICKER_POPOVER_WIDTH = 220;
 const TIME_PICKER_POPOVER_HEIGHT = 250;
 const TIME_PICKER_POPOVER_GAP = 8;
 const TIME_PICKER_VIEWPORT_PADDING = 8;
+type TaskMode = "normal" | "record" | "countdown";
 
 export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
   return {
@@ -137,6 +138,11 @@ export function TodoEditorForm({
   const reminderTimeValue =
     normalizeReminderTime(draft.reminderTime) ?? getDefaultReminderTime();
   const [selectedHour, selectedMinute] = reminderTimeValue.split(":");
+  const taskMode: TaskMode = draft.countdownEnabled
+    ? "countdown"
+    : draft.recordTimeEnabled
+      ? "record"
+      : "normal";
 
   const updateDraft = <K extends keyof TodoDraft>(
     key: K,
@@ -152,6 +158,18 @@ export function TodoEditorForm({
       reminderTime: enabled
         ? normalizeReminderTime(current.reminderTime) ?? getDefaultReminderTime()
         : current.reminderTime,
+    }));
+  };
+
+  const handleTaskModeChange = (mode: TaskMode) => {
+    setDraft((current) => ({
+      ...current,
+      countdownEnabled: mode === "countdown",
+      recordTimeEnabled: mode === "record" || mode === "countdown",
+      plannedSeconds:
+        mode === "countdown"
+          ? Math.max(60, current.plannedSeconds)
+          : current.plannedSeconds,
     }));
   };
 
@@ -371,6 +389,9 @@ export function TodoEditorForm({
     onSubmit({
       ...draft,
       title: trimmedTitle,
+      recordTimeEnabled: draft.countdownEnabled
+        ? true
+        : draft.recordTimeEnabled,
       reminderTime: draft.reminderEnabled
         ? normalizeReminderTime(draft.reminderTime)
         : null,
@@ -386,7 +407,9 @@ export function TodoEditorForm({
       countdownEnabled: template.countdownEnabled,
       reminderEnabled: template.reminderEnabled,
       reminderTime: template.reminderTime,
-      recordTimeEnabled: template.recordTimeEnabled,
+      recordTimeEnabled: template.countdownEnabled
+        ? true
+        : template.recordTimeEnabled,
       recurrence: template.recurrence
         ? {
             ...template.recurrence,
@@ -482,30 +505,102 @@ export function TodoEditorForm({
           </div>
         </div>
 
-        <div className="field field--timer">
+        <div className="field field--reminder" aria-label="提醒时间设置">
           <div className="field__label-row">
             <span className="field__label">
-              <IconClock size={14} />
-              倒计时
+              <IconBell size={14} />
+              提醒时间
             </span>
             <label className="switch-control">
               <input
                 type="checkbox"
-                aria-label={draft.countdownEnabled ? "关闭倒计时" : "开启倒计时"}
-                checked={draft.countdownEnabled}
+                aria-label={draft.reminderEnabled ? "关闭提醒" : "开启提醒"}
+                checked={draft.reminderEnabled}
                 onChange={(event) =>
-                  updateDraft("countdownEnabled", event.currentTarget.checked)
+                  handleReminderToggle(event.currentTarget.checked)
                 }
               />
               <span className="switch-control__track" aria-hidden />
             </label>
           </div>
-          <CountdownDial
-            value={draft.plannedSeconds}
-            disabled={!draft.countdownEnabled}
-            onChange={(seconds) => updateDraft("plannedSeconds", seconds)}
-          />
+          <div
+            ref={reminderTimeRef}
+            className={`todo-reminder-time ${
+              draft.reminderEnabled ? "" : "is-disabled"
+            }`}
+          >
+            <button
+              ref={reminderTimeButtonRef}
+              type="button"
+              className="todo-reminder-time__control"
+              disabled={!draft.reminderEnabled}
+              onClick={toggleReminderTimePicker}
+              aria-haspopup="listbox"
+              aria-expanded={timePickerOpen}
+            >
+              <IconClock size={14} />
+              <span className="todo-reminder-time__value">
+                {reminderTimeValue}
+              </span>
+            </button>
+          </div>
         </div>
+      </div>
+
+      <div className="todo-task-mode" role="radiogroup" aria-label="待办类型">
+        <label
+          className={`todo-task-mode__option ${
+            taskMode === "normal" ? "is-active" : ""
+          }`}
+        >
+          <input
+            type="radio"
+            name="taskMode"
+            checked={taskMode === "normal"}
+            onChange={() => handleTaskModeChange("normal")}
+          />
+          <span>普通待办</span>
+        </label>
+        <label
+          className={`todo-task-mode__option ${
+            taskMode === "record" ? "is-active" : ""
+          }`}
+        >
+          <input
+            type="radio"
+            name="taskMode"
+            checked={taskMode === "record"}
+            onChange={() => handleTaskModeChange("record")}
+          />
+          <IconClockHour4 size={14} />
+          <span>记录时间</span>
+        </label>
+        <label
+          className={`todo-task-mode__option ${
+            taskMode === "countdown" ? "is-active" : ""
+          }`}
+        >
+          <input
+            type="radio"
+            name="taskMode"
+            checked={taskMode === "countdown"}
+            onChange={() => handleTaskModeChange("countdown")}
+          />
+          <IconClock size={14} />
+          <span>倒计时</span>
+        </label>
+      </div>
+
+      <div
+        className={`field field--timer ${
+          draft.countdownEnabled ? "" : "is-hidden"
+        }`}
+      >
+        <CountdownDial
+          value={draft.plannedSeconds}
+          disabled={!draft.countdownEnabled}
+          onChange={(seconds) => updateDraft("plannedSeconds", seconds)}
+        />
       </div>
 
       <div
@@ -645,171 +740,100 @@ export function TodoEditorForm({
         )}
       </section>
 
-      <div className="todo-reminder-row">
-        <div className="field field--reminder" aria-label="提醒设置">
-          <div className="field__label-row">
-            <span className="field__label">
-              <IconBell size={14} />
-              提醒
-            </span>
-            <label className="switch-control">
-              <input
-                type="checkbox"
-                aria-label={draft.reminderEnabled ? "关闭提醒" : "开启提醒"}
-                checked={draft.reminderEnabled}
-                onChange={(event) =>
-                  handleReminderToggle(event.currentTarget.checked)
-                }
-              />
-              <span className="switch-control__track" aria-hidden />
-            </label>
-          </div>
-          <div
-            ref={reminderTimeRef}
-            className={`field todo-reminder-time ${
-              draft.reminderEnabled ? "" : "is-disabled"
-            }`}
-          >
-            <span className="field__label">提醒时间</span>
+      {timePickerOpen && (
+        <div
+          className="time-picker-popover"
+          role="dialog"
+          style={timePickerPosition ?? undefined}
+          onPointerDown={(event) => event.stopPropagation()}
+          onWheel={(event) => event.stopPropagation()}
+        >
+          <div className="time-picker-popover__column">
+            <span className="time-picker-popover__label">时</span>
             <button
-              ref={reminderTimeButtonRef}
               type="button"
-              className="todo-reminder-time__control"
-              disabled={!draft.reminderEnabled}
-              onClick={toggleReminderTimePicker}
-              aria-haspopup="listbox"
-              aria-expanded={timePickerOpen}
+              className="time-picker-popover__scroll-btn"
+              aria-label="向上滚动小时"
+              onClick={() => scrollTimePickerList(hourListRef.current, -1)}
             >
-              <IconClock size={14} />
-              <span className="todo-reminder-time__value">
-                {reminderTimeValue}
-              </span>
+              <IconChevronUp size={12} />
             </button>
-            {timePickerOpen && (
-              <div
-                className="time-picker-popover"
-                role="dialog"
-                style={timePickerPosition ?? undefined}
-                onPointerDown={(event) => event.stopPropagation()}
-                onWheel={(event) => event.stopPropagation()}
-              >
-                <div className="time-picker-popover__column">
-                  <span className="time-picker-popover__label">时</span>
-                  <button
-                    type="button"
-                    className="time-picker-popover__scroll-btn"
-                    aria-label="向上滚动小时"
-                    onClick={() => scrollTimePickerList(hourListRef.current, -1)}
-                  >
-                    <IconChevronUp size={12} />
-                  </button>
-                  <div
-                    ref={hourListRef}
-                    className="time-picker-popover__list"
-                    role="listbox"
-                    aria-label="选择小时"
-                    onWheelCapture={handleTimePickerListWheel}
-                    onWheel={handleTimePickerListWheel}
-                  >
-                    {HOURS.map((hour) => (
-                      <button
-                        key={hour}
-                        type="button"
-                        className={`time-picker-popover__option ${
-                          selectedHour === hour ? "is-active" : ""
-                        }`}
-                        role="option"
-                        aria-selected={selectedHour === hour}
-                        onClick={() => updateReminderTimePart("hour", hour)}
-                      >
-                        {hour}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    className="time-picker-popover__scroll-btn"
-                    aria-label="向下滚动小时"
-                    onClick={() => scrollTimePickerList(hourListRef.current, 1)}
-                  >
-                    <IconChevronDown size={12} />
-                  </button>
-                </div>
-                <div className="time-picker-popover__column">
-                  <span className="time-picker-popover__label">分</span>
-                  <button
-                    type="button"
-                    className="time-picker-popover__scroll-btn"
-                    aria-label="向上滚动分钟"
-                    onClick={() =>
-                      scrollTimePickerList(minuteListRef.current, -1)
-                    }
-                  >
-                    <IconChevronUp size={12} />
-                  </button>
-                  <div
-                    ref={minuteListRef}
-                    className="time-picker-popover__list"
-                    role="listbox"
-                    aria-label="选择分钟"
-                    onWheelCapture={handleTimePickerListWheel}
-                    onWheel={handleTimePickerListWheel}
-                  >
-                    {MINUTES.map((minute) => (
-                      <button
-                        key={minute}
-                        type="button"
-                        className={`time-picker-popover__option ${
-                          selectedMinute === minute ? "is-active" : ""
-                        }`}
-                        role="option"
-                        aria-selected={selectedMinute === minute}
-                        onClick={() =>
-                          updateReminderTimePart("minute", minute)
-                        }
-                      >
-                        {minute}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    className="time-picker-popover__scroll-btn"
-                    aria-label="向下滚动分钟"
-                    onClick={() =>
-                      scrollTimePickerList(minuteListRef.current, 1)
-                    }
-                  >
-                    <IconChevronDown size={12} />
-                  </button>
-                </div>
-              </div>
-            )}
+            <div
+              ref={hourListRef}
+              className="time-picker-popover__list"
+              role="listbox"
+              aria-label="选择小时"
+              onWheelCapture={handleTimePickerListWheel}
+              onWheel={handleTimePickerListWheel}
+            >
+              {HOURS.map((hour) => (
+                <button
+                  key={hour}
+                  type="button"
+                  className={`time-picker-popover__option ${
+                    selectedHour === hour ? "is-active" : ""
+                  }`}
+                  role="option"
+                  aria-selected={selectedHour === hour}
+                  onClick={() => updateReminderTimePart("hour", hour)}
+                >
+                  {hour}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="time-picker-popover__scroll-btn"
+              aria-label="向下滚动小时"
+              onClick={() => scrollTimePickerList(hourListRef.current, 1)}
+            >
+              <IconChevronDown size={12} />
+            </button>
+          </div>
+          <div className="time-picker-popover__column">
+            <span className="time-picker-popover__label">分</span>
+            <button
+              type="button"
+              className="time-picker-popover__scroll-btn"
+              aria-label="向上滚动分钟"
+              onClick={() => scrollTimePickerList(minuteListRef.current, -1)}
+            >
+              <IconChevronUp size={12} />
+            </button>
+            <div
+              ref={minuteListRef}
+              className="time-picker-popover__list"
+              role="listbox"
+              aria-label="选择分钟"
+              onWheelCapture={handleTimePickerListWheel}
+              onWheel={handleTimePickerListWheel}
+            >
+              {MINUTES.map((minute) => (
+                <button
+                  key={minute}
+                  type="button"
+                  className={`time-picker-popover__option ${
+                    selectedMinute === minute ? "is-active" : ""
+                  }`}
+                  role="option"
+                  aria-selected={selectedMinute === minute}
+                  onClick={() => updateReminderTimePart("minute", minute)}
+                >
+                  {minute}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="time-picker-popover__scroll-btn"
+              aria-label="向下滚动分钟"
+              onClick={() => scrollTimePickerList(minuteListRef.current, 1)}
+            >
+              <IconChevronDown size={12} />
+            </button>
           </div>
         </div>
-
-        <div className="field field--record-time" aria-label="记录时间设置">
-          <div className="field__label-row">
-            <span className="field__label">
-              <IconClockHour4 size={14} />
-              记录时间
-            </span>
-            <label className="switch-control">
-              <input
-                type="checkbox"
-                aria-label={
-                  draft.recordTimeEnabled ? "关闭记录时间" : "开启记录时间"
-                }
-                checked={draft.recordTimeEnabled}
-                onChange={(event) =>
-                  updateDraft("recordTimeEnabled", event.currentTarget.checked)
-                }
-              />
-              <span className="switch-control__track" aria-hidden />
-            </label>
-          </div>
-        </div>
-      </div>
+      )}
 
       <button
         type="submit"

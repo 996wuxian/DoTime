@@ -1,4 +1,9 @@
-import type { RecurrenceRule, RecurrenceTemplate, Todo } from "../types";
+import type {
+  RecurrenceRule,
+  RecurrenceTemplate,
+  Todo,
+  TodoSubtask,
+} from "../types";
 import { formatDateKey } from "../utils/time";
 import { parseDateKey } from "../utils/calendar";
 
@@ -85,6 +90,19 @@ function createOccurrenceId(now: number): string {
   return `${now}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function resetSubtasks(subtasks: readonly TodoSubtask[] = []): TodoSubtask[] {
+  return subtasks.map((subtask) => ({
+    ...subtask,
+    completed: false,
+    isTiming: false,
+    timingStartedAt: null,
+    elapsedSeconds: 0,
+    actualDurationSeconds: null,
+    completedAt: null,
+    children: resetSubtasks(subtask.children),
+  }));
+}
+
 export function createNextOccurrence(
   completedTodo: Todo,
   existingTodos: Todo[],
@@ -128,6 +146,7 @@ export function createNextOccurrence(
     actualDurationSeconds: null,
     createdAt: now,
     completedAt: null,
+    subtasks: resetSubtasks(completedTodo.subtasks),
   };
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Todo, TodoDateSummary, Urgency } from "../types";
+import type { Todo, TodoDateSummary, TodoSubtask, Urgency } from "../types";
 import type { RecurrenceRule } from "../types";
 import {
   APP_DATA_STORAGE_KEY,
@@ -14,10 +14,21 @@ import {
 import {
   applyReminderAction,
   applyReminderFired,
+  addTodoSubtask,
+  pauseTodoTiming,
+  pauseTodoSubtaskTiming,
+  removeTodoSubtask,
+  renameTodoSubtask,
+  startTodoSubtaskTiming,
   startTodoTiming,
+  stopTodoSubtaskTiming,
   stopTodoTimingWithRecurrence,
+  syncTodoSubtaskElapsedFromParent,
+  toggleTodoSubtask,
   toggleTodoCompletionWithRecurrence,
   updateTodoDetails,
+  updateTodoSubtaskDetails,
+  type SubtaskDetails,
   type TodoDetailsUpdate,
 } from "../domain/todoState";
 import {
@@ -89,6 +100,12 @@ function getPendingScheduledReminders(todos: Todo[]): ScheduledReminder[] {
 
 function createId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function hasTimingSubtask(todo: Todo): boolean {
+  const visit = (subtasks: readonly TodoSubtask[]): boolean =>
+    subtasks.some((subtask) => subtask.isTiming || visit(subtask.children));
+  return visit(todo.subtasks ?? []);
 }
 
 export function useTodos(selectedDate: string) {
@@ -170,7 +187,7 @@ export function useTodos(selectedDate: string) {
 
   // 计时中每秒刷新 UI
   useEffect(() => {
-    const hasTiming = todos.some((t) => t.isTiming);
+    const hasTiming = todos.some((t) => t.isTiming || hasTimingSubtask(t));
     if (!hasTiming) return;
     const id = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(id);
@@ -359,6 +376,7 @@ export function useTodos(selectedDate: string) {
               : `series-${now}-${Math.random().toString(36).slice(2, 9)}`,
           recurrence: normalizedRecurrence,
           recurrenceTemplate: null,
+          subtasks: [],
         };
         todo.recurrenceTemplate =
           normalizedRecurrence == null ? null : createRecurrenceTemplate(todo);
@@ -433,6 +451,70 @@ export function useTodos(selectedDate: string) {
     [],
   );
 
+  const addSubtask = useCallback(
+    (
+      todoId: string,
+      parentSubtaskId: string | null,
+      details: SubtaskDetails,
+    ) => {
+      const now = Date.now();
+      setTodos((prev) =>
+        addTodoSubtask(prev, todoId, parentSubtaskId, details, now),
+      );
+    },
+    [],
+  );
+
+  const renameSubtask = useCallback(
+    (todoId: string, subtaskId: string, title: string) => {
+      setTodos((prev) => renameTodoSubtask(prev, todoId, subtaskId, title));
+    },
+    [],
+  );
+
+  const updateSubtask = useCallback(
+    (todoId: string, subtaskId: string, details: SubtaskDetails) => {
+      setTodos((prev) =>
+        updateTodoSubtaskDetails(prev, todoId, subtaskId, details),
+      );
+    },
+    [],
+  );
+
+  const syncSubtaskElapsedFromParent = useCallback(
+    (todoId: string, subtaskId: string) => {
+      const now = Date.now();
+      setTodos((prev) =>
+        syncTodoSubtaskElapsedFromParent(prev, todoId, subtaskId, now),
+      );
+    },
+    [],
+  );
+
+  const toggleSubtask = useCallback((todoId: string, subtaskId: string) => {
+    const now = Date.now();
+    setTodos((prev) => toggleTodoSubtask(prev, todoId, subtaskId, now));
+  }, []);
+
+  const removeSubtask = useCallback((todoId: string, subtaskId: string) => {
+    setTodos((prev) => removeTodoSubtask(prev, todoId, subtaskId));
+  }, []);
+
+  const startSubtaskTiming = useCallback((todoId: string, subtaskId: string) => {
+    const now = Date.now();
+    setTodos((prev) => startTodoSubtaskTiming(prev, todoId, subtaskId, now));
+  }, []);
+
+  const pauseSubtaskTiming = useCallback((todoId: string, subtaskId: string) => {
+    const now = Date.now();
+    setTodos((prev) => pauseTodoSubtaskTiming(prev, todoId, subtaskId, now));
+  }, []);
+
+  const stopSubtaskTiming = useCallback((todoId: string, subtaskId: string) => {
+    const now = Date.now();
+    setTodos((prev) => stopTodoSubtaskTiming(prev, todoId, subtaskId, now));
+  }, []);
+
   const startTiming = useCallback((id: string) => {
     const now = Date.now();
     setTodos((prev) => startTodoTiming(prev, id, now));
@@ -440,18 +522,7 @@ export function useTodos(selectedDate: string) {
 
   const pauseTiming = useCallback((id: string) => {
     const now = Date.now();
-    setTodos((prev) =>
-      prev.map((t) => {
-        if (t.id !== id || !t.isTiming || !t.timingStartedAt) return t;
-        const extra = Math.floor((now - t.timingStartedAt) / 1000);
-        return {
-          ...t,
-          isTiming: false,
-          timingStartedAt: null,
-          elapsedSeconds: t.elapsedSeconds + extra,
-        };
-      }),
-    );
+    setTodos((prev) => pauseTodoTiming(prev, id, now));
   }, []);
 
   const stopTiming = useCallback((id: string) => {
@@ -521,6 +592,15 @@ export function useTodos(selectedDate: string) {
     reorderTodo,
     toggleComplete,
     updateTodo,
+    addSubtask,
+    renameSubtask,
+    updateSubtask,
+    syncSubtaskElapsedFromParent,
+    toggleSubtask,
+    removeSubtask,
+    startSubtaskTiming,
+    pauseSubtaskTiming,
+    stopSubtaskTiming,
     startTiming,
     pauseTiming,
     stopTiming,

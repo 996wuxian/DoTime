@@ -1,5 +1,5 @@
-import type { PointerEvent } from "react";
-import type { Todo } from "../types";
+import { useMemo, useState, type PointerEvent } from "react";
+import type { Todo, TodoSubtask } from "../types";
 import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
 import {
   formatClockTime,
@@ -12,11 +12,14 @@ import {
   IconCheck,
   IconClock,
   IconClockHour4,
+  IconChevronDown,
+  IconChevronRight,
   IconGripVertical,
   IconPencil,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
+  IconPlus,
   IconRepeat,
   IconTrash,
 } from "./icons";
@@ -34,7 +37,268 @@ interface TodoItemProps {
   onToggle: () => void;
   onRemove: () => void;
   onEdit: () => void;
+  onAddSubtask: (parentSubtaskId: string | null) => void;
+  onEditSubtask: (subtaskId: string) => void;
+  onSyncSubtask: (subtaskId: string) => void;
+  onToggleSubtask: (subtaskId: string) => void;
+  onRemoveSubtask: (subtaskId: string) => void;
+  onStartSubtask: (subtaskId: string) => void;
+  onPauseSubtask: (subtaskId: string) => void;
+  onStopSubtask: (subtaskId: string) => void;
   onDragHandlePointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
+}
+
+function getSubtaskStats(subtasks: readonly TodoSubtask[] = []) {
+  let total = 0;
+  let done = 0;
+  for (const subtask of subtasks) {
+    total += 1;
+    if (subtask.completed) done += 1;
+    for (const child of subtask.children) {
+      total += 1;
+      if (child.completed) done += 1;
+    }
+  }
+  return { total, done };
+}
+
+function getDirectSubtaskStats(subtasks: readonly TodoSubtask[] = []) {
+  return {
+    total: subtasks.length,
+    done: subtasks.filter((subtask) => subtask.completed).length,
+  };
+}
+
+function getSubtaskLiveElapsed(subtask: TodoSubtask): number {
+  if (subtask.isTiming && subtask.timingStartedAt != null) {
+    return (
+      subtask.elapsedSeconds +
+      Math.floor((Date.now() - subtask.timingStartedAt) / 1000)
+    );
+  }
+  return subtask.elapsedSeconds;
+}
+
+function SubtaskRow({
+  subtask,
+  depth,
+  countdownSyncEnabled,
+  collapsedIds,
+  onStartAdd,
+  onStartEdit,
+  onSync,
+  onToggleCollapse,
+  onToggle,
+  onRemove,
+  onStart,
+  onPause,
+  onStop,
+}: {
+  subtask: TodoSubtask;
+  depth: 1 | 2;
+  countdownSyncEnabled: boolean;
+  collapsedIds: ReadonlySet<string>;
+  onStartAdd: (parentId: string | null) => void;
+  onStartEdit: (id: string) => void;
+  onSync: (id: string) => void;
+  onToggleCollapse: (id: string) => void;
+  onToggle: (id: string) => void;
+  onRemove: (id: string) => void;
+  onStart: (id: string) => void;
+  onPause: (id: string) => void;
+  onStop: (id: string) => void;
+}) {
+  const childStats = getDirectSubtaskStats(subtask.children);
+  const childrenCollapsed = collapsedIds.has(subtask.id);
+  const statusLabel = subtask.completed
+    ? "已完成"
+    : subtask.isTiming
+      ? "进行中"
+      : "待开始";
+  const liveElapsed = getSubtaskLiveElapsed(subtask);
+  const countdownEnabled = subtask.countdownEnabled && subtask.plannedSeconds > 0;
+  const showRecordElapsed = liveElapsed > 0 || subtask.isTiming;
+
+  return (
+    <li className={`todo-subtask todo-subtask--level-${depth}`}>
+      <div className="todo-subtask__row">
+        <span className="todo-subtask__branch" aria-hidden />
+        <button
+          type="button"
+          className={`check-btn todo-subtask__check ${
+            subtask.completed ? "is-checked" : ""
+          }`}
+          onClick={() => onToggle(subtask.id)}
+          aria-label={subtask.completed ? "标记子待办未完成" : "标记子待办完成"}
+          title={subtask.completed ? "标记未完成" : "标记完成"}
+        >
+          {subtask.completed ? <IconCheck size={11} /> : null}
+        </button>
+
+        <>
+            <div className="todo-subtask__main">
+              <button
+                type="button"
+                className={`todo-subtask__title ${
+                  subtask.completed ? "is-completed" : ""
+                }`}
+                onClick={() => onToggle(subtask.id)}
+              >
+                {subtask.title}
+              </button>
+              <span className={`badge badge--${subtask.urgency} todo-subtask__badge`}>
+                {URGENCY_LABELS[subtask.urgency]}
+              </span>
+              <span
+                className={`status-badge status-badge--${
+                  subtask.completed
+                    ? "done"
+                    : subtask.isTiming
+                      ? "active"
+                      : "idle"
+                } todo-subtask__status`}
+              >
+                {statusLabel}
+              </span>
+              {depth === 1 && childStats.total > 0 && (
+                <button
+                  type="button"
+                  className="todo-subtask__child-progress"
+                  onClick={() => onToggleCollapse(subtask.id)}
+                  aria-expanded={!childrenCollapsed}
+                  title={childrenCollapsed ? "展开子待办" : "折叠子待办"}
+                >
+                  {childrenCollapsed ? (
+                    <IconChevronRight size={12} />
+                  ) : (
+                    <IconChevronDown size={12} />
+                  )}
+                  {childStats.done}/{childStats.total}
+                </button>
+              )}
+            </div>
+            <span className="todo-subtask__elapsed">
+              {countdownEnabled ? (
+                <>
+                  <span className="todo-subtask__time-item">
+                    <IconClock size={12} />
+                    <span className="todo-subtask__time-label">计划</span>
+                    {formatDuration(subtask.plannedSeconds)}
+                  </span>
+                  <span className="todo-subtask__time-item">
+                    <IconClockHour4 size={12} />
+                    <span className="todo-subtask__time-label">已用</span>
+                    {formatDuration(liveElapsed)}
+                  </span>
+                </>
+              ) : (
+                showRecordElapsed && (
+                  <>
+                    <IconClockHour4 size={12} />
+                    {formatDuration(liveElapsed)}
+                  </>
+                )
+              )}
+            </span>
+            <div className="todo-subtask__actions">
+              {depth === 1 && (
+                <button
+                  type="button"
+                  onClick={() => onStartAdd(subtask.id)}
+                  aria-label="添加下级子待办"
+                  title="添加下级"
+                >
+                  <IconPlus size={14} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onStartEdit(subtask.id)}
+                aria-label="编辑子待办"
+                title="编辑"
+              >
+                <IconPencil size={14} />
+              </button>
+              {countdownSyncEnabled && (
+                <button
+                  type="button"
+                  onClick={() => onSync(subtask.id)}
+                  aria-label="同步父待办已用时间"
+                  title="同步父待办已用时间"
+                >
+                  <IconRepeat size={14} />
+                </button>
+              )}
+              <button
+                type="button"
+                className="is-danger"
+                onClick={() => onRemove(subtask.id)}
+                aria-label="删除子待办"
+                title="删除"
+              >
+                <IconTrash size={14} />
+              </button>
+              {subtask.recordTimeEnabled && !subtask.completed && !subtask.isTiming && (
+                <button
+                  type="button"
+                  className="todo-subtask__timer-action"
+                  onClick={() => onStart(subtask.id)}
+                  aria-label="开始子待办计时"
+                  title="开始计时"
+                >
+                  <IconPlayerPlay size={14} />
+                </button>
+              )}
+              {subtask.isTiming && (
+                <>
+                  <button
+                    type="button"
+                    className="todo-subtask__timer-action"
+                    onClick={() => onPause(subtask.id)}
+                    aria-label="暂停子待办计时"
+                    title="暂停计时"
+                  >
+                    <IconPlayerPause size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="todo-subtask__timer-action is-danger"
+                    onClick={() => onStop(subtask.id)}
+                    aria-label="结束子待办计时"
+                    title="结束计时"
+                  >
+                    <IconPlayerStop size={14} />
+                  </button>
+                </>
+              )}
+            </div>
+        </>
+      </div>
+
+      {depth === 1 && subtask.children.length > 0 && !childrenCollapsed && (
+        <ol className="todo-subtasks__children">
+          {subtask.children.map((child) => (
+            <SubtaskRow
+              key={child.id}
+              subtask={child}
+              depth={2}
+              countdownSyncEnabled={countdownSyncEnabled}
+              collapsedIds={collapsedIds}
+              onStartAdd={onStartAdd}
+              onStartEdit={onStartEdit}
+              onSync={onSync}
+              onToggleCollapse={onToggleCollapse}
+              onToggle={onToggle}
+              onRemove={onRemove}
+              onStart={onStart}
+              onPause={onPause}
+              onStop={onStop}
+            />
+          ))}
+        </ol>
+      )}
+    </li>
+  );
 }
 
 export function TodoItem({
@@ -50,9 +314,25 @@ export function TodoItem({
   onToggle,
   onRemove,
   onEdit,
+  onAddSubtask,
+  onEditSubtask,
+  onSyncSubtask,
+  onToggleSubtask,
+  onRemoveSubtask,
+  onStartSubtask,
+  onPauseSubtask,
+  onStopSubtask,
   onDragHandlePointerDown,
 }: TodoItemProps) {
+  const [subtasksCollapsed, setSubtasksCollapsed] = useState(false);
+  const [collapsedSubtaskIds, setCollapsedSubtaskIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const countdownEnabled = todo.countdownEnabled;
+  const countdownSyncEnabled = countdownEnabled && todo.plannedSeconds > 0;
+  const subtasks = todo.subtasks ?? [];
+  const subtaskStats = useMemo(() => getSubtaskStats(subtasks), [subtasks]);
+  const showSubtasks = subtasks.length > 0;
   const statusLabel = todo.completed
     ? "已完成"
     : todo.isTiming
@@ -130,6 +410,22 @@ export function TodoItem({
             >
               {statusLabel}
             </span>
+            {subtaskStats.total > 0 && (
+              <button
+                type="button"
+                className="todo-item__subtask-progress"
+                onClick={() => setSubtasksCollapsed((collapsed) => !collapsed)}
+                aria-expanded={!subtasksCollapsed}
+                title={subtasksCollapsed ? "展开子待办" : "折叠子待办"}
+              >
+                {subtasksCollapsed ? (
+                  <IconChevronRight size={13} />
+                ) : (
+                  <IconChevronDown size={13} />
+                )}
+                {subtaskStats.done}/{subtaskStats.total}
+              </button>
+            )}
           </div>
 
           <div className="todo-item__meta">
@@ -183,6 +479,18 @@ export function TodoItem({
         <div className="todo-item__top-actions">
           <button
             type="button"
+            className="btn btn-ghost btn-icon-only"
+            onClick={() => {
+              setSubtasksCollapsed(false);
+              onAddSubtask(null);
+            }}
+            aria-label="添加子待办"
+            title="添加子待办"
+          >
+            <IconPlus size={16} />
+          </button>
+          <button
+            type="button"
             className="btn btn-ghost btn-icon-only btn-edit"
             onClick={onEdit}
             aria-label="编辑待办"
@@ -199,6 +507,39 @@ export function TodoItem({
           >
             <IconTrash size={16} />
           </button>
+          {todo.recordTimeEnabled && !todo.completed && !todo.isTiming && (
+            <button
+              type="button"
+              className="todo-item__timer-action"
+              onClick={onStart}
+              aria-label="开始待办计时"
+              title="开始计时"
+            >
+              <IconPlayerPlay size={14} />
+            </button>
+          )}
+          {todo.isTiming && (
+            <>
+              <button
+                type="button"
+                className="todo-item__timer-action"
+                onClick={onPause}
+                aria-label="暂停待办计时"
+                title="暂停计时"
+              >
+                <IconPlayerPause size={14} />
+              </button>
+              <button
+                type="button"
+                className="todo-item__timer-action is-danger"
+                onClick={onStop}
+                aria-label="结束待办计时"
+                title="结束计时"
+              >
+                <IconPlayerStop size={14} />
+              </button>
+            </>
+          )}
           <button
             type="button"
             className="btn btn-ghost btn-icon-only btn-drag-handle"
@@ -210,6 +551,46 @@ export function TodoItem({
           </button>
         </div>
       </div>
+
+      {showSubtasks && !subtasksCollapsed && (
+        <div className="todo-subtasks">
+          {subtasks.length > 0 && (
+            <ol className="todo-subtasks__list" aria-label="子待办">
+              {subtasks.map((subtask) => (
+                <SubtaskRow
+                  key={subtask.id}
+                  subtask={subtask}
+                  depth={1}
+                  countdownSyncEnabled={countdownSyncEnabled}
+                  collapsedIds={collapsedSubtaskIds}
+                  onStartAdd={(parentId) => {
+                    onAddSubtask(parentId);
+                  }}
+                  onStartEdit={onEditSubtask}
+                  onSync={onSyncSubtask}
+                  onToggleCollapse={(id) =>
+                    setCollapsedSubtaskIds((current) => {
+                      const next = new Set(current);
+                      if (next.has(id)) {
+                        next.delete(id);
+                      } else {
+                        next.add(id);
+                      }
+                      return next;
+                    })
+                  }
+                  onToggle={onToggleSubtask}
+                  onRemove={onRemoveSubtask}
+                  onStart={onStartSubtask}
+                  onPause={onPauseSubtask}
+                  onStop={onStopSubtask}
+                />
+              ))}
+            </ol>
+          )}
+
+        </div>
+      )}
 
       {countdownEnabled && todo.isTiming && (
         <div className="todo-item__timer">
@@ -229,40 +610,6 @@ export function TodoItem({
         </div>
       )}
 
-      {todo.recordTimeEnabled && (!todo.completed || todo.isTiming) && (
-        <div className="todo-item__actions">
-          {!todo.completed && !todo.isTiming && (
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={onStart}
-            >
-              <IconPlayerPlay size={14} />
-              开始计时
-            </button>
-          )}
-          {todo.isTiming && (
-            <>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={onPause}
-              >
-                <IconPlayerPause size={14} />
-                暂停计时
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                onClick={onStop}
-              >
-                <IconPlayerStop size={14} />
-                结束计时
-              </button>
-            </>
-          )}
-        </div>
-      )}
     </article>
   );
 }

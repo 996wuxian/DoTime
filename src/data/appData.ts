@@ -2,6 +2,7 @@ import type {
   RecurrenceRule,
   RecurrenceTemplate,
   Todo,
+  TodoSubtask,
   Urgency,
 } from "../types";
 import {
@@ -214,6 +215,7 @@ function parseTodo(value: unknown): Todo | null {
         : null,
     recurrence,
     recurrenceTemplate,
+    subtasks: parseTodoSubtasks(value.subtasks),
   };
 }
 
@@ -245,6 +247,59 @@ function parseRecurrenceTemplate(
         ? template.recordTimeEnabled
         : true,
   };
+}
+
+function parseTodoSubtask(value: unknown, depth: number): TodoSubtask | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== "string" || value.id.length === 0) return null;
+  if (typeof value.title !== "string" || value.title.trim().length === 0) {
+    return null;
+  }
+
+  const children =
+    depth < 2 && Array.isArray(value.children)
+      ? value.children
+          .map((child) => parseTodoSubtask(child, depth + 1))
+          .filter((child): child is TodoSubtask => child != null)
+      : [];
+
+  return {
+    id: value.id,
+    title: value.title.trim(),
+    urgency: isUrgency(value.urgency) ? value.urgency : "medium",
+    plannedSeconds: isFiniteNumber(value.plannedSeconds)
+      ? Math.max(0, value.plannedSeconds)
+      : 0,
+    countdownEnabled:
+      typeof value.countdownEnabled === "boolean"
+        ? value.countdownEnabled
+        : false,
+    recordTimeEnabled:
+      typeof value.recordTimeEnabled === "boolean"
+        ? value.recordTimeEnabled
+        : false,
+    completed: Boolean(value.completed),
+    isTiming: Boolean(value.isTiming),
+    timingStartedAt: isFiniteNumber(value.timingStartedAt)
+      ? value.timingStartedAt
+      : null,
+    elapsedSeconds: isFiniteNumber(value.elapsedSeconds)
+      ? Math.max(0, value.elapsedSeconds)
+      : 0,
+    actualDurationSeconds: isFiniteNumber(value.actualDurationSeconds)
+      ? Math.max(0, value.actualDurationSeconds)
+      : null,
+    createdAt: isFiniteNumber(value.createdAt) ? value.createdAt : Date.now(),
+    completedAt: isFiniteNumber(value.completedAt) ? value.completedAt : null,
+    children,
+  };
+}
+
+function parseTodoSubtasks(value: unknown): TodoSubtask[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => parseTodoSubtask(item, 1))
+    .filter((item): item is TodoSubtask => item != null);
 }
 
 function parseTodos(value: unknown): Todo[] | null {
@@ -429,6 +484,23 @@ function formatTodoTextBlock(todo: Todo, index: number): string {
   }
   if (todo.completedAt != null) {
     lines.push(`完成时间：${formatTimestamp(todo.completedAt)}`);
+  }
+  if (todo.subtasks != null && todo.subtasks.length > 0) {
+    lines.push("子待办：");
+    for (const subtask of todo.subtasks) {
+      lines.push(
+        `  ${subtask.completed ? "[x]" : "[ ]"} ${subtask.title}（${
+          URGENCY_LABELS[subtask.urgency]
+        }）`,
+      );
+      for (const child of subtask.children) {
+        lines.push(
+          `    ${child.completed ? "[x]" : "[ ]"} ${child.title}（${
+            URGENCY_LABELS[child.urgency]
+          }）`,
+        );
+      }
+    }
   }
 
   return lines.join(TEXT_LINE_BREAK);

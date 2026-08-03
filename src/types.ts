@@ -38,6 +38,23 @@ export interface TaskTemplate {
   updatedAt: number;
 }
 
+export interface TodoSubtask {
+  id: string;
+  title: string;
+  urgency: Urgency;
+  plannedSeconds: number;
+  countdownEnabled: boolean;
+  recordTimeEnabled: boolean;
+  completed: boolean;
+  isTiming: boolean;
+  timingStartedAt: number | null;
+  elapsedSeconds: number;
+  actualDurationSeconds: number | null;
+  createdAt: number;
+  completedAt: number | null;
+  children: TodoSubtask[];
+}
+
 export interface Todo {
   id: string;
   title: string;
@@ -76,6 +93,8 @@ export interface Todo {
   recurrenceSeriesId: string | null;
   recurrence: RecurrenceRule | null;
   recurrenceTemplate: RecurrenceTemplate | null;
+  /** 最多两级子待办，组成主待办下方的第 2、3 层 */
+  subtasks?: TodoSubtask[];
 }
 
 export interface TodoDateSummary {
