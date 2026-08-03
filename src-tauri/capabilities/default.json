@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main", "reminder"],
+  "windows": ["main", "reminder", "clipboard"],
   "permissions": [
     "core:default",
     "core:event:default",

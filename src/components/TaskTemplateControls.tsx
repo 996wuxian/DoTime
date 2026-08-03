@@ -15,29 +15,37 @@ interface TaskTemplateControlsProps {
   templates: readonly TaskTemplate[];
   draft: TodoDraft;
   notice: string | null;
+  compact?: boolean;
   onApply: (template: TaskTemplate) => void;
   onSave: (name: string, includeRecurrence: boolean) => TaskTemplate | null;
   onManage: () => void;
 }
 
-function formatTemplateSummary(template: TaskTemplate): string {
-  const parts = [URGENCY_LABELS[template.urgency]];
-  if (template.countdownEnabled) {
-    parts.push(formatDurationHuman(template.plannedSeconds));
-  }
-  if (template.reminderEnabled && template.reminderTime) {
-    parts.push(`提醒 ${template.reminderTime}`);
-  }
-  if (template.recurrence) {
-    parts.push(RECURRENCE_LABELS[template.recurrence.frequency]);
-  }
-  return parts.join(" · ");
+function getTemplateDetails(template: TaskTemplate) {
+  return [
+    { label: "紧急", value: URGENCY_LABELS[template.urgency] },
+    template.countdownEnabled
+      ? { label: "计时", value: formatDurationHuman(template.plannedSeconds) }
+      : { label: "计时", value: "关闭" },
+    template.reminderEnabled && template.reminderTime
+      ? { label: "提醒", value: template.reminderTime }
+      : { label: "提醒", value: "关闭" },
+    { label: "记录", value: template.recordTimeEnabled ? "开启" : "关闭" },
+    template.recurrence
+      ? { label: "重复", value: RECURRENCE_LABELS[template.recurrence.frequency] }
+      : null,
+  ].filter((detail): detail is { label: string; value: string } => detail != null);
+}
+
+function shouldShowTemplateTitle(template: TaskTemplate) {
+  return template.title.trim() !== template.name.trim();
 }
 
 export function TaskTemplateControls({
   templates,
   draft,
   notice,
+  compact = false,
   onApply,
   onSave,
   onManage,
@@ -95,11 +103,16 @@ export function TaskTemplateControls({
   };
 
   return (
-    <div ref={containerRef} className="task-template-controls">
+    <div
+      ref={containerRef}
+      className={`task-template-controls ${
+        compact ? "task-template-controls--compact" : ""
+      }`}
+    >
       <div className="task-template-controls__row">
         <span className="task-template-controls__label">
           <IconBookmark size={14} />
-          任务模板
+          模板选择：
         </span>
         <div className="task-template-select">
           <button
@@ -131,9 +144,23 @@ export function TaskTemplateControls({
                     onApply(template);
                   }}
                 >
-                  <strong>{template.name}</strong>
-                  <span>{template.title}</span>
-                  <small>{formatTemplateSummary(template)}</small>
+                  <span className="task-template-select__item-main">
+                    <strong>{template.name}</strong>
+                    {shouldShowTemplateTitle(template) && (
+                      <span className="task-template-select__task">
+                        <b>任务</b>
+                        <span>{template.title}</span>
+                      </span>
+                    )}
+                  </span>
+                  <span className="task-template-select__details">
+                    {getTemplateDetails(template).map((detail) => (
+                      <small key={detail.label}>
+                        <b>{detail.label}</b>
+                        <span>{detail.value}</span>
+                      </small>
+                    ))}
+                  </span>
                 </button>
               ))}
             </div>

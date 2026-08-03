@@ -20,13 +20,10 @@ export function CountdownDial({
   maxSeconds = 4 * 3600,
   disabled = false,
   onChange,
-  size = 160,
 }: CountdownDialProps) {
   const ratio = clamp((value - minSeconds) / (maxSeconds - minSeconds), 0, 1);
-  const width = Math.max(260, Math.round(size * 2));
   const style = {
     "--countdown-ratio": `${disabled ? 0 : ratio * 100}%`,
-    "--countdown-width": `${width}px`,
   } as CSSProperties;
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -38,9 +35,9 @@ export function CountdownDial({
     <div className={`countdown-dial ${disabled ? "is-disabled" : ""}`} style={style}>
       <div className="countdown-dial__meta">
         <span className="countdown-dial__label">计划时长</span>
-        <span className="countdown-dial__value">
-          {disabled ? "未设置" : formatDuration(value)}
-        </span>
+        {!disabled && (
+          <span className="countdown-dial__value">{formatDuration(value)}</span>
+        )}
       </div>
       <input
         type="range"
@@ -51,7 +48,7 @@ export function CountdownDial({
         value={value}
         disabled={disabled}
         aria-label="计划时长"
-        aria-valuetext={disabled ? "未设置" : formatDuration(value)}
+        aria-valuetext={disabled ? "未启用倒计时" : formatDuration(value)}
         onChange={handleChange}
       />
     </div>

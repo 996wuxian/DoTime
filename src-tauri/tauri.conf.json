@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "doTime",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "identifier": "com.alxian.dotime",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -37,11 +37,25 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "shadow": true
+      },
+      {
+        "label": "clipboard",
+        "title": "doTime 剪贴板",
+        "url": "index.html?view=clipboard",
+        "width": 508,
+        "height": 620,
+        "minWidth": 508,
+        "minHeight": 420,
+        "resizable": true,
+        "decorations": false,
+        "transparent": false,
+        "visible": false,
+        "shadow": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'",
-      "devCsp": "default-src 'self' http://localhost:1422; connect-src ipc: http://ipc.localhost http://localhost:1422 ws://localhost:1422 ws://localhost:1423; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; object-src 'none'; base-uri 'none'; frame-src 'none'"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data: blob: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'",
+      "devCsp": "default-src 'self' http://localhost:1422; connect-src ipc: http://ipc.localhost http://localhost:1422 ws://localhost:1422 ws://localhost:1423; img-src 'self' data: blob: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; object-src 'none'; base-uri 'none'; frame-src 'none'"
     }
   },
   "bundle": {

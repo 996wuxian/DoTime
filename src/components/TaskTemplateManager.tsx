@@ -19,15 +19,23 @@ interface TaskTemplateManagerProps {
   onClose: () => void;
 }
 
-function formatTemplateMeta(template: TaskTemplate): string {
-  const parts = [URGENCY_LABELS[template.urgency]];
-  if (template.countdownEnabled) parts.push("倒计时");
-  if (template.reminderEnabled) parts.push(`提醒 ${template.reminderTime}`);
-  if (template.recordTimeEnabled) parts.push("记录耗时");
+function getTemplateTags(template: TaskTemplate): string[] {
+  const parts = [`紧急 ${URGENCY_LABELS[template.urgency]}`];
+  parts.push(template.countdownEnabled ? "计时开启" : "计时关闭");
+  parts.push(
+    template.reminderEnabled && template.reminderTime
+      ? `提醒 ${template.reminderTime}`
+      : "提醒关闭",
+  );
+  parts.push(template.recordTimeEnabled ? "记录开启" : "记录关闭");
   if (template.recurrence) {
-    parts.push(RECURRENCE_LABELS[template.recurrence.frequency]);
+    parts.push(`重复 ${RECURRENCE_LABELS[template.recurrence.frequency]}`);
   }
-  return parts.join(" · ");
+  return parts;
+}
+
+function shouldShowTemplateTask(template: TaskTemplate): boolean {
+  return template.title.trim() !== template.name.trim();
 }
 
 export function TaskTemplateManager({
@@ -119,8 +127,14 @@ export function TaskTemplateManager({
                     ) : (
                       <strong>{template.name}</strong>
                     )}
-                    <span>{template.title}</span>
-                    <small>{formatTemplateMeta(template)}</small>
+                    {shouldShowTemplateTask(template) && (
+                      <span className="task-template-manager__task">{template.title}</span>
+                    )}
+                    <span className="task-template-manager__tags" aria-label="模板设置">
+                      {getTemplateTags(template).map((tag) => (
+                        <small key={tag}>{tag}</small>
+                      ))}
+                    </span>
                   </div>
 
                   {pendingDeleteId === template.id ? (

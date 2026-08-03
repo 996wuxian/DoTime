@@ -19,8 +19,10 @@ import {
   IconChevronRight as TbChevronRight,
   IconChevronUp as TbChevronUp,
   IconCircleCheck as TbCircleCheck,
+  IconClipboardText as TbClipboardText,
   IconClock as TbClock,
   IconClockHour4 as TbClockHour4,
+  IconCode as TbCode,
   IconDatabaseExport as TbDatabaseExport,
   IconDownload as TbDownload,
   IconDeviceFloppy as TbDeviceFloppy,
@@ -28,6 +30,7 @@ import {
   IconFilter as TbFilter,
   IconFlame as TbFlame,
   IconGripVertical as TbGripVertical,
+  IconPhoto as TbPhoto,
   IconListCheck as TbListCheck,
   IconMinus as TbMinus,
   IconMoon as TbMoon,
@@ -115,13 +118,16 @@ export const IconClock = wrap(TbClock);
 export const IconClockHour4 = wrap(TbClockHour4);
 export const IconListCheck = wrap(TbListCheck);
 export const IconCircleCheck = wrap(TbCircleCheck);
+export const IconClipboardText = wrap(TbClipboardText);
 export const IconCalendarEvent = wrap(TbCalendarEvent);
+export const IconCode = wrap(TbCode);
 export const IconChartBar = wrap(TbChartBar);
 export const IconFlag = wrap(TbFlag);
 export const IconFilter = wrap(TbFilter);
 export const IconFlame = wrap(TbFlame);
 export const IconPencil = wrap(TbPencil);
 export const IconGripVertical = wrap(TbGripVertical);
+export const IconPhoto = wrap(TbPhoto);
 export const IconThemeSun = wrap(TbSun);
 export const IconThemeMoon = wrap(TbMoon);
 export const IconDockBottom = wrap(TbArrowBarToDown);

@@ -88,7 +88,6 @@ export function TodoForm({
     <>
       <TodoEditorForm
         initialDraft={createDefaultTodoDraft(selectedDate)}
-        status="idle"
         title="新建待办"
         titleIcon={<IconPlus size={18} />}
         submitLabel="添加待办"

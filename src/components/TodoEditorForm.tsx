@@ -34,8 +34,6 @@ import {
   IconRepeat,
 } from "./icons";
 
-export type TodoStatus = "idle" | "active" | "done";
-
 export interface TodoDraft {
   title: string;
   date: string;
@@ -51,7 +49,6 @@ export interface TodoDraft {
 
 interface TodoEditorFormProps {
   initialDraft: TodoDraft;
-  status: TodoStatus;
   title: string;
   titleIcon: ReactNode;
   submitLabel: string;
@@ -98,12 +95,6 @@ const TIME_PICKER_POPOVER_HEIGHT = 250;
 const TIME_PICKER_POPOVER_GAP = 8;
 const TIME_PICKER_VIEWPORT_PADDING = 8;
 
-const STATUS_LABELS: Record<TodoStatus, string> = {
-  idle: "待开始",
-  active: "进行中",
-  done: "已完成",
-};
-
 export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
   return {
     title: "",
@@ -113,7 +104,7 @@ export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
     countdownEnabled: false,
     reminderEnabled: false,
     reminderTime: getDefaultReminderTime(),
-    recordTimeEnabled: true,
+    recordTimeEnabled: false,
     recurrence: null,
     recurrenceEditScope: "series",
   };
@@ -121,7 +112,6 @@ export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
 
 export function TodoEditorForm({
   initialDraft,
-  status,
   title,
   titleIcon,
   submitLabel,
@@ -415,28 +405,30 @@ export function TodoEditorForm({
           {titleIcon}
           {title}
         </h2>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={onCancel}
-        >
-          <IconClose size={16} />
-          取消
-        </button>
+        <div className="todo-form__header-actions">
+          {templates && onSaveTemplate && onManageTemplates && (
+            <TaskTemplateControls
+              compact
+              templates={templates}
+              draft={draft}
+              notice={templateNotice}
+              onApply={applyTemplate}
+              onSave={(name, includeRecurrence) =>
+                onSaveTemplate(draft, name, includeRecurrence)
+              }
+              onManage={onManageTemplates}
+            />
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={onCancel}
+          >
+            <IconClose size={16} />
+            取消
+          </button>
+        </div>
       </div>
-
-      {templates && onSaveTemplate && onManageTemplates && (
-        <TaskTemplateControls
-          templates={templates}
-          draft={draft}
-          notice={templateNotice}
-          onApply={applyTemplate}
-          onSave={(name, includeRecurrence) =>
-            onSaveTemplate(draft, name, includeRecurrence)
-          }
-          onManage={onManageTemplates}
-        />
-      )}
 
       <div className="todo-form__primary-row">
         <label className="field">
@@ -499,15 +491,13 @@ export function TodoEditorForm({
             <label className="switch-control">
               <input
                 type="checkbox"
+                aria-label={draft.countdownEnabled ? "关闭倒计时" : "开启倒计时"}
                 checked={draft.countdownEnabled}
                 onChange={(event) =>
                   updateDraft("countdownEnabled", event.currentTarget.checked)
                 }
               />
               <span className="switch-control__track" aria-hidden />
-              <span className="switch-control__text">
-                {draft.countdownEnabled ? "已开启" : "关闭"}
-              </span>
             </label>
           </div>
           <CountdownDial
@@ -548,15 +538,13 @@ export function TodoEditorForm({
           <label className="switch-control">
             <input
               type="checkbox"
+              aria-label={draft.recurrence == null ? "开启重复任务" : "关闭重复任务"}
               checked={draft.recurrence != null}
               onChange={(event) =>
                 handleRecurrenceToggle(event.currentTarget.checked)
               }
             />
             <span className="switch-control__track" aria-hidden />
-            <span className="switch-control__text">
-              {draft.recurrence == null ? "关闭" : "已开启"}
-            </span>
           </label>
         </div>
 
@@ -667,15 +655,13 @@ export function TodoEditorForm({
             <label className="switch-control">
               <input
                 type="checkbox"
+                aria-label={draft.reminderEnabled ? "关闭提醒" : "开启提醒"}
                 checked={draft.reminderEnabled}
                 onChange={(event) =>
                   handleReminderToggle(event.currentTarget.checked)
                 }
               />
               <span className="switch-control__track" aria-hidden />
-              <span className="switch-control__text">
-                {draft.reminderEnabled ? "已开启" : "关闭"}
-              </span>
             </label>
           </div>
           <div
@@ -811,33 +797,17 @@ export function TodoEditorForm({
             <label className="switch-control">
               <input
                 type="checkbox"
+                aria-label={
+                  draft.recordTimeEnabled ? "关闭记录时间" : "开启记录时间"
+                }
                 checked={draft.recordTimeEnabled}
                 onChange={(event) =>
                   updateDraft("recordTimeEnabled", event.currentTarget.checked)
                 }
               />
               <span className="switch-control__track" aria-hidden />
-              <span className="switch-control__text">
-                {draft.recordTimeEnabled ? "已开启" : "关闭"}
-              </span>
             </label>
           </div>
-        </div>
-      </div>
-
-      <div className="todo-status-panel" aria-label="待办完成情况">
-        <span className="todo-status-panel__label">待办完成情况</span>
-        <div className="todo-status-panel__chips">
-          {(Object.keys(STATUS_LABELS) as TodoStatus[]).map((state) => (
-            <span
-              key={state}
-              className={`todo-status-chip ${
-                status === state ? "is-active" : ""
-              }`}
-            >
-              {STATUS_LABELS[state]}
-            </span>
-          ))}
         </div>
       </div>
 

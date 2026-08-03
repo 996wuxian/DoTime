@@ -10,7 +10,7 @@ import { StatisticsCenter } from "./components/StatisticsCenter";
 import { DataActions } from "./components/DataActions";
 import { DateNavigator } from "./components/DateNavigator";
 import { TodoEditorForm } from "./components/TodoEditorForm";
-import type { TodoDraft, TodoStatus } from "./components/TodoEditorForm";
+import type { TodoDraft } from "./components/TodoEditorForm";
 import { TodoForm } from "./components/TodoForm";
 import { TodoItem } from "./components/TodoItem";
 import {
@@ -21,6 +21,7 @@ import {
   IconChevronUp,
   IconChartBar,
   IconCircleCheck,
+  IconClipboardText,
   IconClockHour4,
   IconClose,
   IconListCheck,
@@ -77,6 +78,13 @@ function loadMiniOpacity() {
   return Number.isFinite(stored) ? clampMiniOpacity(stored) : 1;
 }
 
+async function showClipboardWindow() {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("show_clipboard_window").catch((error) => {
+    console.error("failed to show clipboard window", error);
+  });
+}
+
 function App() {
   const [selectedDate, setSelectedDate] = useState(() => formatDateKey());
   const [todoFormOpen, setTodoFormOpen] = useState(false);
@@ -96,6 +104,7 @@ function App() {
   const [pendingDeleteTodoId, setPendingDeleteTodoId] = useState<string | null>(
     null,
   );
+  const [hasBodyOverflow, setHasBodyOverflow] = useState(false);
   const appBodyRef = useRef<HTMLElement | null>(null);
   const confirmDeleteButtonRef = useRef<HTMLButtonElement | null>(null);
   const todoItemRefs = useRef(new Map<string, HTMLElement>());
@@ -239,6 +248,29 @@ function App() {
   useEffect(() => {
     dayTodoIdsRef.current = dayTodos.map((todo) => todo.id);
   }, [dayTodos]);
+
+  useEffect(() => {
+    const appBody = appBodyRef.current;
+    if (!appBody) return;
+
+    const updateBodyOverflow = () => {
+      setHasBodyOverflow(appBody.scrollHeight > appBody.clientHeight + 1);
+    };
+
+    updateBodyOverflow();
+
+    const resizeObserver = new ResizeObserver(updateBodyOverflow);
+    resizeObserver.observe(appBody);
+    if (appBody.firstElementChild) {
+      resizeObserver.observe(appBody.firstElementChild);
+    }
+
+    window.addEventListener("resize", updateBodyOverflow);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateBodyOverflow);
+    };
+  }, [dayTodos.length, mainView, showingEditor]);
 
   const handleOpenNewTodo = (open: boolean) => {
     setTodoFormOpen(open);
@@ -461,13 +493,6 @@ function App() {
     setSelectedDate(draft.date);
   };
 
-  const getTodoStatus = (): TodoStatus => {
-    if (!editingTodo) return "idle";
-    if (editingTodo.completed) return "done";
-    if (editingTodo.isTiming) return "active";
-    return "idle";
-  };
-
   const deleteConfirmDialog = pendingDeleteTodoId ? (
     <div
       className="confirm-overlay"
@@ -595,6 +620,15 @@ function App() {
         />
 
         <div className="titlebar-actions">
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon-only clipboard-window-toggle"
+            onClick={() => void showClipboardWindow()}
+            aria-label="打开剪贴板窗口"
+            title="剪贴板"
+          >
+            <IconClipboardText size={17} />
+          </button>
           <section className="stats-row" aria-label="日期统计">
             <div className="stat-card" title="待办">
               <span className="stat-card__icon">
@@ -750,7 +784,6 @@ function App() {
                 recurrence: editingTodo.recurrence,
                 recurrenceEditScope: "series",
               }}
-              status={getTodoStatus()}
               title="编辑待办"
               titleIcon={<IconPencil size={18} />}
               submitLabel="保存修改"
@@ -822,7 +855,10 @@ function App() {
             </>
           )}
         </div>
-        {mainView === "todos" && !showingEditor && dayTodos.length > 0 && (
+        {mainView === "todos" &&
+          !showingEditor &&
+          dayTodos.length > 0 &&
+          hasBodyOverflow && (
           <button
             type="button"
             className="btn btn-ghost btn-icon-only todo-scroll-top"
