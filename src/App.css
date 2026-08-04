@@ -1302,6 +1302,127 @@ a,
   background: var(--statistics-done);
 }
 
+.statistics-heatmap {
+  min-width: 0;
+  margin-bottom: 18px;
+}
+
+.statistics-heatmap__header {
+  min-height: 34px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.statistics-heatmap__header h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  letter-spacing: 0;
+}
+
+.statistics-heatmap__header span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 0.68rem;
+}
+
+.statistics-heatmap__scroller {
+  min-width: 0;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+  scrollbar-width: thin;
+}
+
+.statistics-heatmap__months {
+  --heatmap-weeks: 53;
+  min-width: calc(var(--heatmap-weeks) * 15px);
+  display: grid;
+  grid-template-columns: repeat(var(--heatmap-weeks), 11px);
+  gap: 4px;
+  margin: 0 0 5px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.statistics-heatmap__months span {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.statistics-heatmap__grid {
+  --heatmap-weeks: 53;
+  min-width: calc(var(--heatmap-weeks) * 15px);
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 11px);
+  grid-template-columns: repeat(var(--heatmap-weeks), 11px);
+  gap: 4px;
+}
+
+.statistics-heatmap__cell {
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  border-radius: 3px;
+  background: rgba(148, 163, 184, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.045);
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.statistics-heatmap__cell:hover,
+.statistics-heatmap__cell:focus-visible {
+  outline: none;
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 0 0 1px rgba(191, 219, 254, 0.36),
+    0 0 0 3px rgba(56, 189, 248, 0.16);
+}
+
+.statistics-heatmap__cell.is-empty {
+  visibility: hidden;
+}
+
+.statistics-heatmap__cell.is-level-1 {
+  background: #1f3546;
+}
+
+.statistics-heatmap__cell.is-level-2 {
+  background: #2b5675;
+}
+
+.statistics-heatmap__cell.is-level-3 {
+  background: #3c82b4;
+}
+
+.statistics-heatmap__cell.is-level-4 {
+  background: #7cc8ff;
+}
+
+:root[data-theme="light"] .statistics-heatmap__cell {
+  background: rgba(148, 163, 184, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.08);
+}
+
+:root[data-theme="light"] .statistics-heatmap__cell.is-level-1 {
+  background: #cfe7f7;
+}
+
+:root[data-theme="light"] .statistics-heatmap__cell.is-level-2 {
+  background: #93c5e8;
+}
+
+:root[data-theme="light"] .statistics-heatmap__cell.is-level-3 {
+  background: #4f9ed2;
+}
+
+:root[data-theme="light"] .statistics-heatmap__cell.is-level-4 {
+  background: #1f6fa8;
+}
+
 .statistics-chart {
   --day-count: 7;
   min-width: 0;
