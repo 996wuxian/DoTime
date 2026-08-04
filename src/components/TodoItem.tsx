@@ -37,6 +37,7 @@ interface TodoItemProps {
   onToggle: () => void;
   onRemove: () => void;
   onEdit: () => void;
+  onReset: () => void;
   onAddSubtask: (parentSubtaskId: string | null) => void;
   onEditSubtask: (subtaskId: string) => void;
   onSyncSubtask: (subtaskId: string) => void;
@@ -341,6 +342,7 @@ export function TodoItem({
   onToggle,
   onRemove,
   onEdit,
+  onReset,
   onAddSubtask,
   onEditSubtask,
   onSyncSubtask,
@@ -559,15 +561,6 @@ export function TodoItem({
             )}
           </div>
 
-          {countdownEnabled &&
-            (todo.isTiming || (!todo.completed && liveElapsed > 0)) && (
-              <div className="progress-bar" aria-hidden>
-                <div
-                  className="progress-bar__fill"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            )}
         </div>
 
         <div className="todo-item__top-actions">
@@ -601,6 +594,17 @@ export function TodoItem({
           >
             <IconTrash size={16} />
           </button>
+          {timeTrackingEnabled && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon-only"
+              onClick={onReset}
+              aria-label="重置倒计时和计时"
+              title="重置倒计时和计时"
+            >
+              <IconRepeat size={16} />
+            </button>
+          )}
           {todo.recordTimeEnabled && !todo.completed && !todo.isTiming && (
             <button
               type="button"
@@ -644,6 +648,16 @@ export function TodoItem({
             <IconGripVertical size={16} />
           </button>
         </div>
+
+        {countdownEnabled &&
+          (todo.isTiming || (!todo.completed && liveElapsed > 0)) && (
+            <div className="progress-bar todo-item__progress" aria-hidden>
+              <div
+                className="progress-bar__fill"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
       </div>
 
       {showSubtasks && !subtasksCollapsed && (

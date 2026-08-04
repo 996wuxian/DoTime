@@ -3470,6 +3470,11 @@ a,
   margin-top: 4px;
 }
 
+.todo-item__progress {
+  grid-column: 2 / -1;
+  margin-top: -4px;
+}
+
 .progress-bar__fill {
   height: 100%;
   border-radius: inherit;
@@ -3520,10 +3525,11 @@ a,
 }
 
 .todo-item.has-countdown .todo-subtasks__list::before {
-  top: -25px;
+  top: -31px;
 }
 
-.todo-item.has-countdown:not(.is-completed) .todo-subtasks__list::before {
+.todo-item.has-countdown.is-timing:not(.is-completed)
+  .todo-subtasks__list::before {
   top: -37px;
 }
 
@@ -3559,18 +3565,6 @@ a,
   top: 4px;
   width: 6px;
   height: 20px;
-  background: var(--todo-subtask-tree-mask);
-  pointer-events: none;
-  z-index: 1;
-}
-
-.todo-subtask:last-child::after {
-  content: "";
-  position: absolute;
-  left: -22px;
-  top: calc(50% + 1px);
-  bottom: -6px;
-  width: 6px;
   background: var(--todo-subtask-tree-mask);
   pointer-events: none;
   z-index: 1;
@@ -5070,10 +5064,6 @@ body.is-reminder-window #root {
   }
 
   .todo-subtask::before {
-    left: -18px;
-  }
-
-  .todo-subtask:last-child::after {
     left: -18px;
   }
 

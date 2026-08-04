@@ -686,6 +686,36 @@ export function pauseTodoTiming(
   });
 }
 
+function resetTodoSubtaskTimingState(subtask: TodoSubtask): TodoSubtask {
+  return {
+    ...subtask,
+    completed: false,
+    completedAt: null,
+    isTiming: false,
+    timingStartedAt: null,
+    elapsedSeconds: 0,
+    actualDurationSeconds: null,
+    children: subtask.children.map(resetTodoSubtaskTimingState),
+  };
+}
+
+function resetTodoTimingState(todo: Todo): Todo {
+  return {
+    ...todo,
+    completed: false,
+    completedAt: null,
+    isTiming: false,
+    timingStartedAt: null,
+    elapsedSeconds: 0,
+    actualDurationSeconds: null,
+    subtasks: (todo.subtasks ?? []).map(resetTodoSubtaskTimingState),
+  };
+}
+
+export function resetTodoTiming(todos: Todo[], id: string): Todo[] {
+  return todos.map((todo) => (todo.id === id ? resetTodoTimingState(todo) : todo));
+}
+
 export function toggleTodoCompletion(todo: Todo, now: number): Todo {
   if (todo.completed) {
     const elapsedSeconds = Math.max(

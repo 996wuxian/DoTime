@@ -164,6 +164,9 @@ function App() {
   const [pendingDeleteTodoId, setPendingDeleteTodoId] = useState<string | null>(
     null,
   );
+  const [pendingResetTodoId, setPendingResetTodoId] = useState<string | null>(
+    null,
+  );
   const [pendingClearAll, setPendingClearAll] = useState(false);
   const [pendingDeleteSubtask, setPendingDeleteSubtask] =
     useState<SubtaskDeleteTarget | null>(null);
@@ -200,6 +203,7 @@ function App() {
     startTiming,
     pauseTiming,
     stopTiming,
+    resetTiming,
     getLiveElapsed,
     getCountdownRemaining,
     exportTodosData,
@@ -279,6 +283,9 @@ function App() {
   const pendingDeleteTodo = pendingDeleteTodoId
     ? dayTodos.find((todo) => todo.id === pendingDeleteTodoId) ?? null
     : null;
+  const pendingResetTodo = pendingResetTodoId
+    ? dayTodos.find((todo) => todo.id === pendingResetTodoId) ?? null
+    : null;
   const pendingDeleteSubtaskTodo = pendingDeleteSubtask
     ? dayTodos.find((todo) => todo.id === pendingDeleteSubtask.todoId) ?? null
     : null;
@@ -313,6 +320,9 @@ function App() {
     pendingSyncSubtaskTodo != null && pendingSyncSubtaskItem != null
       ? `「${pendingSyncSubtaskItem.title}」的已用时间将同步为父待办「${pendingSyncSubtaskTodo.title}」当前的已用时间。`
       : "这个子待办的已用时间将同步为父待办当前的已用时间。";
+  const pendingResetDescription = pendingResetTodo
+    ? `将清空「${pendingResetTodo.title}」当前的倒计时和已用时间，并停止正在进行的计时。`
+    : "将清空这个待办当前的倒计时和已用时间，并停止正在进行的计时。";
 
   useEffect(() => {
     if (miniIndex !== activeMiniIndex) setMiniIndex(activeMiniIndex);
@@ -325,6 +335,7 @@ function App() {
   useEffect(() => {
     if (
       !pendingDeleteTodoId &&
+      !pendingResetTodoId &&
       !pendingClearAll &&
       pendingDeleteSubtask == null &&
       pendingSyncSubtask == null
@@ -332,11 +343,18 @@ function App() {
       return;
     }
     window.requestAnimationFrame(() => confirmDeleteButtonRef.current?.focus());
-  }, [pendingClearAll, pendingDeleteSubtask, pendingDeleteTodoId, pendingSyncSubtask]);
+  }, [
+    pendingClearAll,
+    pendingDeleteSubtask,
+    pendingDeleteTodoId,
+    pendingResetTodoId,
+    pendingSyncSubtask,
+  ]);
 
   useEffect(() => {
     if (
       !pendingDeleteTodoId &&
+      !pendingResetTodoId &&
       !pendingClearAll &&
       pendingDeleteSubtask == null &&
       pendingSyncSubtask == null
@@ -347,6 +365,7 @@ function App() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setPendingDeleteTodoId(null);
+        setPendingResetTodoId(null);
         setPendingClearAll(false);
         setPendingDeleteSubtask(null);
         setPendingSyncSubtask(null);
@@ -355,7 +374,13 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [pendingClearAll, pendingDeleteSubtask, pendingDeleteTodoId, pendingSyncSubtask]);
+  }, [
+    pendingClearAll,
+    pendingDeleteSubtask,
+    pendingDeleteTodoId,
+    pendingResetTodoId,
+    pendingSyncSubtask,
+  ]);
 
   useEffect(
     () => () => {
@@ -513,6 +538,10 @@ function App() {
     setPendingDeleteSubtask(null);
   };
 
+  const handleCancelResetTodo = () => {
+    setPendingResetTodoId(null);
+  };
+
   const handleConfirmDeleteTodo = () => {
     if (pendingDeleteSubtask != null) {
       removeSubtask(pendingDeleteSubtask.todoId, pendingDeleteSubtask.subtaskId);
@@ -522,6 +551,12 @@ function App() {
 
     if (pendingDeleteTodoId) removeTodo(pendingDeleteTodoId);
     setPendingDeleteTodoId(null);
+  };
+
+  const handleConfirmResetTodo = () => {
+    if (pendingResetTodoId == null) return;
+    resetTiming(pendingResetTodoId);
+    setPendingResetTodoId(null);
   };
 
   const handleCancelSyncSubtask = () => {
@@ -761,6 +796,61 @@ function App() {
     </div>
   ) : null;
 
+  const resetConfirmDialog = pendingResetTodoId != null ? (
+    <div
+      className="confirm-overlay"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) handleCancelResetTodo();
+      }}
+    >
+      <section
+        className="confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="reset-confirm-title"
+        aria-describedby="reset-confirm-desc"
+      >
+        <div className="confirm-dialog__icon" aria-hidden>
+          <IconRepeat size={20} />
+        </div>
+        <div className="confirm-dialog__content">
+          <div className="confirm-dialog__header">
+            <h2 id="reset-confirm-title">重置倒计时和计时？</h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon-only confirm-dialog__close"
+              onClick={handleCancelResetTodo}
+              aria-label="取消重置"
+              title="取消重置"
+            >
+              <IconClose size={16} />
+            </button>
+          </div>
+          <p id="reset-confirm-desc">{pendingResetDescription}</p>
+          <div className="confirm-dialog__actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleCancelResetTodo}
+            >
+              取消
+            </button>
+            <button
+              ref={confirmDeleteButtonRef}
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={handleConfirmResetTodo}
+            >
+              <IconRepeat size={14} />
+              重置
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  ) : null;
+
   const clearAllConfirmDialog = pendingClearAll ? (
     <div
       className="confirm-overlay"
@@ -905,6 +995,7 @@ function App() {
           onRestore={() => void handleExitMiniMode()}
         />
         {deleteConfirmDialog}
+        {resetConfirmDialog}
         {clearAllConfirmDialog}
         {syncConfirmDialog}
       </div>
@@ -1212,6 +1303,11 @@ function App() {
                       onToggle={() => toggleComplete(todo.id)}
                       onRemove={() => handleRemoveTodo(todo.id)}
                       onEdit={() => handleStartEdit(todo.id)}
+                      onReset={() => {
+                        setPendingDeleteTodoId(null);
+                        setPendingDeleteSubtask(null);
+                        setPendingResetTodoId(todo.id);
+                      }}
                       onAddSubtask={(parentSubtaskId) =>
                         handleStartAddSubtask(todo.id, parentSubtaskId)
                       }
@@ -1267,6 +1363,7 @@ function App() {
         )}
       </main>
       {deleteConfirmDialog}
+      {resetConfirmDialog}
       {clearAllConfirmDialog}
       {syncConfirmDialog}
     </div>

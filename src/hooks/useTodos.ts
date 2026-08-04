@@ -20,6 +20,7 @@ import {
   removeTodoSubtask,
   renameTodoSubtask,
   reorderTodoSubtask,
+  resetTodoTiming,
   startTodoSubtaskTiming,
   startTodoTiming,
   stopTodoSubtaskTiming,
@@ -550,6 +551,10 @@ export function useTodos(selectedDate: string) {
     setTodos((prev) => stopTodoTimingWithRecurrence(prev, id, now));
   }, []);
 
+  const resetTiming = useCallback((id: string) => {
+    setTodos((prev) => resetTodoTiming(prev, id));
+  }, []);
+
   /** 获取实时已用秒数（含进行中片段） */
   const getLiveElapsed = useCallback(
     (todo: Todo): number => {
@@ -626,6 +631,7 @@ export function useTodos(selectedDate: string) {
     startTiming,
     pauseTiming,
     stopTiming,
+    resetTiming,
     getLiveElapsed,
     getCountdownRemaining,
     exportTodosData,
