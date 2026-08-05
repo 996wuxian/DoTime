@@ -43,12 +43,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $ErrorActionPreference = "Continue"
           gh release view "${{ steps.version.outputs.tag }}" --repo "$env:GITHUB_REPOSITORY" *> $null
-          if ($LASTEXITCODE -eq 0) {
+          $releaseExists = $LASTEXITCODE -eq 0
+          $global:LASTEXITCODE = 0
+
+          if ($releaseExists) {
             "exists=true" >> $env:GITHUB_OUTPUT
             Write-Host "Release ${{ steps.version.outputs.tag }} already exists. Skip publishing."
           } else {
             "exists=false" >> $env:GITHUB_OUTPUT
+            Write-Host "Release ${{ steps.version.outputs.tag }} does not exist. Continue publishing."
           }
 
       - name: Setup Node.js
