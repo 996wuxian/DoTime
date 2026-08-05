@@ -5,7 +5,9 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { MiniTodoBar } from "./components/MiniTodoBar";
+import { DailyReview } from "./components/DailyReview";
 import { GlobalSearch } from "./components/GlobalSearch";
+import { PlanOverview, type PlanPeriod } from "./components/PlanOverview";
 import { StatisticsCenter } from "./components/StatisticsCenter";
 import { DataActions } from "./components/DataActions";
 import { DateNavigator } from "./components/DateNavigator";
@@ -23,6 +25,7 @@ import {
 import {
   IconChevronUp,
   IconBookmark,
+  IconCalendarEvent,
   IconChartBar,
   IconCircleCheck,
   IconClipboardText,
@@ -97,6 +100,8 @@ type SubtaskSyncTarget = {
   todoId: string;
   subtaskId: string;
 };
+
+type BatchConfirmAction = "delete";
 
 function findTodoSubtask(
   subtasks: readonly TodoSubtask[] = [],
@@ -254,10 +259,21 @@ function App() {
   const [miniAutoHideEnabled, setMiniAutoHideEnabled] = useState(false);
   const [miniAutoHideRevealed, setMiniAutoHideRevealed] = useState(true);
   const [miniOpacity, setMiniOpacity] = useState(() => loadMiniOpacity());
-  const [mainView, setMainView] = useState<"todos" | "statistics">("todos");
+  const [mainView, setMainView] = useState<
+    "todos" | "plan" | "statistics" | "review"
+  >("todos");
+  const [planPeriod, setPlanPeriod] = useState<PlanPeriod>("week");
   const [statisticsPeriod, setStatisticsPeriod] =
     useState<StatisticsPeriod>("week");
   const [favoritesOpen, setFavoritesOpen] = useState(false);
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchMenuOpen, setBatchMenuOpen] = useState(false);
+  const [batchMoveDate, setBatchMoveDate] = useState(selectedDate);
+  const [selectedTodoIds, setSelectedTodoIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [pendingBatchAction, setPendingBatchAction] =
+    useState<BatchConfirmAction | null>(null);
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(
     null,
   );
@@ -295,6 +311,10 @@ function App() {
     updateComment,
     toggleFavorite,
     clearFavorites,
+    completeTodos,
+    moveTodos,
+    removeSelectedTodos,
+    clearSelectedFavorites,
     addSubtask,
     updateSubtask,
     syncSubtaskElapsedFromParent,
@@ -407,6 +427,10 @@ function App() {
         a.sortOrder - b.sortOrder ||
         b.createdAt - a.createdAt,
     );
+  const selectedCount = selectedTodoIds.size;
+  const selectedFavoriteCount = dayTodos.filter(
+    (todo) => selectedTodoIds.has(todo.id) && todo.favorite,
+  ).length;
   const pendingDeleteTodo = pendingDeleteTodoId
     ? dayTodos.find((todo) => todo.id === pendingDeleteTodoId) ?? null
     : null;
@@ -450,6 +474,10 @@ function App() {
   const pendingResetDescription = pendingResetTodo
     ? `将清空「${pendingResetTodo.title}」当前的倒计时和已用时间，并停止正在进行的计时。`
     : "将清空这个待办当前的倒计时和已用时间，并停止正在进行的计时。";
+  const batchDeleteDescription =
+    selectedCount > 0
+      ? `将删除已选择的 ${selectedCount} 个待办（包含子待办和计时记录），此操作不可撤销。`
+      : "请先选择要删除的待办。";
 
   useEffect(() => {
     if (miniIndex !== activeMiniIndex) setMiniIndex(activeMiniIndex);
@@ -465,7 +493,8 @@ function App() {
       !pendingResetTodoId &&
       !pendingClearAll &&
       pendingDeleteSubtask == null &&
-      pendingSyncSubtask == null
+      pendingSyncSubtask == null &&
+      pendingBatchAction == null
     ) {
       return;
     }
@@ -476,6 +505,7 @@ function App() {
     pendingDeleteTodoId,
     pendingResetTodoId,
     pendingSyncSubtask,
+    pendingBatchAction,
   ]);
 
   useEffect(() => {
@@ -484,7 +514,8 @@ function App() {
       !pendingResetTodoId &&
       !pendingClearAll &&
       pendingDeleteSubtask == null &&
-      pendingSyncSubtask == null
+      pendingSyncSubtask == null &&
+      pendingBatchAction == null
     ) {
       return;
     }
@@ -496,6 +527,7 @@ function App() {
         setPendingClearAll(false);
         setPendingDeleteSubtask(null);
         setPendingSyncSubtask(null);
+        setPendingBatchAction(null);
       }
     };
 
@@ -507,6 +539,7 @@ function App() {
     pendingDeleteTodoId,
     pendingResetTodoId,
     pendingSyncSubtask,
+    pendingBatchAction,
   ]);
 
   useEffect(
@@ -529,6 +562,18 @@ function App() {
   useEffect(() => {
     dayTodoIdsRef.current = dayTodos.map((todo) => todo.id);
   }, [dayTodos]);
+
+  useEffect(() => {
+    const dayTodoIds = new Set(dayTodos.map((todo) => todo.id));
+    setSelectedTodoIds((current) => {
+      const next = new Set([...current].filter((id) => dayTodoIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [dayTodos]);
+
+  useEffect(() => {
+    setBatchMoveDate(selectedDate);
+  }, [selectedDate]);
 
   useEffect(() => {
     const appBody = appBodyRef.current;
@@ -758,6 +803,7 @@ function App() {
 
   const handleTodoDragHandlePointerDown =
     (id: string) => (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (batchMode) return;
       if (event.button !== 0) return;
 
       event.preventDefault();
@@ -816,6 +862,69 @@ function App() {
 
   const handleScrollToTop = () => {
     appBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleToggleBatchMenu = () => {
+    setBatchMenuOpen((open) => !open);
+    setBatchMode(true);
+    setMainView("todos");
+    setTodoFormOpen(false);
+    setEditingTodoId(null);
+    setSubtaskEditorTarget(null);
+  };
+
+  const handleExitBatchMode = () => {
+    setBatchMode(false);
+    setBatchMenuOpen(false);
+    setPendingBatchAction(null);
+    setSelectedTodoIds(new Set());
+  };
+
+  const handleToggleBatchSelect = (id: string) => {
+    setSelectedTodoIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllDayTodos = () => {
+    setSelectedTodoIds(new Set(dayTodos.map((todo) => todo.id)));
+  };
+
+  const handleClearBatchSelection = () => {
+    setSelectedTodoIds(new Set());
+  };
+
+  const handleBatchComplete = () => {
+    if (selectedCount === 0) return;
+    completeTodos(selectedTodoIds);
+    handleExitBatchMode();
+  };
+
+  const handleBatchMove = () => {
+    if (selectedCount === 0 || !batchMoveDate) return;
+    moveTodos(selectedTodoIds, batchMoveDate);
+    setSelectedDate(batchMoveDate);
+    handleExitBatchMode();
+  };
+
+  const handleBatchClearFavorites = () => {
+    if (selectedCount === 0) return;
+    clearSelectedFavorites(selectedTodoIds);
+  };
+
+  const handleConfirmBatchDelete = () => {
+    if (selectedCount === 0) {
+      setPendingBatchAction(null);
+      return;
+    }
+    removeSelectedTodos(selectedTodoIds);
+    handleExitBatchMode();
   };
 
   const handleSelectFavoriteTodo = (todo: Todo) => {
@@ -924,6 +1033,62 @@ function App() {
               type="button"
               className="btn btn-danger btn-sm"
               onClick={handleConfirmDeleteTodo}
+            >
+              <IconTrash size={14} />
+              删除
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  ) : null;
+
+  const batchDeleteConfirmDialog = pendingBatchAction === "delete" ? (
+    <div
+      className="confirm-overlay"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) setPendingBatchAction(null);
+      }}
+    >
+      <section
+        className="confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="batch-delete-confirm-title"
+        aria-describedby="batch-delete-confirm-desc"
+      >
+        <div className="confirm-dialog__icon" aria-hidden>
+          <IconTrash size={20} />
+        </div>
+        <div className="confirm-dialog__content">
+          <div className="confirm-dialog__header">
+            <h2 id="batch-delete-confirm-title">删除选中的待办？</h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon-only confirm-dialog__close"
+              onClick={() => setPendingBatchAction(null)}
+              aria-label="取消批量删除"
+              title="取消批量删除"
+            >
+              <IconClose size={16} />
+            </button>
+          </div>
+          <p id="batch-delete-confirm-desc">{batchDeleteDescription}</p>
+          <div className="confirm-dialog__actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setPendingBatchAction(null)}
+            >
+              取消
+            </button>
+            <button
+              ref={confirmDeleteButtonRef}
+              type="button"
+              className="btn btn-danger btn-sm"
+              onClick={handleConfirmBatchDelete}
+              disabled={selectedCount === 0}
             >
               <IconTrash size={14} />
               删除
@@ -1133,6 +1298,7 @@ function App() {
           onRestore={() => void handleExitMiniMode()}
         />
         {deleteConfirmDialog}
+        {batchDeleteConfirmDialog}
         {resetConfirmDialog}
         {clearAllConfirmDialog}
         {syncConfirmDialog}
@@ -1246,6 +1412,40 @@ function App() {
             title={mainView === "statistics" ? "返回待办" : "耗时统计"}
           >
             <IconChartBar size={17} />
+          </button>
+          <button
+            type="button"
+            className={`btn btn-ghost btn-icon-only plan-toggle ${
+              mainView === "plan" ? "is-active" : ""
+            }`}
+            onClick={() => {
+              setMainView((view) => (view === "plan" ? "todos" : "plan"));
+              setTodoFormOpen(false);
+              setEditingTodoId(null);
+              setSubtaskEditorTarget(null);
+            }}
+            aria-label={mainView === "plan" ? "返回待办" : "查看计划视图"}
+            aria-pressed={mainView === "plan"}
+            title={mainView === "plan" ? "返回待办" : "计划视图"}
+          >
+            <IconCalendarEvent size={17} />
+          </button>
+          <button
+            type="button"
+            className={`btn btn-ghost btn-icon-only review-toggle ${
+              mainView === "review" ? "is-active" : ""
+            }`}
+            onClick={() => {
+              setMainView((view) => (view === "review" ? "todos" : "review"));
+              setTodoFormOpen(false);
+              setEditingTodoId(null);
+              setSubtaskEditorTarget(null);
+            }}
+            aria-label={mainView === "review" ? "返回待办" : "查看日复盘"}
+            aria-pressed={mainView === "review"}
+            title={mainView === "review" ? "返回待办" : "日复盘"}
+          >
+            <IconClipboardText size={17} />
           </button>
           <button
             type="button"
@@ -1366,7 +1566,13 @@ function App() {
       <main ref={appBodyRef} className="app-body">
         <div
           className={`app-content ${
-            mainView === "statistics" ? "is-statistics-view" : ""
+            mainView === "statistics"
+              ? "is-statistics-view"
+              : mainView === "plan"
+                ? "is-plan-view"
+                : mainView === "review"
+                  ? "is-review-view"
+                  : ""
           }`}
         >
           {mainView === "statistics" ? (
@@ -1380,6 +1586,34 @@ function App() {
                 setSelectedDate(date);
                 setMainView("todos");
                 appBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          ) : mainView === "plan" ? (
+            <PlanOverview
+              todos={allTodos}
+              anchorDate={selectedDate}
+              period={planPeriod}
+              onPeriodChange={setPlanPeriod}
+              onAnchorDateChange={setSelectedDate}
+              onSelectDate={(date) => {
+                setSelectedDate(date);
+                setMainView("todos");
+                appBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          ) : mainView === "review" ? (
+            <DailyReview
+              todos={allTodos}
+              date={selectedDate}
+              getLiveElapsed={getLiveElapsed}
+              onSelectTodo={(todo) => {
+                setSelectedDate(todo.date);
+                setMainView("todos");
+                setTodoFormOpen(false);
+                setEditingTodoId(null);
+                setSubtaskEditorTarget(null);
+                scrollTodoIntoView(todo.id);
+                flashTodo(todo.id);
               }}
             />
           ) : subtaskEditorTarget ? (
@@ -1418,6 +1652,8 @@ function App() {
                 title: editingTodo.title,
                 date: editingTodo.date,
                 taskTime: formatClockTime(editingTodo.createdAt),
+                comment: editingTodo.comment ?? "",
+                subtaskTitles: "",
                 urgency: editingTodo.urgency,
                 plannedSeconds:
                   editingTodo.plannedSeconds > 0
@@ -1485,6 +1721,8 @@ function App() {
                       remaining={getCountdownRemaining(todo)}
                       isHighlighted={highlightedTodoId === todo.id}
                       isDragging={draggingTodoId === todo.id}
+                      batchMode={batchMode}
+                      isBatchSelected={selectedTodoIds.has(todo.id)}
                       onStart={() => startTiming(todo.id)}
                       onPause={() => pauseTiming(todo.id)}
                       onStop={() => stopTiming(todo.id)}
@@ -1500,6 +1738,7 @@ function App() {
                         updateComment(todo.id, comment)
                       }
                       onToggleFavorite={() => toggleFavorite(todo.id)}
+                      onToggleBatchSelect={() => handleToggleBatchSelect(todo.id)}
                       onAddSubtask={(parentSubtaskId) =>
                         handleStartAddSubtask(todo.id, parentSubtaskId)
                       }
@@ -1553,8 +1792,119 @@ function App() {
             <IconChevronUp size={18} />
           </button>
         )}
+        {mainView === "todos" && !showingEditor && dayTodos.length > 0 && (
+          <div
+            className={`batch-actions ${batchMenuOpen ? "is-open" : ""} ${
+              batchMode ? "is-active" : ""
+            }`}
+          >
+            {batchMenuOpen && (
+              <section className="batch-actions__panel" aria-label="批量操作">
+                <div className="batch-actions__header">
+                  <div>
+                    <strong>批量操作</strong>
+                    <span>
+                      已选择 {selectedCount} / {dayTodos.length}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-icon-only batch-actions__close"
+                    onClick={handleExitBatchMode}
+                    aria-label="退出批量操作"
+                    title="退出批量操作"
+                  >
+                    <IconClose size={15} />
+                  </button>
+                </div>
+
+                <div className="batch-actions__select-row">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleSelectAllDayTodos}
+                    disabled={selectedCount === dayTodos.length}
+                  >
+                    全选
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleClearBatchSelection}
+                    disabled={selectedCount === 0}
+                  >
+                    清空选择
+                  </button>
+                </div>
+
+                <label className="batch-actions__date">
+                  <span>
+                    <IconCalendarEvent size={14} />
+                    移动到日期
+                  </span>
+                  <input
+                    type="date"
+                    value={batchMoveDate}
+                    onChange={(event) => setBatchMoveDate(event.target.value)}
+                  />
+                </label>
+
+                <div className="batch-actions__commands">
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={handleBatchComplete}
+                    disabled={selectedCount === 0}
+                  >
+                    <IconCircleCheck size={14} />
+                    批量完成
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleBatchMove}
+                    disabled={selectedCount === 0 || !batchMoveDate}
+                  >
+                    <IconCalendarEvent size={14} />
+                    移动日期
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleBatchClearFavorites}
+                    disabled={selectedFavoriteCount === 0}
+                  >
+                    <IconBookmark size={14} />
+                    取消收藏
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-sm"
+                    onClick={() => setPendingBatchAction("delete")}
+                    disabled={selectedCount === 0}
+                  >
+                    <IconTrash size={14} />
+                    批量删除
+                  </button>
+                </div>
+              </section>
+            )}
+            <button
+              type="button"
+              className="batch-actions__toggle"
+              onClick={handleToggleBatchMenu}
+              aria-expanded={batchMenuOpen}
+              aria-label="打开批量操作"
+              title="批量操作"
+            >
+              <IconListCheck size={18} />
+              <span>{batchMode ? selectedCount : "批量"}</span>
+            </button>
+          </div>
+        )}
       </main>
       {deleteConfirmDialog}
+      {batchDeleteConfirmDialog}
       {resetConfirmDialog}
       {clearAllConfirmDialog}
       {syncConfirmDialog}

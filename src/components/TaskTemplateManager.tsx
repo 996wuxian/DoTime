@@ -21,6 +21,7 @@ interface TaskTemplateManagerProps {
 
 function getTemplateTags(template: TaskTemplate): string[] {
   const parts = [`紧急 ${URGENCY_LABELS[template.urgency]}`];
+  if (template.taskTime) parts.push(`时间 ${template.taskTime}`);
   parts.push(template.countdownEnabled ? "计时开启" : "计时关闭");
   parts.push(
     template.reminderEnabled && template.reminderTime
@@ -30,6 +31,10 @@ function getTemplateTags(template: TaskTemplate): string[] {
   parts.push(template.recordTimeEnabled ? "记录开启" : "记录关闭");
   if (template.recurrence) {
     parts.push(`重复 ${RECURRENCE_LABELS[template.recurrence.frequency]}`);
+  }
+  if (template.comment) parts.push("含评论");
+  if (template.subtasks.length > 0) {
+    parts.push(`子待办 ${template.subtasks.length}`);
   }
   return parts;
 }

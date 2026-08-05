@@ -2,6 +2,7 @@ import type {
   RecurrenceFrequency,
   RecurrenceRule,
   TaskTemplate,
+  TaskTemplateSubtask,
   Urgency,
 } from "../types";
 import { normalizeReminderTime } from "../utils/reminders";
@@ -15,12 +16,15 @@ export interface TaskTemplateInput {
   name: string;
   title: string;
   urgency: Urgency;
+  taskTime?: string | null;
   plannedSeconds: number;
   countdownEnabled: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   recordTimeEnabled: boolean;
   recurrence: RecurrenceRule | null;
+  comment?: string;
+  subtasks?: TaskTemplateSubtask[];
 }
 
 interface TaskTemplateDocument {
@@ -83,6 +87,40 @@ function parseRecurrence(value: unknown): RecurrenceRule | null {
   return { frequency, weekdays, monthDay, endDate: null };
 }
 
+function parseTemplateSubtask(value: unknown): TaskTemplateSubtask | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.title !== "string" || value.title.trim().length === 0) {
+    return null;
+  }
+  const urgency =
+    typeof value.urgency === "string" && URGENCIES.has(value.urgency as Urgency)
+      ? (value.urgency as Urgency)
+      : "medium";
+  const countdownEnabled = Boolean(value.countdownEnabled);
+  const plannedSeconds =
+    typeof value.plannedSeconds === "number" && Number.isFinite(value.plannedSeconds)
+      ? Math.max(60, value.plannedSeconds)
+      : 25 * 60;
+  return {
+    title: value.title.trim().slice(0, 120),
+    urgency,
+    plannedSeconds,
+    countdownEnabled,
+    recordTimeEnabled:
+      typeof value.recordTimeEnabled === "boolean"
+        ? value.recordTimeEnabled
+        : countdownEnabled,
+  };
+}
+
+function parseTemplateSubtasks(value: unknown): TaskTemplateSubtask[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(parseTemplateSubtask)
+    .filter((subtask): subtask is TaskTemplateSubtask => subtask != null)
+    .slice(0, 20);
+}
+
 function parseTemplate(value: unknown): TaskTemplate | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string" || value.id.length === 0) return null;
@@ -101,6 +139,7 @@ function parseTemplate(value: unknown): TaskTemplate | null {
       ? Math.max(60, value.plannedSeconds)
       : 25 * 60;
   const reminderTime = normalizeReminderTime(value.reminderTime);
+  const taskTime = normalizeReminderTime(value.taskTime);
   const reminderEnabled = Boolean(value.reminderEnabled) && reminderTime != null;
   const createdAt =
     typeof value.createdAt === "number" && Number.isFinite(value.createdAt)
@@ -115,6 +154,7 @@ function parseTemplate(value: unknown): TaskTemplate | null {
     name: value.name.trim().slice(0, 40),
     title: value.title.trim().slice(0, 120),
     urgency: value.urgency as Urgency,
+    taskTime,
     plannedSeconds,
     countdownEnabled,
     reminderEnabled,
@@ -124,6 +164,8 @@ function parseTemplate(value: unknown): TaskTemplate | null {
         ? value.recordTimeEnabled
         : true,
     recurrence: parseRecurrence(value.recurrence),
+    comment: typeof value.comment === "string" ? value.comment.trim().slice(0, 500) : "",
+    subtasks: parseTemplateSubtasks(value.subtasks),
     sortOrder:
       typeof value.sortOrder === "number" && Number.isFinite(value.sortOrder)
         ? value.sortOrder
@@ -193,12 +235,21 @@ export function createTaskTemplate(
     name: input.name.trim().slice(0, 40),
     title: input.title.trim().slice(0, 120),
     urgency: input.urgency,
+    taskTime: normalizeReminderTime(input.taskTime),
     plannedSeconds: Math.max(60, input.plannedSeconds),
     countdownEnabled: input.countdownEnabled,
     reminderEnabled: input.reminderEnabled && reminderTime != null,
     reminderTime: input.reminderEnabled ? reminderTime : null,
     recordTimeEnabled: input.recordTimeEnabled,
     recurrence,
+    comment: (input.comment ?? "").trim().slice(0, 500),
+    subtasks: (input.subtasks ?? []).slice(0, 20).map((subtask) => ({
+      title: subtask.title.trim().slice(0, 120),
+      urgency: subtask.urgency,
+      plannedSeconds: Math.max(60, subtask.plannedSeconds),
+      countdownEnabled: subtask.countdownEnabled,
+      recordTimeEnabled: subtask.recordTimeEnabled,
+    })),
     sortOrder,
     createdAt: now,
     updatedAt: now,

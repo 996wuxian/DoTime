@@ -38,6 +38,8 @@ export interface TodoDraft {
   title: string;
   date: string;
   taskTime: string;
+  comment: string;
+  subtaskTitles: string;
   urgency: Urgency;
   plannedSeconds: number;
   countdownEnabled: boolean;
@@ -104,6 +106,8 @@ export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
     title: "",
     date,
     taskTime: formatClockTime(Date.now()),
+    comment: "",
+    subtaskTitles: "",
     urgency: "medium",
     plannedSeconds: 25 * 60,
     countdownEnabled: false,
@@ -423,7 +427,9 @@ export function TodoEditorForm({
     setDraft((current) => ({
       ...current,
       title: template.title,
-      taskTime: current.taskTime,
+      taskTime: template.taskTime ?? current.taskTime,
+      comment: template.comment,
+      subtaskTitles: template.subtasks.map((subtask) => subtask.title).join("\n"),
       urgency: template.urgency,
       plannedSeconds: template.plannedSeconds,
       countdownEnabled: template.countdownEnabled,
@@ -589,6 +595,35 @@ export function TodoEditorForm({
           </div>
         </div>
       </div>
+
+      {templates && (
+        <div className="todo-form__template-defaults">
+          <label className="field">
+            <span className="field__label">默认评论</span>
+            <textarea
+              className="field__textarea"
+              value={draft.comment}
+              rows={3}
+              maxLength={500}
+              onChange={(event) => updateDraft("comment", event.target.value)}
+              placeholder="应用模板后带入到待办评论"
+            />
+          </label>
+          <label className="field">
+            <span className="field__label">默认子待办</span>
+            <textarea
+              className="field__textarea"
+              value={draft.subtaskTitles}
+              rows={3}
+              maxLength={1200}
+              onChange={(event) =>
+                updateDraft("subtaskTitles", event.target.value)
+              }
+              placeholder="每行一个子待办"
+            />
+          </label>
+        </div>
+      )}
 
       <div className="todo-task-mode" role="radiogroup" aria-label="待办类型">
         <label

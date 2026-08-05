@@ -27,15 +27,26 @@ export interface TaskTemplate {
   name: string;
   title: string;
   urgency: Urgency;
+  taskTime: string | null;
   plannedSeconds: number;
   countdownEnabled: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   recordTimeEnabled: boolean;
   recurrence: RecurrenceRule | null;
+  comment: string;
+  subtasks: TaskTemplateSubtask[];
   sortOrder: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface TaskTemplateSubtask {
+  title: string;
+  urgency: Urgency;
+  plannedSeconds: number;
+  countdownEnabled: boolean;
+  recordTimeEnabled: boolean;
 }
 
 export interface TodoSubtask {

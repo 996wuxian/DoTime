@@ -354,6 +354,67 @@ export function clearTodoFavorites(todos: Todo[]): Todo[] {
   return todos.map((todo) => (todo.favorite ? { ...todo, favorite: false } : todo));
 }
 
+export function removeTodos(todos: Todo[], ids: Iterable<string>): Todo[] {
+  const idSet = new Set(ids);
+  if (idSet.size === 0) return todos;
+  return todos.filter((todo) => !idSet.has(todo.id));
+}
+
+export function clearSelectedTodoFavorites(
+  todos: Todo[],
+  ids: Iterable<string>,
+): Todo[] {
+  const idSet = new Set(ids);
+  if (idSet.size === 0) return todos;
+  return todos.map((todo) =>
+    idSet.has(todo.id) && todo.favorite ? { ...todo, favorite: false } : todo,
+  );
+}
+
+export function moveTodosToDate(
+  todos: Todo[],
+  ids: Iterable<string>,
+  targetDate: string,
+): Todo[] {
+  const idSet = new Set(ids);
+  if (idSet.size === 0 || !targetDate) return todos;
+
+  const movingTodos = todos.filter((todo) => idSet.has(todo.id));
+  if (movingTodos.length === 0) return todos;
+
+  const targetSortOrders = todos
+    .filter((todo) => !idSet.has(todo.id) && todo.date === targetDate)
+    .map((todo) => todo.sortOrder);
+  const targetMinSortOrder = Math.min(...targetSortOrders);
+  const startSortOrder = Number.isFinite(targetMinSortOrder)
+    ? targetMinSortOrder - movingTodos.length * 1000
+    : 1000;
+  const nextSortOrderById = new Map(
+    [...movingTodos]
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
+      .map((todo, index) => [todo.id, startSortOrder + index * 1000]),
+  );
+
+  return todos.map((todo) => {
+    const nextSortOrder = nextSortOrderById.get(todo.id);
+    if (nextSortOrder == null) return todo;
+    const taskTime = getDateTimeTimestamp(targetDate, formatTodoTime(todo));
+    return {
+      ...todo,
+      date: targetDate,
+      createdAt: taskTime,
+      sortOrder: nextSortOrder,
+    };
+  });
+}
+
+function formatTodoTime(todo: Todo): string {
+  const date = new Date(todo.createdAt);
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${hour}:${minute}`;
+}
+
 export function syncTodoSubtaskElapsedFromParent(
   todos: Todo[],
   todoId: string,

@@ -32,6 +32,8 @@ interface TodoItemProps {
   remaining: number;
   isHighlighted?: boolean;
   isDragging?: boolean;
+  batchMode?: boolean;
+  isBatchSelected?: boolean;
   itemRef?: (node: HTMLElement | null) => void;
   onStart: () => void;
   onPause: () => void;
@@ -42,6 +44,7 @@ interface TodoItemProps {
   onReset: () => void;
   onUpdateComment: (comment: string) => void;
   onToggleFavorite: () => void;
+  onToggleBatchSelect?: () => void;
   onAddSubtask: (parentSubtaskId: string | null) => void;
   onEditSubtask: (subtaskId: string) => void;
   onSyncSubtask: (subtaskId: string) => void;
@@ -339,6 +342,8 @@ export function TodoItem({
   remaining,
   isHighlighted = false,
   isDragging = false,
+  batchMode = false,
+  isBatchSelected = false,
   itemRef,
   onStart,
   onPause,
@@ -349,6 +354,7 @@ export function TodoItem({
   onReset,
   onUpdateComment,
   onToggleFavorite,
+  onToggleBatchSelect,
   onAddSubtask,
   onEditSubtask,
   onSyncSubtask,
@@ -470,8 +476,22 @@ export function TodoItem({
     <div
       ref={itemRef}
       data-todo-id={todo.id}
-      className="todo-item-shell"
+      className={`todo-item-shell ${batchMode ? "is-batch-mode" : ""}`}
     >
+    {batchMode && (
+      <button
+        type="button"
+        className={`todo-item__batch-select ${
+          isBatchSelected ? "is-selected" : ""
+        }`}
+        onClick={onToggleBatchSelect}
+        aria-pressed={isBatchSelected}
+        aria-label={isBatchSelected ? "取消选择待办" : "选择待办"}
+        title={isBatchSelected ? "取消选择" : "选择"}
+      >
+        {isBatchSelected ? <IconCheck size={13} /> : null}
+      </button>
+    )}
     <article
       className={[
         "todo-item",

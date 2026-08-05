@@ -16,8 +16,11 @@ import {
   applyReminderFired,
   addTodoSubtask,
   clearTodoFavorites,
+  clearSelectedTodoFavorites,
+  moveTodosToDate,
   pauseTodoTiming,
   pauseTodoSubtaskTiming,
+  removeTodos,
   removeTodoSubtask,
   renameTodoSubtask,
   reorderTodoSubtask,
@@ -105,6 +108,36 @@ function getPendingScheduledReminders(todos: Todo[]): ScheduledReminder[] {
 
 function createId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function createSubtaskId(now = Date.now()): string {
+  return `subtask-${now}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function createInitialSubtasks(
+  titles: readonly string[] = [],
+  now = Date.now(),
+): TodoSubtask[] {
+  return titles
+    .map((title) => title.trim())
+    .filter(Boolean)
+    .slice(0, 20)
+    .map((title, index) => ({
+      id: createSubtaskId(now + index),
+      title,
+      urgency: "medium" as const,
+      plannedSeconds: 0,
+      countdownEnabled: false,
+      recordTimeEnabled: false,
+      completed: false,
+      isTiming: false,
+      timingStartedAt: null,
+      elapsedSeconds: 0,
+      actualDurationSeconds: null,
+      createdAt: now + index,
+      completedAt: null,
+      children: [],
+    }));
 }
 
 function hasTimingSubtask(todo: Todo): boolean {
@@ -339,6 +372,8 @@ export function useTodos(selectedDate: string) {
       taskTime: string,
       date?: string,
       recurrence?: RecurrenceRule | null,
+      comment = "",
+      subtaskTitles: readonly string[] = [],
     ) => {
       const trimmed = title.trim();
       if (!trimmed) return;
@@ -378,7 +413,7 @@ export function useTodos(selectedDate: string) {
           timingStartedAt: null,
           elapsedSeconds: 0,
           actualDurationSeconds: null,
-          comment: "",
+          comment: comment.trim(),
           favorite: false,
           createdAt,
           completedAt: null,
@@ -388,7 +423,7 @@ export function useTodos(selectedDate: string) {
               : `series-${now}-${Math.random().toString(36).slice(2, 9)}`,
           recurrence: normalizedRecurrence,
           recurrenceTemplate: null,
-          subtasks: [],
+          subtasks: createInitialSubtasks(subtaskTitles, now),
         };
         todo.recurrenceTemplate =
           normalizedRecurrence == null ? null : createRecurrenceTemplate(todo);
@@ -483,6 +518,31 @@ export function useTodos(selectedDate: string) {
 
   const clearFavorites = useCallback(() => {
     setTodos((prev) => clearTodoFavorites(prev));
+  }, []);
+
+  const completeTodos = useCallback((ids: Iterable<string>) => {
+    const idSet = new Set(ids);
+    if (idSet.size === 0) return;
+    const now = Date.now();
+    setTodos((prev) =>
+      [...idSet].reduce((current, id) => {
+        const todo = current.find((item) => item.id === id);
+        if (todo == null || todo.completed) return current;
+        return toggleTodoCompletionWithRecurrence(current, id, now);
+      }, prev),
+    );
+  }, []);
+
+  const moveTodos = useCallback((ids: Iterable<string>, targetDate: string) => {
+    setTodos((prev) => moveTodosToDate(prev, ids, targetDate));
+  }, []);
+
+  const removeSelectedTodos = useCallback((ids: Iterable<string>) => {
+    setTodos((prev) => removeTodos(prev, ids));
+  }, []);
+
+  const clearSelectedFavorites = useCallback((ids: Iterable<string>) => {
+    setTodos((prev) => clearSelectedTodoFavorites(prev, ids));
   }, []);
 
   const addSubtask = useCallback(
@@ -643,6 +703,10 @@ export function useTodos(selectedDate: string) {
     updateComment,
     toggleFavorite,
     clearFavorites,
+    completeTodos,
+    moveTodos,
+    removeSelectedTodos,
+    clearSelectedFavorites,
     addSubtask,
     renameSubtask,
     updateSubtask,

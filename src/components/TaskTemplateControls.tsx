@@ -24,6 +24,7 @@ interface TaskTemplateControlsProps {
 function getTemplateDetails(template: TaskTemplate) {
   return [
     { label: "紧急", value: URGENCY_LABELS[template.urgency] },
+    template.taskTime ? { label: "时间", value: template.taskTime } : null,
     template.countdownEnabled
       ? { label: "计时", value: formatDurationHuman(template.plannedSeconds) }
       : { label: "计时", value: "关闭" },
@@ -33,6 +34,10 @@ function getTemplateDetails(template: TaskTemplate) {
     { label: "记录", value: template.recordTimeEnabled ? "开启" : "关闭" },
     template.recurrence
       ? { label: "重复", value: RECURRENCE_LABELS[template.recurrence.frequency] }
+      : null,
+    template.comment ? { label: "评论", value: "有" } : null,
+    template.subtasks.length > 0
+      ? { label: "子待办", value: `${template.subtasks.length} 个` }
       : null,
   ].filter((detail): detail is { label: string; value: string } => detail != null);
 }

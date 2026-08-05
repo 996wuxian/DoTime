@@ -24,6 +24,8 @@ interface TodoFormProps {
     taskTime: string,
     date?: string,
     recurrence?: RecurrenceRule | null,
+    comment?: string,
+    subtaskTitles?: string[],
   ) => void;
   open: boolean;
   selectedDate: string;
@@ -63,6 +65,8 @@ export function TodoForm({
       draft.taskTime,
       draft.date,
       draft.recurrence,
+      draft.comment,
+      parseSubtaskTitles(draft.subtaskTitles),
     );
     onOpenChange(false);
   };
@@ -84,6 +88,15 @@ export function TodoForm({
       reminderTime: draft.reminderTime,
       recordTimeEnabled: draft.recordTimeEnabled,
       recurrence: includeRecurrence ? draft.recurrence : null,
+      taskTime: draft.taskTime,
+      comment: draft.comment,
+      subtasks: parseSubtaskTitles(draft.subtaskTitles).map((title) => ({
+        title,
+        urgency: "medium",
+        plannedSeconds: 25 * 60,
+        countdownEnabled: false,
+        recordTimeEnabled: false,
+      })),
     });
 
   return (
@@ -115,4 +128,12 @@ export function TodoForm({
       )}
     </>
   );
+}
+
+function parseSubtaskTitles(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 20);
 }
