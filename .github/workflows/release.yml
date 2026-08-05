@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
+      - .github/workflows/release.yml
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-windows:
+    name: Build and publish Windows package
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read package version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if (-not $version) {
+            throw "package.json version is empty."
+          }
+
+          $tag = "v$version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Check existing release
+        id: release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ steps.version.outputs.tag }}" --repo "$env:GITHUB_REPOSITORY" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            "exists=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Release ${{ steps.version.outputs.tag }} already exists. Skip publishing."
+          } else {
+            "exists=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Setup Node.js
+        if: steps.release.outputs.exists != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        if: steps.release.outputs.exists != 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        if: steps.release.outputs.exists != 'true'
+        run: npm ci
+
+      - name: Sync Tauri version from package.json
+        if: steps.release.outputs.exists != 'true'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+
+          $tauriConfigPath = "src-tauri/tauri.conf.json"
+          $tauriConfig = Get-Content $tauriConfigPath -Raw | ConvertFrom-Json
+          $tauriConfig.version = $version
+          $tauriConfig | ConvertTo-Json -Depth 100 | Set-Content $tauriConfigPath -Encoding UTF8
+
+          $cargoTomlPath = "src-tauri/Cargo.toml"
+          $cargoToml = Get-Content $cargoTomlPath -Raw
+          $cargoToml = $cargoToml -replace '(?m)^(version\s*=\s*)".*"$', "`$1`"$version`""
+          Set-Content $cargoTomlPath $cargoToml -Encoding UTF8
+
+      - name: Test frontend domain logic
+        if: steps.release.outputs.exists != 'true'
+        run: npm test
+
+      - name: Publish Tauri release
+        if: steps.release.outputs.exists != 'true'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ steps.version.outputs.tag }}
+          releaseName: doTime ${{ steps.version.outputs.tag }}
+          releaseBody: Automated release from package.json version ${{ steps.version.outputs.version }}.
+          releaseDraft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
