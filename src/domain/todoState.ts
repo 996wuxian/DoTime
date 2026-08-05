@@ -22,6 +22,7 @@ import {
 export type TodoDetailsUpdate = {
   title: string;
   date: string;
+  taskTime?: string;
   urgency: Urgency;
   plannedSeconds: number;
   countdownEnabled: boolean;
@@ -31,6 +32,13 @@ export type TodoDetailsUpdate = {
   recurrence: RecurrenceRule | null;
   recurrenceEditScope: RecurrenceEditScope;
 };
+
+function getDateTimeTimestamp(dateKey: string, time: string): number {
+  const [hour = "0", minute = "0"] = time.split(":");
+  const date = new Date(`${dateKey}T00:00:00`);
+  date.setHours(Number(hour), Number(minute), 0, 0);
+  return date.getTime();
+}
 
 export type SubtaskDetails = Pick<
   TodoSubtask,
@@ -325,6 +333,17 @@ export function updateTodoSubtaskDetails(
   );
 }
 
+export function updateTodoComment(
+  todos: Todo[],
+  id: string,
+  comment: string,
+): Todo[] {
+  const nextComment = comment.trim();
+  return todos.map((todo) =>
+    todo.id === id ? { ...todo, comment: nextComment } : todo,
+  );
+}
+
 export function syncTodoSubtaskElapsedFromParent(
   todos: Todo[],
   todoId: string,
@@ -560,6 +579,10 @@ export function updateTodoDetails(
       ...todo,
       title: trimmedTitle,
       date: updates.date,
+      createdAt:
+        updates.taskTime == null
+          ? todo.createdAt
+          : getDateTimeTimestamp(updates.date, updates.taskTime),
       sortOrder: dateChanged ? movedSortOrder : todo.sortOrder,
       urgency: updates.urgency,
       countdownEnabled: updates.countdownEnabled,

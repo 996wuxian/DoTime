@@ -28,6 +28,7 @@ import {
   syncTodoSubtaskElapsedFromParent,
   toggleTodoSubtask,
   toggleTodoCompletionWithRecurrence,
+  updateTodoComment,
   updateTodoDetails,
   updateTodoSubtaskDetails,
   type SubtaskDetails,
@@ -333,6 +334,7 @@ export function useTodos(selectedDate: string) {
       reminderEnabled: boolean,
       reminderTime: string | null,
       recordTimeEnabled: boolean,
+      taskTime: string,
       date?: string,
       recurrence?: RecurrenceRule | null,
     ) => {
@@ -346,6 +348,10 @@ export function useTodos(selectedDate: string) {
             .map((item) => item.sortOrder),
         );
         const now = Date.now();
+        const [hour = "0", minute = "0"] = taskTime.split(":");
+        const createdDate = new Date(`${todoDate}T00:00:00`);
+        createdDate.setHours(Number(hour), Number(minute), 0, 0);
+        const createdAt = createdDate.getTime();
         const normalizedRecurrence = normalizeRecurrenceRule(
           recurrence ?? null,
           todoDate,
@@ -370,7 +376,8 @@ export function useTodos(selectedDate: string) {
           timingStartedAt: null,
           elapsedSeconds: 0,
           actualDurationSeconds: null,
-          createdAt: now,
+          comment: "",
+          createdAt,
           completedAt: null,
           recurrenceSeriesId:
             normalizedRecurrence == null
@@ -462,6 +469,10 @@ export function useTodos(selectedDate: string) {
     },
     [],
   );
+
+  const updateComment = useCallback((id: string, comment: string) => {
+    setTodos((prev) => updateTodoComment(prev, id, comment));
+  }, []);
 
   const addSubtask = useCallback(
     (
@@ -618,6 +629,7 @@ export function useTodos(selectedDate: string) {
     reorderTodo,
     toggleComplete,
     updateTodo,
+    updateComment,
     addSubtask,
     renameSubtask,
     updateSubtask,

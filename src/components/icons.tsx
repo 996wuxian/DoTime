@@ -32,6 +32,7 @@ import {
   IconGripVertical as TbGripVertical,
   IconPhoto as TbPhoto,
   IconListCheck as TbListCheck,
+  IconMessageCircle as TbMessageCircle,
   IconMinus as TbMinus,
   IconMoon as TbMoon,
   IconSearch as TbSearch,
@@ -123,6 +124,7 @@ export const IconPlayerStopFilled = wrap(TbPlayerStopFilled, { stroke: 0 });
 export const IconClock = wrap(TbClock);
 export const IconClockHour4 = wrap(TbClockHour4);
 export const IconListCheck = wrap(TbListCheck);
+export const IconMessageCircle = wrap(TbMessageCircle);
 export const IconCircleCheck = wrap(TbCircleCheck);
 export const IconClipboardText = wrap(TbClipboardText);
 export const IconCalendarEvent = wrap(TbCalendarEvent);

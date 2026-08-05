@@ -15,6 +15,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconGripVertical,
+  IconMessageCircle,
   IconPencil,
   IconPlayerPause,
   IconPlayerPlay,
@@ -38,6 +39,7 @@ interface TodoItemProps {
   onRemove: () => void;
   onEdit: () => void;
   onReset: () => void;
+  onUpdateComment: (comment: string) => void;
   onAddSubtask: (parentSubtaskId: string | null) => void;
   onEditSubtask: (subtaskId: string) => void;
   onSyncSubtask: (subtaskId: string) => void;
@@ -343,6 +345,7 @@ export function TodoItem({
   onRemove,
   onEdit,
   onReset,
+  onUpdateComment,
   onAddSubtask,
   onEditSubtask,
   onSyncSubtask,
@@ -358,6 +361,8 @@ export function TodoItem({
   const [collapsedSubtaskIds, setCollapsedSubtaskIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [commentEditorOpen, setCommentEditorOpen] = useState(false);
+  const [commentDraft, setCommentDraft] = useState(todo.comment ?? "");
   const countdownEnabled = todo.countdownEnabled;
   const timeTrackingEnabled = countdownEnabled || todo.recordTimeEnabled;
   const countdownSyncEnabled = countdownEnabled && todo.plannedSeconds > 0;
@@ -386,6 +391,22 @@ export function TodoItem({
     reminderDueAt != null &&
     todo.reminderLastFiredAt != null &&
     todo.reminderLastFiredAt >= reminderDueAt;
+  const todoComment = todo.comment?.trim() ?? "";
+
+  const handleOpenCommentEditor = () => {
+    setCommentDraft(todo.comment ?? "");
+    setCommentEditorOpen(true);
+  };
+
+  const handleCancelComment = () => {
+    setCommentDraft(todo.comment ?? "");
+    setCommentEditorOpen(false);
+  };
+
+  const handleSaveComment = () => {
+    onUpdateComment(commentDraft);
+    setCommentEditorOpen(false);
+  };
 
   const finishSubtaskDrag = () => {
     window.removeEventListener("pointermove", handleSubtaskDragMove);
@@ -443,9 +464,12 @@ export function TodoItem({
     };
 
   return (
-    <article
+    <div
       ref={itemRef}
       data-todo-id={todo.id}
+      className="todo-item-shell"
+    >
+    <article
       className={[
         "todo-item",
         "card",
@@ -587,6 +611,17 @@ export function TodoItem({
           </button>
           <button
             type="button"
+            className={`btn btn-ghost btn-icon-only todo-item__comment-action ${
+              todoComment ? "has-comment" : ""
+            }`}
+            onClick={handleOpenCommentEditor}
+            aria-label={todoComment ? "编辑评论" : "添加评论"}
+            title={todoComment ? "编辑评论" : "添加评论"}
+          >
+            <IconMessageCircle size={16} />
+          </button>
+          <button
+            type="button"
             className="btn btn-ghost btn-icon-only btn-delete"
             onClick={onRemove}
             aria-label="删除"
@@ -721,5 +756,42 @@ export function TodoItem({
       )}
 
     </article>
+    {commentEditorOpen && (
+      <div className="todo-item__comment-editor">
+        <textarea
+          value={commentDraft}
+          onChange={(event) => setCommentDraft(event.target.value)}
+          placeholder="添加评论..."
+          rows={3}
+          maxLength={500}
+          aria-label="待办评论"
+          autoFocus
+        />
+        <div className="todo-item__comment-actions">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleCancelComment}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={handleSaveComment}
+          >
+            保存
+          </button>
+        </div>
+      </div>
+    )}
+
+    {!commentEditorOpen && todoComment && (
+      <div className="todo-item__comment">
+        <IconMessageCircle size={14} />
+        <p>{todoComment}</p>
+      </div>
+    )}
+    </div>
   );
 }

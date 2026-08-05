@@ -21,6 +21,7 @@ interface TodoFormProps {
     reminderEnabled: boolean,
     reminderTime: string | null,
     recordTimeEnabled: boolean,
+    taskTime: string,
     date?: string,
     recurrence?: RecurrenceRule | null,
   ) => void;
@@ -59,6 +60,7 @@ export function TodoForm({
       draft.reminderEnabled,
       draft.reminderTime,
       draft.recordTimeEnabled,
+      draft.taskTime,
       draft.date,
       draft.recurrence,
     );

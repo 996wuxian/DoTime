@@ -207,6 +207,7 @@ function parseTodo(value: unknown): Todo | null {
     actualDurationSeconds: isFiniteNumber(value.actualDurationSeconds)
       ? Math.max(0, value.actualDurationSeconds)
       : null,
+    comment: typeof value.comment === "string" ? value.comment : "",
     createdAt: isFiniteNumber(value.createdAt) ? value.createdAt : Date.now(),
     completedAt: isFiniteNumber(value.completedAt) ? value.completedAt : null,
     recurrenceSeriesId:

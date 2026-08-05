@@ -1706,6 +1706,11 @@ a,
   border-color: rgba(110, 168, 255, 0.28);
 }
 
+.todo-item__comment-action.has-comment {
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+}
+
 :root[data-theme="light"] .btn-edit {
   color: #0f766e;
 }
@@ -2449,8 +2454,15 @@ a,
 
 .todo-form__primary-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px;
+  grid-template-columns: minmax(0, 1fr) minmax(290px, 0.55fr);
   gap: 16px;
+}
+
+.todo-form__datetime-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 118px;
+  gap: 10px;
 }
 
 .field--date {
@@ -2516,7 +2528,8 @@ a,
 
 .field--urgency,
 .field--timer,
-.field--reminder {
+.field--reminder,
+.field--task-time {
   min-width: 0;
 }
 
@@ -4026,6 +4039,63 @@ a,
   color: var(--danger);
 }
 
+.todo-item__comment-editor {
+  margin: -6px 0 0;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.07);
+}
+
+.todo-item__comment-editor textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  outline: none;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.todo-item__comment-editor textarea:focus {
+  border-color: rgba(110, 168, 255, 0.58);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.todo-item__comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.todo-item__comment {
+  margin: -6px 0 0;
+  padding: 9px 11px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: rgba(148, 163, 184, 0.08);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.todo-item__comment p {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .btn-drag-handle {
   cursor: grab;
   touch-action: none;
@@ -4997,6 +5067,10 @@ body.is-reminder-window #root {
 
   .todo-form__meta-row,
   .todo-form__primary-row {
+    grid-template-columns: 1fr;
+  }
+
+  .todo-form__datetime-row {
     grid-template-columns: 1fr;
   }
 

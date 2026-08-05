@@ -42,6 +42,7 @@ import { useTaskTemplates } from "./hooks/useTaskTemplates";
 import type { Todo, TodoSubtask } from "./types";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
 import {
+  formatClockTime,
   formatDateKey,
   formatDurationCompact,
   formatDisplayDate,
@@ -191,6 +192,7 @@ function App() {
     reorderTodo,
     toggleComplete,
     updateTodo,
+    updateComment,
     addSubtask,
     updateSubtask,
     syncSubtaskElapsedFromParent,
@@ -1230,6 +1232,7 @@ function App() {
               initialDraft={{
                 title: editingTodo.title,
                 date: editingTodo.date,
+                taskTime: formatClockTime(editingTodo.createdAt),
                 urgency: editingTodo.urgency,
                 plannedSeconds:
                   editingTodo.plannedSeconds > 0
@@ -1308,6 +1311,9 @@ function App() {
                         setPendingDeleteSubtask(null);
                         setPendingResetTodoId(todo.id);
                       }}
+                      onUpdateComment={(comment) =>
+                        updateComment(todo.id, comment)
+                      }
                       onAddSubtask={(parentSubtaskId) =>
                         handleStartAddSubtask(todo.id, parentSubtaskId)
                       }

@@ -12,7 +12,7 @@ import type {
   Urgency,
 } from "../types";
 import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
-import { formatDateKey, PRESET_MINUTES } from "../utils/time";
+import { formatClockTime, formatDateKey, PRESET_MINUTES } from "../utils/time";
 import {
   getDefaultReminderTime,
   normalizeReminderTime,
@@ -37,6 +37,7 @@ import {
 export interface TodoDraft {
   title: string;
   date: string;
+  taskTime: string;
   urgency: Urgency;
   plannedSeconds: number;
   countdownEnabled: boolean;
@@ -96,10 +97,13 @@ const TIME_PICKER_POPOVER_GAP = 8;
 const TIME_PICKER_VIEWPORT_PADDING = 8;
 type TaskMode = "normal" | "record" | "countdown";
 
+type ActiveTimePicker = "task" | "reminder" | null;
+
 export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
   return {
     title: "",
     date,
+    taskTime: formatClockTime(Date.now()),
     urgency: "medium",
     plannedSeconds: 25 * 60,
     countdownEnabled: false,
@@ -127,17 +131,24 @@ export function TodoEditorForm({
   onManageTemplates,
 }: TodoEditorFormProps) {
   const [draft, setDraft] = useState<TodoDraft>(initialDraft);
-  const [timePickerOpen, setTimePickerOpen] = useState(false);
+  const [activeTimePicker, setActiveTimePicker] =
+    useState<ActiveTimePicker>(null);
   const [timePickerPosition, setTimePickerPosition] =
     useState<CSSProperties | null>(null);
+  const taskTimeRef = useRef<HTMLDivElement | null>(null);
+  const taskTimeButtonRef = useRef<HTMLButtonElement | null>(null);
   const reminderTimeRef = useRef<HTMLDivElement | null>(null);
   const reminderTimeButtonRef = useRef<HTMLButtonElement | null>(null);
   const hourListRef = useRef<HTMLDivElement | null>(null);
   const minuteListRef = useRef<HTMLDivElement | null>(null);
   const trimmedTitle = draft.title.trim();
+  const taskTimeValue =
+    normalizeReminderTime(draft.taskTime) ?? formatClockTime(Date.now());
   const reminderTimeValue =
     normalizeReminderTime(draft.reminderTime) ?? getDefaultReminderTime();
-  const [selectedHour, selectedMinute] = reminderTimeValue.split(":");
+  const activeTimeValue =
+    activeTimePicker === "task" ? taskTimeValue : reminderTimeValue;
+  const [selectedHour, selectedMinute] = activeTimeValue.split(":");
   const taskMode: TaskMode = draft.countdownEnabled
     ? "countdown"
     : draft.recordTimeEnabled
@@ -221,19 +232,24 @@ export function TodoEditorForm({
     if (next.length > 0) updateRecurrence("weekdays", next);
   };
 
-  const toggleReminderTimePicker = () => {
-    if (!draft.reminderEnabled) return;
-    if (timePickerOpen) {
-      setTimePickerOpen(false);
+  const toggleTimePicker = (target: Exclude<ActiveTimePicker, null>) => {
+    if (target === "reminder" && !draft.reminderEnabled) return;
+    if (activeTimePicker === target) {
+      setActiveTimePicker(null);
       return;
     }
 
-    updateTimePickerPosition();
-    setTimePickerOpen(true);
+    updateTimePickerPosition(target);
+    setActiveTimePicker(target);
   };
 
-  const updateTimePickerPosition = () => {
-    const button = reminderTimeButtonRef.current;
+  const updateTimePickerPosition = (
+    target: Exclude<ActiveTimePicker, null> = activeTimePicker ?? "task",
+  ) => {
+    const button =
+      target === "task"
+        ? taskTimeButtonRef.current
+        : reminderTimeButtonRef.current;
     if (!button) return;
 
     const rect = button.getBoundingClientRect();
@@ -265,44 +281,48 @@ export function TodoEditorForm({
     setTimePickerPosition({ left, top });
   };
 
-  const updateReminderTimePart = (part: "hour" | "minute", value: string) => {
+  const updateTimePart = (part: "hour" | "minute", value: string) => {
     const nextTime =
       part === "hour"
         ? `${value}:${selectedMinute}`
         : `${selectedHour}:${value}`;
-    updateDraft("reminderTime", nextTime);
+    updateDraft(activeTimePicker === "task" ? "taskTime" : "reminderTime", nextTime);
   };
 
   useEffect(() => {
-    if (!timePickerOpen) return;
+    if (activeTimePicker == null) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
+      const activeRef =
+        activeTimePicker === "task" ? taskTimeRef : reminderTimeRef;
       if (
         target instanceof Node &&
-        reminderTimeRef.current?.contains(target)
+        activeRef.current?.contains(target)
       ) {
         return;
       }
-      setTimePickerOpen(false);
+      setActiveTimePicker(null);
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setTimePickerOpen(false);
+      if (event.key === "Escape") setActiveTimePicker(null);
     };
 
     const handleViewportChange = (event?: Event) => {
       const target = event?.target;
+      const activeRef =
+        activeTimePicker === "task" ? taskTimeRef : reminderTimeRef;
       if (
         target instanceof Node &&
-        reminderTimeRef.current?.contains(target)
+        activeRef.current?.contains(target)
       ) {
         return;
       }
-      updateTimePickerPosition();
+      updateTimePickerPosition(activeTimePicker);
     };
 
-    updateTimePickerPosition();
+    updateTimePickerPosition(activeTimePicker);
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("scroll", handleViewportChange, true);
     window.addEventListener("resize", handleViewportChange);
@@ -313,18 +333,18 @@ export function TodoEditorForm({
       window.removeEventListener("resize", handleViewportChange);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [timePickerOpen]);
+  }, [activeTimePicker]);
 
   useEffect(() => {
-    if (!timePickerOpen) return;
+    if (activeTimePicker == null) return;
     window.requestAnimationFrame(() => {
       centerTimePickerList(hourListRef.current, Number(selectedHour));
       centerTimePickerList(minuteListRef.current, Number(selectedMinute));
     });
-  }, [selectedHour, selectedMinute, timePickerOpen]);
+  }, [activeTimePicker, selectedHour, selectedMinute]);
 
   useEffect(() => {
-    if (!timePickerOpen) return;
+    if (activeTimePicker == null) return;
 
     const lists = [hourListRef.current, minuteListRef.current].filter(
       (list): list is HTMLDivElement => list !== null,
@@ -347,7 +367,7 @@ export function TodoEditorForm({
     return () => {
       lists.forEach((list) => list.removeEventListener("wheel", handleWheel));
     };
-  }, [timePickerOpen]);
+  }, [activeTimePicker]);
 
   const centerTimePickerList = (
     list: HTMLDivElement | null,
@@ -389,6 +409,7 @@ export function TodoEditorForm({
     onSubmit({
       ...draft,
       title: trimmedTitle,
+      taskTime: normalizeReminderTime(draft.taskTime) ?? taskTimeValue,
       recordTimeEnabled: draft.countdownEnabled
         ? true
         : draft.recordTimeEnabled,
@@ -402,6 +423,7 @@ export function TodoEditorForm({
     setDraft((current) => ({
       ...current,
       title: template.title,
+      taskTime: current.taskTime,
       urgency: template.urgency,
       plannedSeconds: template.plannedSeconds,
       countdownEnabled: template.countdownEnabled,
@@ -467,15 +489,36 @@ export function TodoEditorForm({
             maxLength={120}
           />
         </label>
-        <DatePickerField
-          label="任务日期"
-          value={draft.date}
-          fallbackDate={draft.date}
-          todoSummaries={todoDateSummaries}
-          onChange={(date) => {
-            if (date) updateDraft("date", date);
-          }}
-        />
+        <div className="todo-form__datetime-row">
+          <DatePickerField
+            label="任务日期"
+            value={draft.date}
+            fallbackDate={draft.date}
+            todoSummaries={todoDateSummaries}
+            onChange={(date) => {
+              if (date) updateDraft("date", date);
+            }}
+          />
+          <div className="field field--task-time" aria-label="任务时间设置">
+            <span className="field__label">
+              <IconClock size={14} />
+              任务时间
+            </span>
+            <div ref={taskTimeRef} className="todo-reminder-time">
+              <button
+                ref={taskTimeButtonRef}
+                type="button"
+                className="todo-reminder-time__control"
+                onClick={() => toggleTimePicker("task")}
+                aria-haspopup="listbox"
+                aria-expanded={activeTimePicker === "task"}
+              >
+                <IconClock size={14} />
+                <span className="todo-reminder-time__value">{taskTimeValue}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="todo-form__meta-row">
@@ -534,9 +577,9 @@ export function TodoEditorForm({
               type="button"
               className="todo-reminder-time__control"
               disabled={!draft.reminderEnabled}
-              onClick={toggleReminderTimePicker}
+              onClick={() => toggleTimePicker("reminder")}
               aria-haspopup="listbox"
-              aria-expanded={timePickerOpen}
+              aria-expanded={activeTimePicker === "reminder"}
             >
               <IconClock size={14} />
               <span className="todo-reminder-time__value">
@@ -740,7 +783,7 @@ export function TodoEditorForm({
         )}
       </section>
 
-      {timePickerOpen && (
+      {activeTimePicker != null && (
         <div
           className="time-picker-popover"
           role="dialog"
@@ -775,7 +818,7 @@ export function TodoEditorForm({
                   }`}
                   role="option"
                   aria-selected={selectedHour === hour}
-                  onClick={() => updateReminderTimePart("hour", hour)}
+                  onClick={() => updateTimePart("hour", hour)}
                 >
                   {hour}
                 </button>
@@ -817,7 +860,7 @@ export function TodoEditorForm({
                   }`}
                   role="option"
                   aria-selected={selectedMinute === minute}
-                  onClick={() => updateReminderTimePart("minute", minute)}
+                  onClick={() => updateTimePart("minute", minute)}
                 >
                   {minute}
                 </button>
