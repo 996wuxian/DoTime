@@ -9,6 +9,7 @@ import {
 import { getReminderDueAt } from "../utils/reminders";
 import {
   IconBell,
+  IconBookmark,
   IconCheck,
   IconClock,
   IconClockHour4,
@@ -40,6 +41,7 @@ interface TodoItemProps {
   onEdit: () => void;
   onReset: () => void;
   onUpdateComment: (comment: string) => void;
+  onToggleFavorite: () => void;
   onAddSubtask: (parentSubtaskId: string | null) => void;
   onEditSubtask: (subtaskId: string) => void;
   onSyncSubtask: (subtaskId: string) => void;
@@ -346,6 +348,7 @@ export function TodoItem({
   onEdit,
   onReset,
   onUpdateComment,
+  onToggleFavorite,
   onAddSubtask,
   onEditSubtask,
   onSyncSubtask,
@@ -619,6 +622,18 @@ export function TodoItem({
             title={todoComment ? "编辑评论" : "添加评论"}
           >
             <IconMessageCircle size={16} />
+          </button>
+          <button
+            type="button"
+            className={`btn btn-ghost btn-icon-only todo-item__favorite-action ${
+              todo.favorite ? "is-active" : ""
+            }`}
+            onClick={onToggleFavorite}
+            aria-pressed={Boolean(todo.favorite)}
+            aria-label={todo.favorite ? "取消收藏待办" : "收藏待办"}
+            title={todo.favorite ? "取消收藏" : "收藏"}
+          >
+            <IconBookmark size={16} />
           </button>
           <button
             type="button"

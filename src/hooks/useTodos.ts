@@ -15,6 +15,7 @@ import {
   applyReminderAction,
   applyReminderFired,
   addTodoSubtask,
+  clearTodoFavorites,
   pauseTodoTiming,
   pauseTodoSubtaskTiming,
   removeTodoSubtask,
@@ -28,6 +29,7 @@ import {
   syncTodoSubtaskElapsedFromParent,
   toggleTodoSubtask,
   toggleTodoCompletionWithRecurrence,
+  toggleTodoFavorite,
   updateTodoComment,
   updateTodoDetails,
   updateTodoSubtaskDetails,
@@ -377,6 +379,7 @@ export function useTodos(selectedDate: string) {
           elapsedSeconds: 0,
           actualDurationSeconds: null,
           comment: "",
+          favorite: false,
           createdAt,
           completedAt: null,
           recurrenceSeriesId:
@@ -472,6 +475,14 @@ export function useTodos(selectedDate: string) {
 
   const updateComment = useCallback((id: string, comment: string) => {
     setTodos((prev) => updateTodoComment(prev, id, comment));
+  }, []);
+
+  const toggleFavorite = useCallback((id: string) => {
+    setTodos((prev) => toggleTodoFavorite(prev, id));
+  }, []);
+
+  const clearFavorites = useCallback(() => {
+    setTodos((prev) => clearTodoFavorites(prev));
   }, []);
 
   const addSubtask = useCallback(
@@ -630,6 +641,8 @@ export function useTodos(selectedDate: string) {
     toggleComplete,
     updateTodo,
     updateComment,
+    toggleFavorite,
+    clearFavorites,
     addSubtask,
     renameSubtask,
     updateSubtask,

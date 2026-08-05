@@ -22,9 +22,11 @@ import {
 } from "./components/WindowControls";
 import {
   IconChevronUp,
+  IconBookmark,
   IconChartBar,
   IconCircleCheck,
   IconClipboardText,
+  IconClock,
   IconClockHour4,
   IconClose,
   IconListCheck,
@@ -40,10 +42,12 @@ import type { StatisticsPeriod } from "./domain/statistics";
 import { useTodos } from "./hooks/useTodos";
 import { useTaskTemplates } from "./hooks/useTaskTemplates";
 import type { Todo, TodoSubtask } from "./types";
+import { URGENCY_LABELS } from "./types";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
 import {
   formatClockTime,
   formatDateKey,
+  formatDuration,
   formatDurationCompact,
   formatDisplayDate,
 } from "./utils/time";
@@ -128,6 +132,100 @@ function getSubtaskEditorDraft(
   };
 }
 
+function FavoriteTodoCard({
+  todo,
+  liveElapsed,
+  onSelect,
+  onRemoveFavorite,
+}: {
+  todo: Todo;
+  liveElapsed: number;
+  onSelect: () => void;
+  onRemoveFavorite: () => void;
+}) {
+  const timeTrackingEnabled = todo.countdownEnabled || todo.recordTimeEnabled;
+  const comment = todo.comment?.trim() ?? "";
+
+  return (
+    <div
+      className={[
+        "favorite-todo-card",
+        "todo-item",
+        "card",
+        todo.countdownEnabled ? "has-countdown" : "",
+        todo.completed ? "is-completed" : "",
+        todo.isTiming ? "is-timing" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        className="favorite-todo-card__content"
+        onClick={onSelect}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          onSelect();
+        }}
+      >
+        <div className="todo-item__title-row">
+          <div className="favorite-todo-card__title-main">
+            <h3 className="todo-item__title">{todo.title}</h3>
+            <span className={`badge badge--${todo.urgency}`}>
+              {URGENCY_LABELS[todo.urgency]}
+            </span>
+            {!todo.completed && (
+              <span
+                className={`status-badge status-badge--${
+                  todo.isTiming ? "active" : "idle"
+                }`}
+              >
+                {todo.isTiming ? "进行中" : "待开始"}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            className="favorite-todo-card__remove"
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemoveFavorite();
+            }}
+            aria-label={`取消收藏 ${todo.title}`}
+            title="取消收藏"
+          >
+            <IconBookmark size={16} />
+          </button>
+        </div>
+        <div className="todo-item__meta">
+          <span className="meta-item">
+            <IconClock size={13} />
+            {formatDisplayDate(todo.date)} {formatClockTime(todo.createdAt)}
+          </span>
+          {todo.countdownEnabled && (
+            <span className="meta-item">
+              <IconClock size={13} />
+              计划 {formatDuration(todo.plannedSeconds)}
+            </span>
+          )}
+          {timeTrackingEnabled && (liveElapsed > 0 || todo.isTiming) && (
+            <span className="meta-item meta-elapsed">
+              <IconClockHour4 size={13} />
+              已用 {formatDuration(liveElapsed)}
+            </span>
+          )}
+        </div>
+        {comment && (
+          <div className="favorite-todo-card__comment">{comment}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function clampMiniOpacity(value: number) {
   return Math.min(MINI_OPACITY_MAX, Math.max(MINI_OPACITY_MIN, value));
 }
@@ -159,6 +257,7 @@ function App() {
   const [mainView, setMainView] = useState<"todos" | "statistics">("todos");
   const [statisticsPeriod, setStatisticsPeriod] =
     useState<StatisticsPeriod>("week");
+  const [favoritesOpen, setFavoritesOpen] = useState(false);
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(
     null,
   );
@@ -175,6 +274,7 @@ function App() {
     useState<SubtaskSyncTarget | null>(null);
   const [hasBodyOverflow, setHasBodyOverflow] = useState(false);
   const appBodyRef = useRef<HTMLElement | null>(null);
+  const favoritesMenuRef = useRef<HTMLDivElement | null>(null);
   const confirmDeleteButtonRef = useRef<HTMLButtonElement | null>(null);
   const todoItemRefs = useRef(new Map<string, HTMLElement>());
   const highlightTimerRef = useRef<number | null>(null);
@@ -193,6 +293,8 @@ function App() {
     toggleComplete,
     updateTodo,
     updateComment,
+    toggleFavorite,
+    clearFavorites,
     addSubtask,
     updateSubtask,
     syncSubtaskElapsedFromParent,
@@ -225,6 +327,21 @@ function App() {
   useEffect(() => {
     saveTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (!favoritesOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (favoritesMenuRef.current?.contains(target)) return;
+      setFavoritesOpen(false);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    return () =>
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [favoritesOpen]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -282,6 +399,14 @@ function App() {
       ? 0
       : Math.min(miniIndex, unfinishedTodos.length - 1);
   const miniTodo = unfinishedTodos[activeMiniIndex] ?? null;
+  const favoriteTodos = allTodos
+    .filter((todo) => todo.favorite)
+    .sort(
+      (a, b) =>
+        b.date.localeCompare(a.date) ||
+        a.sortOrder - b.sortOrder ||
+        b.createdAt - a.createdAt,
+    );
   const pendingDeleteTodo = pendingDeleteTodoId
     ? dayTodos.find((todo) => todo.id === pendingDeleteTodoId) ?? null
     : null;
@@ -691,6 +816,17 @@ function App() {
 
   const handleScrollToTop = () => {
     appBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleSelectFavoriteTodo = (todo: Todo) => {
+    setFavoritesOpen(false);
+    setSelectedDate(todo.date);
+    setMainView("todos");
+    setTodoFormOpen(false);
+    setEditingTodoId(null);
+    setSubtaskEditorTarget(null);
+    scrollTodoIntoView(todo.id);
+    flashTodo(todo.id);
   };
 
   const moveMiniTodo = (direction: -1 | 1) => {
@@ -1133,6 +1269,55 @@ function App() {
               flashTodo(todo.id);
             }}
           />
+          <div className="favorites-menu" ref={favoritesMenuRef}>
+            <button
+              type="button"
+              className={`btn btn-ghost btn-icon-only favorites-menu__toggle ${
+                favoritesOpen ? "is-active" : ""
+              }`}
+              onClick={() => setFavoritesOpen((open) => !open)}
+              aria-label="查看收藏待办"
+              aria-expanded={favoritesOpen}
+              title="收藏待办"
+            >
+              <IconBookmark size={17} />
+            </button>
+            {favoritesOpen && (
+              <section className="favorites-menu__panel" aria-label="收藏待办">
+                <div className="favorites-menu__header">
+                  <div>
+                    <strong>收藏待办</strong>
+                    <span>{favoriteTodos.length} 个</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="favorites-menu__clear"
+                    onClick={clearFavorites}
+                    disabled={favoriteTodos.length === 0}
+                  >
+                    取消全部收藏
+                  </button>
+                </div>
+                <div className="favorites-menu__list">
+                  {favoriteTodos.length === 0 ? (
+                    <div className="favorites-menu__empty">
+                      暂无收藏待办
+                    </div>
+                  ) : (
+                    favoriteTodos.map((todo) => (
+                      <FavoriteTodoCard
+                        key={todo.id}
+                        todo={todo}
+                        liveElapsed={getLiveElapsed(todo)}
+                        onSelect={() => handleSelectFavoriteTodo(todo)}
+                        onRemoveFavorite={() => toggleFavorite(todo.id)}
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
+            )}
+          </div>
           <button
             type="button"
             className="btn btn-ghost btn-icon-only theme-toggle"
@@ -1314,6 +1499,7 @@ function App() {
                       onUpdateComment={(comment) =>
                         updateComment(todo.id, comment)
                       }
+                      onToggleFavorite={() => toggleFavorite(todo.id)}
                       onAddSubtask={(parentSubtaskId) =>
                         handleStartAddSubtask(todo.id, parentSubtaskId)
                       }

@@ -88,6 +88,7 @@ export interface Todo {
   /** 完成时实际总耗时（秒），结束计时后写入 */
   actualDurationSeconds: number | null;
   comment?: string;
+  favorite?: boolean;
   createdAt: number;
   completedAt: number | null;
   /** Shared identifier for occurrences in one recurring series. */

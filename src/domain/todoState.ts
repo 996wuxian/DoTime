@@ -344,6 +344,16 @@ export function updateTodoComment(
   );
 }
 
+export function toggleTodoFavorite(todos: Todo[], id: string): Todo[] {
+  return todos.map((todo) =>
+    todo.id === id ? { ...todo, favorite: !todo.favorite } : todo,
+  );
+}
+
+export function clearTodoFavorites(todos: Todo[]): Todo[] {
+  return todos.map((todo) => (todo.favorite ? { ...todo, favorite: false } : todo));
+}
+
 export function syncTodoSubtaskElapsedFromParent(
   todos: Todo[],
   todoId: string,
