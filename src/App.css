@@ -4161,7 +4161,7 @@ a,
   gap: 6px;
 }
 
-.batch-actions__date > span {
+.batch-actions__date-label {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -4170,22 +4170,60 @@ a,
   font-weight: 750;
 }
 
-.batch-actions__date input {
+.batch-actions__date-nav {
+  position: relative;
   width: 100%;
-  height: 34px;
-  padding: 0 9px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 0;
+  padding: 2px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  outline: none;
-  color: var(--text);
-  background: var(--bg-elevated);
-  font: inherit;
-  font-size: 0.78rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
 }
 
-.batch-actions__date input:focus {
-  border-color: rgba(110, 168, 255, 0.58);
-  box-shadow: 0 0 0 3px var(--primary-soft);
+.batch-actions__date-nav .btn-icon-only {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+}
+
+.batch-actions__date-current {
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.batch-actions__date-current span {
+  min-width: 0;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+}
+
+.batch-actions__date-current:hover,
+.batch-actions__date-current:focus-visible {
+  outline: none;
+  background: var(--primary-soft);
+}
+
+.batch-actions__date-nav > .calendar-popover {
+  top: auto;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 180;
+  width: min(324px, calc(100vw - 48px));
 }
 
 .batch-actions__commands {

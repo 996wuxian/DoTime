@@ -97,6 +97,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          tauriScript: npm run tauri:cli --
           tagName: ${{ steps.version.outputs.tag }}
           releaseName: doTime ${{ steps.version.outputs.tag }}
           releaseBody: Automated release from package.json version ${{ steps.version.outputs.version }}.

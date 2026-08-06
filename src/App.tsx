@@ -11,6 +11,7 @@ import { PlanOverview, type PlanPeriod } from "./components/PlanOverview";
 import { StatisticsCenter } from "./components/StatisticsCenter";
 import { DataActions } from "./components/DataActions";
 import { DateNavigator } from "./components/DateNavigator";
+import { CalendarPopover } from "./components/CalendarPopover";
 import {
   createDefaultTodoDraft,
   TodoEditorForm,
@@ -23,6 +24,8 @@ import {
   toggleMaximizeFromTitlebar,
 } from "./components/WindowControls";
 import {
+  IconChevronLeft,
+  IconChevronRight,
   IconChevronUp,
   IconBookmark,
   IconCalendarEvent,
@@ -46,6 +49,7 @@ import { useTodos } from "./hooks/useTodos";
 import { useTaskTemplates } from "./hooks/useTaskTemplates";
 import type { Todo, TodoSubtask } from "./types";
 import { URGENCY_LABELS } from "./types";
+import { shiftDateKey } from "./utils/calendar";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
 import {
   formatClockTime,
@@ -268,6 +272,7 @@ function App() {
   const [favoritesOpen, setFavoritesOpen] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [batchMenuOpen, setBatchMenuOpen] = useState(false);
+  const [batchMoveCalendarOpen, setBatchMoveCalendarOpen] = useState(false);
   const [batchMoveDate, setBatchMoveDate] = useState(selectedDate);
   const [selectedTodoIds, setSelectedTodoIds] = useState<Set<string>>(
     () => new Set(),
@@ -866,6 +871,7 @@ function App() {
 
   const handleToggleBatchMenu = () => {
     setBatchMenuOpen((open) => !open);
+    setBatchMoveCalendarOpen(false);
     setBatchMode(true);
     setMainView("todos");
     setTodoFormOpen(false);
@@ -876,6 +882,7 @@ function App() {
   const handleExitBatchMode = () => {
     setBatchMode(false);
     setBatchMenuOpen(false);
+    setBatchMoveCalendarOpen(false);
     setPendingBatchAction(null);
     setSelectedTodoIds(new Set());
   };
@@ -1837,17 +1844,58 @@ function App() {
                   </button>
                 </div>
 
-                <label className="batch-actions__date">
-                  <span>
+                <div className="batch-actions__date">
+                  <span className="batch-actions__date-label">
                     <IconCalendarEvent size={14} />
                     移动到日期
                   </span>
-                  <input
-                    type="date"
-                    value={batchMoveDate}
-                    onChange={(event) => setBatchMoveDate(event.target.value)}
-                  />
-                </label>
+                  <div className="batch-actions__date-nav">
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-icon-only"
+                      onClick={() =>
+                        setBatchMoveDate((date) => shiftDateKey(date, -1))
+                      }
+                      aria-label="移动到前一天"
+                      title="前一天"
+                    >
+                      <IconChevronLeft size={17} />
+                    </button>
+                    <button
+                      type="button"
+                      className="batch-actions__date-current"
+                      onClick={() => setBatchMoveCalendarOpen((open) => !open)}
+                      aria-label="选择移动日期"
+                      aria-expanded={batchMoveCalendarOpen}
+                      aria-haspopup="dialog"
+                      title="选择移动日期"
+                    >
+                      <IconCalendarEvent size={14} />
+                      <span>{formatDisplayDate(batchMoveDate)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-icon-only"
+                      onClick={() =>
+                        setBatchMoveDate((date) => shiftDateKey(date, 1))
+                      }
+                      aria-label="移动到后一天"
+                      title="后一天"
+                    >
+                      <IconChevronRight size={17} />
+                    </button>
+                    {batchMoveCalendarOpen && (
+                      <CalendarPopover
+                        value={batchMoveDate}
+                        todoSummaries={todoDateSummaries}
+                        onSelect={(date) => {
+                          setBatchMoveDate(date);
+                          setBatchMoveCalendarOpen(false);
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
 
                 <div className="batch-actions__commands">
                   <button
