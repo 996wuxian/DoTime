@@ -19,6 +19,10 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+    env:
+      CARGO_HTTP_TIMEOUT: 120
+      CARGO_NET_RETRY: 10
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
     steps:
       - name: Checkout repository
@@ -67,6 +71,17 @@ jobs:
         if: steps.release.outputs.exists != 'true'
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust dependencies
+        if: steps.release.outputs.exists != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
       - name: Install frontend dependencies
         if: steps.release.outputs.exists != 'true'
         run: npm ci
@@ -90,6 +105,26 @@ jobs:
       - name: Test frontend domain logic
         if: steps.release.outputs.exists != 'true'
         run: npm test
+
+      - name: Fetch Rust dependencies
+        if: steps.release.outputs.exists != 'true'
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          $attempts = 3
+          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+            cargo fetch
+            if ($LASTEXITCODE -eq 0) {
+              exit 0
+            }
+
+            if ($attempt -eq $attempts) {
+              exit $LASTEXITCODE
+            }
+
+            Write-Host "cargo fetch failed. Retry $attempt/$attempts after 20 seconds."
+            Start-Sleep -Seconds 20
+          }
 
       - name: Publish Tauri release
         if: steps.release.outputs.exists != 'true'
