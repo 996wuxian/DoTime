@@ -2,6 +2,7 @@ import type {
   RecurrenceRule,
   RecurrenceTemplate,
   Todo,
+  TodoImage,
   TodoSubtask,
   Urgency,
 } from "../types";
@@ -217,6 +218,7 @@ function parseTodo(value: unknown): Todo | null {
         : null,
     recurrence,
     recurrenceTemplate,
+    images: parseTodoImages(value.images),
     subtasks: parseTodoSubtasks(value.subtasks),
   };
 }
@@ -295,6 +297,29 @@ function parseTodoSubtask(value: unknown, depth: number): TodoSubtask | null {
     completedAt: isFiniteNumber(value.completedAt) ? value.completedAt : null,
     children,
   };
+}
+
+function parseTodoImage(value: unknown): TodoImage | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== "string" || value.id.length === 0) return null;
+  if (typeof value.name !== "string") return null;
+  if (typeof value.dataUrl !== "string" || !value.dataUrl.startsWith("data:image/")) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    name: value.name.trim() || "图片",
+    dataUrl: value.dataUrl,
+  };
+}
+
+function parseTodoImages(value: unknown): TodoImage[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(parseTodoImage)
+    .filter((item): item is TodoImage => item != null)
+    .slice(0, 3);
 }
 
 function parseTodoSubtasks(value: unknown): TodoSubtask[] {

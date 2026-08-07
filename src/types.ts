@@ -66,6 +66,12 @@ export interface TodoSubtask {
   children: TodoSubtask[];
 }
 
+export interface TodoImage {
+  id: string;
+  name: string;
+  dataUrl: string;
+}
+
 export interface Todo {
   id: string;
   title: string;
@@ -100,6 +106,7 @@ export interface Todo {
   actualDurationSeconds: number | null;
   comment?: string;
   favorite?: boolean;
+  images?: TodoImage[];
   createdAt: number;
   completedAt: number | null;
   /** Shared identifier for occurrences in one recurring series. */

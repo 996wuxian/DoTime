@@ -138,6 +138,7 @@ function getSubtaskEditorDraft(
       subtask.plannedSeconds > 0 ? subtask.plannedSeconds : 25 * 60,
     countdownEnabled: subtask.countdownEnabled,
     recordTimeEnabled: subtask.recordTimeEnabled,
+    images: [],
   };
 }
 
@@ -1333,9 +1334,6 @@ function App() {
             <h1 className="brand__title" data-tauri-drag-region>
               doTime
             </h1>
-            <p className="brand__sub" data-tauri-drag-region>
-              每日待办 · 倒计时 · 耗时统计
-            </p>
           </div>
         </div>
 
@@ -1661,6 +1659,7 @@ function App() {
                 taskTime: formatClockTime(editingTodo.createdAt),
                 comment: editingTodo.comment ?? "",
                 subtaskTitles: "",
+                images: editingTodo.images ?? [],
                 urgency: editingTodo.urgency,
                 plannedSeconds:
                   editingTodo.plannedSeconds > 0

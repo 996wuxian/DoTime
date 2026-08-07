@@ -2,6 +2,7 @@ import type {
   RecurrenceEditScope,
   RecurrenceRule,
   Todo,
+  TodoImage,
   TodoSubtask,
 } from "../types";
 import type {
@@ -31,6 +32,7 @@ export type TodoDetailsUpdate = {
   recordTimeEnabled: boolean;
   recurrence: RecurrenceRule | null;
   recurrenceEditScope: RecurrenceEditScope;
+  images?: TodoImage[];
 };
 
 function getDateTimeTimestamp(dateKey: string, time: string): number {
@@ -676,6 +678,7 @@ export function updateTodoDetails(
       recurrenceSeriesId: nextSeriesId,
       recurrence: occurrenceRecurrence,
       recurrenceTemplate: nextTemplate,
+      images: updates.images ?? todo.images,
     };
   });
 

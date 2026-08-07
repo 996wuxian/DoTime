@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, type PointerEvent } from "react";
-import type { Todo, TodoSubtask } from "../types";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import type { Todo, TodoImage, TodoSubtask } from "../types";
 import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
 import {
   formatClockTime,
@@ -15,6 +15,7 @@ import {
   IconClockHour4,
   IconChevronDown,
   IconChevronRight,
+  IconClose,
   IconGripVertical,
   IconMessageCircle,
   IconPencil,
@@ -55,6 +56,46 @@ interface TodoItemProps {
   onPauseSubtask: (subtaskId: string) => void;
   onStopSubtask: (subtaskId: string) => void;
   onDragHandlePointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
+}
+
+function TodoImageLightbox({
+  image,
+  onClose,
+}: {
+  image: TodoImage;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      className="todo-image-lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label={image.name}
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <button
+        type="button"
+        className="todo-image-lightbox__close"
+        onClick={onClose}
+        aria-label="关闭图片预览"
+      >
+        <IconClose size={14} />
+      </button>
+      <img src={image.dataUrl} alt={image.name} className="todo-image-lightbox__image" />
+      <div className="todo-image-lightbox__caption">{image.name}</div>
+    </div>
+  );
 }
 
 function getSubtaskStats(subtasks: readonly TodoSubtask[] = []) {
@@ -395,6 +436,10 @@ export function TodoItem({
   const overtime =
     countdownEnabled && liveElapsed > todo.plannedSeconds && todo.isTiming;
   const createdTime = formatClockTime(todo.createdAt);
+  const completedAt = todo.completedAt;
+  const completedTime = todo.completedAt != null ? formatClockTime(todo.completedAt) : null;
+  const todoImages = todo.images ?? [];
+  const [activeImage, setActiveImage] = useState<TodoImage | null>(null);
   const reminderDueAt = getReminderDueAt(todo);
   const reminderFired =
     reminderDueAt != null &&
@@ -416,6 +461,15 @@ export function TodoItem({
     onUpdateComment(commentDraft);
     setCommentEditorOpen(false);
   };
+
+  useEffect(() => {
+    if (activeImage == null) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActiveImage(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeImage]);
 
   const finishSubtaskDrag = () => {
     window.removeEventListener("pointermove", handleSubtaskDragMove);
@@ -502,6 +556,7 @@ export function TodoItem({
           ? "has-record-elapsed"
           : "",
         todo.completed ? "is-completed" : "",
+        todoImages.length > 0 ? "has-images" : "",
         todo.isTiming ? "is-timing" : "",
         overtime ? "is-overtime" : "",
         isHighlighted ? "is-highlighted" : "",
@@ -510,13 +565,28 @@ export function TodoItem({
         .filter(Boolean)
         .join(" ")}
     >
-      <time
-        className="todo-item__created-time"
-        dateTime={new Date(todo.createdAt).toISOString()}
-        aria-label={`添加时间 ${createdTime}`}
+      <div
+        className={`todo-item__time-stack ${
+          todo.completed && completedTime ? "is-dual" : ""
+        }`}
       >
-        {createdTime}
-      </time>
+        <time
+          className="todo-item__created-time"
+          dateTime={new Date(todo.createdAt).toISOString()}
+          aria-label={`添加时间 ${createdTime}`}
+        >
+          {createdTime}
+        </time>
+        {todo.completed && completedAt != null && completedTime && (
+          <time
+            className="todo-item__completed-time"
+            dateTime={new Date(completedAt).toISOString()}
+            aria-label={`完成时间 ${completedTime}`}
+          >
+            {completedTime}
+          </time>
+        )}
+      </div>
       <div className="todo-item__top">
         <button
           type="button"
@@ -730,6 +800,28 @@ export function TodoItem({
           )}
       </div>
 
+      {todoImages.length > 0 && (
+        <div className="todo-item__images">
+          {todoImages.slice(0, 3).map((image) => (
+            <button
+              key={image.id}
+              type="button"
+              className="todo-item__image-btn"
+              onClick={() => setActiveImage(image)}
+              aria-label={`查看图片 ${image.name}`}
+              title="点击放大查看"
+            >
+              <img
+                src={image.dataUrl}
+                alt=""
+                className="todo-item__image"
+                draggable={false}
+              />
+            </button>
+          ))}
+        </div>
+      )}
+
       {showSubtasks && !subtasksCollapsed && (
         <div className="todo-subtasks">
           {subtasks.length > 0 && (
@@ -821,12 +913,15 @@ export function TodoItem({
       </div>
     )}
 
-    {!commentEditorOpen && todoComment && (
-      <div className="todo-item__comment">
-        <IconMessageCircle size={14} />
-        <p>{todoComment}</p>
-      </div>
-    )}
+      {!commentEditorOpen && todoComment && (
+        <div className="todo-item__comment">
+          <IconMessageCircle size={14} />
+          <p>{todoComment}</p>
+        </div>
+      )}
+      {activeImage && (
+        <TodoImageLightbox image={activeImage} onClose={() => setActiveImage(null)} />
+      )}
     </div>
   );
 }

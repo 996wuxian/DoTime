@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Todo, TodoDateSummary, TodoSubtask, Urgency } from "../types";
+import type {
+  Todo,
+  TodoDateSummary,
+  TodoImage,
+  TodoSubtask,
+  Urgency,
+} from "../types";
 import type { RecurrenceRule } from "../types";
 import {
   APP_DATA_STORAGE_KEY,
@@ -374,6 +380,7 @@ export function useTodos(selectedDate: string) {
       recurrence?: RecurrenceRule | null,
       comment = "",
       subtaskTitles: readonly string[] = [],
+      images: readonly TodoImage[] = [],
     ) => {
       const trimmed = title.trim();
       if (!trimmed) return;
@@ -424,6 +431,7 @@ export function useTodos(selectedDate: string) {
           recurrence: normalizedRecurrence,
           recurrenceTemplate: null,
           subtasks: createInitialSubtasks(subtaskTitles, now),
+          images: [...images].slice(0, 3),
         };
         todo.recurrenceTemplate =
           normalizedRecurrence == null ? null : createRecurrenceTemplate(todo);

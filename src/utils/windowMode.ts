@@ -1,6 +1,6 @@
-export const DEFAULT_WINDOW_WIDTH = 1060;
+export const DEFAULT_WINDOW_WIDTH = 1220;
 export const DEFAULT_WINDOW_HEIGHT = 720;
-export const DEFAULT_MIN_WIDTH = 1060;
+export const DEFAULT_MIN_WIDTH = 1220;
 export const DEFAULT_MIN_HEIGHT = 560;
 export const MINI_WINDOW_WIDTH = 500;
 export const MINI_WINDOW_HEIGHT = 80;

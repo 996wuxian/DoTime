@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type {
   CSSProperties,
+  ChangeEvent,
   ReactNode,
   WheelEvent,
 } from "react";
@@ -9,10 +10,15 @@ import type {
   RecurrenceFrequency,
   RecurrenceRule,
   TaskTemplate,
+  TodoImage,
   Urgency,
 } from "../types";
 import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
 import { formatClockTime, formatDateKey, PRESET_MINUTES } from "../utils/time";
+import {
+  createTodoImageFromFile,
+  MAX_TODO_IMAGES,
+} from "../utils/todoImages";
 import {
   getDefaultReminderTime,
   normalizeReminderTime,
@@ -31,7 +37,9 @@ import {
   IconChevronUp,
   IconFlag,
   IconFlame,
+  IconPhoto,
   IconRepeat,
+  IconTrash,
 } from "./icons";
 
 export interface TodoDraft {
@@ -40,6 +48,7 @@ export interface TodoDraft {
   taskTime: string;
   comment: string;
   subtaskTitles: string;
+  images: TodoImage[];
   urgency: Urgency;
   plannedSeconds: number;
   countdownEnabled: boolean;
@@ -97,6 +106,7 @@ const TIME_PICKER_POPOVER_WIDTH = 220;
 const TIME_PICKER_POPOVER_HEIGHT = 250;
 const TIME_PICKER_POPOVER_GAP = 8;
 const TIME_PICKER_VIEWPORT_PADDING = 8;
+const MAX_IMAGE_SELECTION = MAX_TODO_IMAGES;
 type TaskMode = "normal" | "record" | "countdown";
 
 type ActiveTimePicker = "task" | "reminder" | null;
@@ -108,6 +118,7 @@ export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
     taskTime: formatClockTime(Date.now()),
     comment: "",
     subtaskTitles: "",
+    images: [],
     urgency: "medium",
     plannedSeconds: 25 * 60,
     countdownEnabled: false,
@@ -143,6 +154,7 @@ export function TodoEditorForm({
   const taskTimeButtonRef = useRef<HTMLButtonElement | null>(null);
   const reminderTimeRef = useRef<HTMLDivElement | null>(null);
   const reminderTimeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const hourListRef = useRef<HTMLDivElement | null>(null);
   const minuteListRef = useRef<HTMLDivElement | null>(null);
   const trimmedTitle = draft.title.trim();
@@ -164,6 +176,42 @@ export function TodoEditorForm({
     value: TodoDraft[K],
   ) => {
     setDraft((current) => ({ ...current, [key]: value }));
+  };
+
+  const handleImageInputChange = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = Array.from(event.currentTarget.files ?? []).filter((file) =>
+      file.type.startsWith("image/"),
+    );
+    event.currentTarget.value = "";
+    if (files.length === 0) return;
+
+    const remaining = MAX_IMAGE_SELECTION - draft.images.length;
+    if (remaining <= 0) return;
+
+    const nextImages = (
+      await Promise.allSettled(
+        files
+          .slice(0, remaining)
+          .map(async (file) => createTodoImageFromFile(file)),
+      )
+    )
+      .filter((result): result is PromiseFulfilledResult<TodoImage> =>
+        result.status === "fulfilled",
+      )
+      .map((result) => result.value);
+    setDraft((current) => ({
+      ...current,
+      images: [...current.images, ...nextImages].slice(0, MAX_IMAGE_SELECTION),
+    }));
+  };
+
+  const removeDraftImage = (id: string) => {
+    setDraft((current) => ({
+      ...current,
+      images: current.images.filter((image) => image.id !== id),
+    }));
   };
 
   const handleReminderToggle = (enabled: boolean) => {
@@ -420,6 +468,7 @@ export function TodoEditorForm({
       reminderTime: draft.reminderEnabled
         ? normalizeReminderTime(draft.reminderTime)
         : null,
+      images: draft.images.slice(0, MAX_IMAGE_SELECTION),
     });
   };
 
@@ -815,6 +864,55 @@ export function TodoEditorForm({
               本次及后续
             </button>
           </div>
+        )}
+      </section>
+
+      <section className="todo-form__images" aria-label="待办图片">
+        <div className="field__label-row">
+          <span className="field__label">
+            <IconPhoto size={14} />
+            图片
+          </span>
+          <div className="todo-form__images-meta">
+            <span>{draft.images.length}/{MAX_IMAGE_SELECTION}</span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm todo-form__images-add"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={draft.images.length >= MAX_IMAGE_SELECTION}
+            >
+              <IconPhoto size={14} />
+              添加
+            </button>
+          </div>
+        </div>
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={handleImageInputChange}
+        />
+        {draft.images.length > 0 ? (
+          <div className="todo-form__image-list">
+            {draft.images.map((image) => (
+              <figure key={image.id} className="todo-form__image-item">
+                <img src={image.dataUrl} alt={image.name} draggable={false} />
+                <button
+                  type="button"
+                  className="todo-form__image-remove"
+                  onClick={() => removeDraftImage(image.id)}
+                  aria-label={`移除图片 ${image.name}`}
+                  title="移除图片"
+                >
+                  <IconTrash size={12} />
+                </button>
+              </figure>
+            ))}
+          </div>
+        ) : (
+          <div className="todo-form__images-empty">最多添加 3 张图片</div>
         )}
       </section>
 

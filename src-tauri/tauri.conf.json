@@ -14,9 +14,9 @@
       {
         "label": "main",
         "title": "doTime",
-        "width": 1060,
+        "width": 1220,
         "height": 720,
-        "minWidth": 1060,
+        "minWidth": 1220,
         "minHeight": 560,
         "resizable": true,
         "decorations": false,

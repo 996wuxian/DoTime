@@ -26,6 +26,7 @@ interface TodoFormProps {
     recurrence?: RecurrenceRule | null,
     comment?: string,
     subtaskTitles?: string[],
+    images?: import("../types").TodoImage[],
   ) => void;
   open: boolean;
   selectedDate: string;
@@ -67,6 +68,7 @@ export function TodoForm({
       draft.recurrence,
       draft.comment,
       parseSubtaskTitles(draft.subtaskTitles),
+      draft.images,
     );
     onOpenChange(false);
   };
@@ -90,6 +92,7 @@ export function TodoForm({
       recurrence: includeRecurrence ? draft.recurrence : null,
       taskTime: draft.taskTime,
       comment: draft.comment,
+      // 模板不保存图片，避免把临时素材带进复用模板。
       subtasks: parseSubtaskTitles(draft.subtaskTitles).map((title) => ({
         title,
         urgency: "medium",
