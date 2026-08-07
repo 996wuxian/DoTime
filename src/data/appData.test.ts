@@ -182,6 +182,37 @@ describe("app data storage", () => {
     expect(loaded.data.categoryDividers).toStrictEqual([divider]);
   });
 
+  it("keeps todo sort orders relative to category dividers", () => {
+    const storage = new MemoryStorage();
+    const beforeCategory = createTodo({
+      id: "todo-before",
+      sortOrder: 1000,
+      createdAt: 1,
+    });
+    const insideCategory = createTodo({
+      id: "todo-inside",
+      sortOrder: 3000,
+      createdAt: 2,
+    });
+    const divider = createCategoryDivider({
+      sortOrder: 2000,
+      createdAt: 3,
+    });
+
+    const result = saveAppData(
+      createAppDataDocument([beforeCategory, insideCategory], [], [divider]),
+      storage,
+    );
+    const loaded = loadAppData(storage);
+
+    expect(result.ok).toEqual(true);
+    expect(loaded.data.todos.find((todo) => todo.id === "todo-before")?.sortOrder)
+      .toEqual(1000);
+    expect(loaded.data.categoryDividers[0].sortOrder).toEqual(2000);
+    expect(loaded.data.todos.find((todo) => todo.id === "todo-inside")?.sortOrder)
+      .toEqual(3000);
+  });
+
   it("keeps saving primary data when backups or legacy mirrors fail", () => {
     const storage = new FailingAuxiliaryStorage();
     storage.setItem(

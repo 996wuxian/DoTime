@@ -106,6 +106,10 @@ function compareInitialOrder(a: Todo, b: Todo): number {
 }
 
 export function normalizeTodoSortOrders(todos: Todo[]): Todo[] {
+  if (todos.every((todo) => Number.isFinite(todo.sortOrder))) {
+    return todos;
+  }
+
   const todosByDate = new Map<string, Todo[]>();
   for (const todo of todos) {
     const dateTodos = todosByDate.get(todo.date) ?? [];
