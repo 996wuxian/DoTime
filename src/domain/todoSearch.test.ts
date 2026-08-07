@@ -53,6 +53,53 @@ describe("todo search", () => {
     ]);
   });
 
+  it("matches comments, subtasks, and image names", () => {
+    const todos = [
+      createTodo({
+        id: "comment",
+        date: "2026-07-29",
+        comment: "客户复盘材料",
+      }),
+      createTodo({
+        id: "subtask",
+        date: "2026-07-29",
+        subtasks: [
+          {
+            id: "subtask-1",
+            title: "整理发票",
+            urgency: "medium",
+            plannedSeconds: 0,
+            countdownEnabled: false,
+            recordTimeEnabled: false,
+            completed: false,
+            isTiming: false,
+            timingStartedAt: null,
+            elapsedSeconds: 0,
+            actualDurationSeconds: null,
+            createdAt: 0,
+            completedAt: null,
+            children: [],
+          },
+        ],
+      }),
+      createTodo({
+        id: "image",
+        date: "2026-07-29",
+        images: [{ id: "image-1", name: "receipt.png", fileName: "image-1.png" }],
+      }),
+    ];
+
+    expect(searchTodos(todos, filters({ query: "复盘" })).map((todo) => todo.id)).toEqual([
+      "comment",
+    ]);
+    expect(searchTodos(todos, filters({ query: "发票" })).map((todo) => todo.id)).toEqual([
+      "subtask",
+    ]);
+    expect(searchTodos(todos, filters({ query: "receipt" })).map((todo) => todo.id)).toEqual([
+      "image",
+    ]);
+  });
+
   it.each([
     ["timing", { isTiming: true }, "timing"],
     ["completed", { completed: true }, "completed"],

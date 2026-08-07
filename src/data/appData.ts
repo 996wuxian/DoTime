@@ -2,6 +2,7 @@ import type {
   RecurrenceRule,
   RecurrenceTemplate,
   Todo,
+  TodoCategoryDivider,
   TodoImage,
   TodoSubtask,
   Urgency,
@@ -46,6 +47,7 @@ export interface AppDataDocument {
   version: typeof APP_DATA_VERSION;
   updatedAt: number;
   todos: Todo[];
+  categoryDividers: TodoCategoryDivider[];
   manualSortDates: string[];
 }
 
@@ -303,15 +305,26 @@ function parseTodoImage(value: unknown): TodoImage | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string" || value.id.length === 0) return null;
   if (typeof value.name !== "string") return null;
-  if (typeof value.dataUrl !== "string" || !value.dataUrl.startsWith("data:image/")) {
+  const dataUrl =
+    typeof value.dataUrl === "string" && value.dataUrl.startsWith("data:image/")
+      ? value.dataUrl
+      : undefined;
+  const fileName =
+    typeof value.fileName === "string" && /^[^\\/]+$/.test(value.fileName)
+      ? value.fileName
+      : undefined;
+  if (dataUrl == null && fileName == null) {
     return null;
   }
 
-  return {
+  const image: TodoImage = {
     id: value.id,
     name: value.name.trim() || "图片",
-    dataUrl: value.dataUrl,
   };
+  if (typeof value.mimeType === "string") image.mimeType = value.mimeType;
+  if (fileName != null) image.fileName = fileName;
+  if (dataUrl != null) image.dataUrl = dataUrl;
+  return image;
 }
 
 function parseTodoImages(value: unknown): TodoImage[] {
@@ -320,6 +333,33 @@ function parseTodoImages(value: unknown): TodoImage[] {
     .map(parseTodoImage)
     .filter((item): item is TodoImage => item != null)
     .slice(0, 3);
+}
+
+function parseTodoCategoryDivider(value: unknown): TodoCategoryDivider | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== "string" || value.id.length === 0) return null;
+  if (typeof value.title !== "string" || value.title.trim().length === 0) {
+    return null;
+  }
+  if (!isDateKey(value.date)) return null;
+
+  return {
+    id: value.id,
+    title: value.title.trim(),
+    date: value.date,
+    sortOrder: isFiniteNumber(value.sortOrder) ? value.sortOrder : Number.NaN,
+    createdAt: isFiniteNumber(value.createdAt) ? value.createdAt : Date.now(),
+    updatedAt: isFiniteNumber(value.updatedAt) ? value.updatedAt : Date.now(),
+  };
+}
+
+function parseTodoCategoryDividers(value: unknown): TodoCategoryDivider[] {
+  if (!Array.isArray(value)) return [];
+  return normalizeTodoCategorySortOrders(
+    value
+      .map(parseTodoCategoryDivider)
+      .filter((item): item is TodoCategoryDivider => item != null),
+  );
 }
 
 function parseTodoSubtasks(value: unknown): TodoSubtask[] {
@@ -349,14 +389,70 @@ function parseManualSortDates(value: unknown): string[] {
 function createDocument(
   todos: Todo[],
   manualSortDates: Iterable<string>,
+  categoryDividers: TodoCategoryDivider[] = [],
   updatedAt = Date.now(),
 ): AppDataDocument {
   return {
     version: APP_DATA_VERSION,
     updatedAt,
     todos: normalizeTodoSortOrders(todos),
+    categoryDividers: normalizeTodoCategorySortOrders(categoryDividers),
     manualSortDates: [...new Set([...manualSortDates].filter(isDateKey))],
   };
+}
+
+function normalizeTodoCategorySortOrders(
+  categoryDividers: TodoCategoryDivider[],
+): TodoCategoryDivider[] {
+  if (categoryDividers.every((divider) => Number.isFinite(divider.sortOrder))) {
+    return categoryDividers;
+  }
+
+  const categoriesByDate = new Map<string, TodoCategoryDivider[]>();
+  for (const divider of categoryDividers) {
+    const dateDividers = categoriesByDate.get(divider.date) ?? [];
+    dateDividers.push(divider);
+    categoriesByDate.set(divider.date, dateDividers);
+  }
+
+  const sortOrderById = new Map<string, number>();
+  for (const dateDividers of categoriesByDate.values()) {
+    const ordered = [...dateDividers].sort((a, b) => a.createdAt - b.createdAt);
+    ordered.forEach((divider, index) => {
+      if (!Number.isFinite(divider.sortOrder)) {
+        sortOrderById.set(divider.id, (index + 1) * 1000);
+      }
+    });
+  }
+
+  return categoryDividers.map((divider) => ({
+    ...divider,
+    sortOrder: sortOrderById.get(divider.id) ?? divider.sortOrder,
+  }));
+}
+
+function createStorageTodo(todo: Todo): Todo {
+  const images = (todo.images ?? [])
+    .filter((image) => typeof image.fileName === "string" && image.fileName)
+    .map((image) => ({
+      id: image.id,
+      name: image.name,
+      mimeType: image.mimeType,
+      fileName: image.fileName,
+    }));
+  return {
+    ...todo,
+    images,
+  };
+}
+
+function createStorageDocument(data: AppDataDocument): AppDataDocument {
+  return createDocument(
+    data.todos.map(createStorageTodo),
+    data.manualSortDates,
+    data.categoryDividers,
+    data.updatedAt,
+  );
 }
 
 function parseDocument(value: unknown): AppDataDocument | null {
@@ -367,6 +463,7 @@ function parseDocument(value: unknown): AppDataDocument | null {
   return createDocument(
     todos,
     parseManualSortDates(value.manualSortDates),
+    parseTodoCategoryDividers(value.categoryDividers),
     isFiniteNumber(value.updatedAt) ? value.updatedAt : Date.now(),
   );
 }
@@ -387,8 +484,9 @@ function getBackupKey(index: number): string {
 export function createAppDataDocument(
   todos: Todo[],
   manualSortDates: Iterable<string>,
+  categoryDividers: TodoCategoryDivider[] = [],
 ): AppDataDocument {
-  return createDocument(todos, manualSortDates);
+  return createDocument(todos, manualSortDates, categoryDividers);
 }
 
 export function loadAppData(storage: StorageLike): LoadAppDataResult {
@@ -434,29 +532,55 @@ export function saveAppData(
   storage: StorageLike,
 ): SaveAppDataResult {
   try {
-    const nextData = createDocument(data.todos, data.manualSortDates);
+    const nextData = createStorageDocument(
+      createDocument(data.todos, data.manualSortDates, data.categoryDividers),
+    );
     const nextRaw = JSON.stringify(nextData);
     const currentRaw = storage.getItem(APP_DATA_STORAGE_KEY);
     const current = parseDocument(parseJson(currentRaw));
 
     if (current != null && currentRaw !== nextRaw) {
-      for (let index = BACKUP_COUNT; index >= 2; index -= 1) {
-        const previous = storage.getItem(getBackupKey(index - 1));
-        if (previous == null) {
+      try {
+        for (let index = BACKUP_COUNT; index >= 2; index -= 1) {
+          const previous = storage.getItem(getBackupKey(index - 1));
+          if (previous == null) {
+            storage.removeItem(getBackupKey(index));
+          } else {
+            storage.setItem(getBackupKey(index), previous);
+          }
+        }
+        storage.setItem(
+          getBackupKey(1),
+          JSON.stringify(createStorageDocument(current)),
+        );
+      } catch {
+        for (let index = 1; index <= BACKUP_COUNT; index += 1) {
           storage.removeItem(getBackupKey(index));
-        } else {
-          storage.setItem(getBackupKey(index), previous);
         }
       }
-      storage.setItem(getBackupKey(1), JSON.stringify(current));
     }
 
-    storage.setItem(APP_DATA_STORAGE_KEY, nextRaw);
-    storage.setItem(LEGACY_TODO_STORAGE_KEY, JSON.stringify(nextData.todos));
-    storage.setItem(
-      LEGACY_MANUAL_SORT_DATES_STORAGE_KEY,
-      JSON.stringify(nextData.manualSortDates),
-    );
+    try {
+      storage.setItem(APP_DATA_STORAGE_KEY, nextRaw);
+    } catch {
+      for (let index = 1; index <= BACKUP_COUNT; index += 1) {
+        storage.removeItem(getBackupKey(index));
+      }
+      storage.removeItem(LEGACY_TODO_STORAGE_KEY);
+      storage.removeItem(LEGACY_MANUAL_SORT_DATES_STORAGE_KEY);
+      storage.setItem(APP_DATA_STORAGE_KEY, nextRaw);
+    }
+
+    try {
+      storage.setItem(LEGACY_TODO_STORAGE_KEY, JSON.stringify(nextData.todos));
+      storage.setItem(
+        LEGACY_MANUAL_SORT_DATES_STORAGE_KEY,
+        JSON.stringify(nextData.manualSortDates),
+      );
+    } catch {
+      storage.removeItem(LEGACY_TODO_STORAGE_KEY);
+      storage.removeItem(LEGACY_MANUAL_SORT_DATES_STORAGE_KEY);
+    }
     return { ok: true };
   } catch (error) {
     return {

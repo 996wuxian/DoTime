@@ -16,6 +16,7 @@ const CLIPBOARD_POLL_INTERVAL_MS: u64 = 800;
 const CLIPBOARD_MAX_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 const CLIPBOARD_HISTORY_LIMIT: usize = 100;
 const CLIPBOARD_HISTORY_FILE: &str = "clipboard-history.json";
+const TODO_IMAGES_DIR: &str = "todo-images";
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -29,6 +30,41 @@ struct ClipboardHistoryState {
     items: Mutex<Vec<ClipboardSnapshot>>,
     suppressed_fingerprint: Mutex<Option<String>>,
     storage_path: Mutex<Option<PathBuf>>,
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoImageInput {
+    id: String,
+    name: String,
+    mime_type: Option<String>,
+    file_name: Option<String>,
+    data_url: Option<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredTodoImage {
+    id: String,
+    name: String,
+    mime_type: Option<String>,
+    file_name: String,
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoImageReference {
+    todo_id: String,
+    file_names: Vec<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoImageCleanupResult {
+    removed_dirs: usize,
+    removed_files: usize,
+    failed_dirs: usize,
+    failed_files: usize,
 }
 
 #[derive(Clone, serde::Deserialize)]
@@ -148,6 +184,141 @@ fn toggle_clipboard_history_pin(
 }
 
 #[tauri::command]
+fn persist_todo_images(
+    app: tauri::AppHandle,
+    todo_id: String,
+    images: Vec<TodoImageInput>,
+) -> Result<Vec<StoredTodoImage>, String> {
+    let dir = todo_image_dir(&app, &todo_id)?;
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+
+    let mut stored = Vec::with_capacity(images.len());
+    let mut keep_files = std::collections::HashSet::new();
+
+    for image in images {
+        let mime_type = image
+            .mime_type
+            .clone()
+            .or_else(|| data_url_mime_type(image.data_url.as_deref()));
+        let file_name = if let Some(data_url) = image.data_url.as_deref() {
+            let bytes = decode_data_url(data_url)?;
+            let ext = mime_type_to_extension(mime_type.as_deref());
+            let file_name = format!("{}.{}", sanitize_path_segment(&image.id, "image"), ext);
+            fs::write(dir.join(&file_name), bytes).map_err(|error| error.to_string())?;
+            file_name
+        } else if let Some(file_name) = image.file_name.clone() {
+            let file_name = sanitize_path_segment(&file_name, "image");
+            let file_path = dir.join(&file_name);
+            if !file_path.exists() {
+                return Err(format!("todo image file missing: {}", file_name));
+            }
+            file_name
+        } else {
+            continue;
+        };
+
+        keep_files.insert(file_name.clone());
+        stored.push(StoredTodoImage {
+            id: image.id,
+            name: image.name,
+            mime_type,
+            file_name,
+        });
+    }
+
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            if !keep_files.contains(name) {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+
+    Ok(stored)
+}
+
+#[tauri::command]
+fn remove_todo_images(app: tauri::AppHandle, todo_id: String) -> Result<(), String> {
+    let dir = todo_image_dir(&app, &todo_id)?;
+    if dir.exists() {
+        fs::remove_dir_all(dir).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn cleanup_todo_images(
+    app: tauri::AppHandle,
+    references: Vec<TodoImageReference>,
+) -> Result<TodoImageCleanupResult, String> {
+    let base_dir = todo_images_base_dir(&app)?;
+    let mut keep_by_todo_id = std::collections::HashMap::new();
+    for reference in references {
+        let todo_id = sanitize_path_segment(&reference.todo_id, "todo");
+        let file_names = reference
+            .file_names
+            .into_iter()
+            .map(|file_name| sanitize_path_segment(&file_name, "image"))
+            .collect::<std::collections::HashSet<_>>();
+        keep_by_todo_id.insert(todo_id, file_names);
+    }
+
+    let mut removed_dirs = 0;
+    let mut removed_files = 0;
+    let mut failed_dirs = 0;
+    let mut failed_files = 0;
+    let entries = fs::read_dir(&base_dir).map_err(|error| error.to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(todo_id) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Some(keep_files) = keep_by_todo_id.get(todo_id) else {
+            match fs::remove_dir_all(path) {
+                Ok(()) => removed_dirs += 1,
+                Err(_) => failed_dirs += 1,
+            }
+            continue;
+        };
+
+        if let Ok(files) = fs::read_dir(&path) {
+            for file in files.flatten() {
+                let file_path = file.path();
+                if !file_path.is_file() {
+                    continue;
+                }
+                let Some(file_name) = file_path.file_name().and_then(|value| value.to_str()) else {
+                    continue;
+                };
+                if !keep_files.contains(file_name) {
+                    match fs::remove_file(file_path) {
+                        Ok(()) => removed_files += 1,
+                        Err(_) => failed_files += 1,
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(TodoImageCleanupResult {
+        removed_dirs,
+        removed_files,
+        failed_dirs,
+        failed_files,
+    })
+}
+
+#[tauri::command]
 fn set_window_opacity(window: tauri::Window, opacity: f64) -> Result<(), String> {
     set_native_window_opacity(window, opacity)
 }
@@ -233,6 +404,80 @@ fn show_reminder_window_inner(
     window.show().map_err(|error| error.to_string())?;
     let _ = window.emit("dotime-reminder-group", reminder_group);
     Ok(())
+}
+
+fn todo_images_base_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join(TODO_IMAGES_DIR);
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir)
+}
+
+fn todo_image_dir(app: &tauri::AppHandle, todo_id: &str) -> Result<PathBuf, String> {
+    Ok(todo_images_base_dir(app)?.join(sanitize_path_segment(todo_id, "todo")))
+}
+
+fn sanitize_path_segment(value: &str, fallback: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let trimmed = sanitized.trim_matches('.');
+    if trimmed.is_empty() {
+        fallback.into()
+    } else {
+        trimmed.into()
+    }
+}
+
+fn decode_data_url(value: &str) -> Result<Vec<u8>, String> {
+    let Some((prefix, payload)) = value.split_once(',') else {
+        return Err("invalid data url".into());
+    };
+    if !prefix.starts_with("data:") {
+        return Err("invalid data url".into());
+    }
+    let Some(base64_payload) = prefix
+        .split_once(';')
+        .map(|(_, _)| payload)
+        .or(Some(payload))
+    else {
+        return Err("invalid data url".into());
+    };
+    decode_base64(base64_payload).ok_or_else(|| "invalid image data".into())
+}
+
+fn data_url_mime_type(value: Option<&str>) -> Option<String> {
+    let value = value?;
+    let prefix = value.split_once(',')?.0;
+    let mime = prefix.strip_prefix("data:")?.split_once(';')?.0;
+    if mime.is_empty() {
+        None
+    } else {
+        Some(mime.to_string())
+    }
+}
+
+fn mime_type_to_extension(mime_type: Option<&str>) -> &str {
+    match mime_type {
+        Some("image/jpeg") => "jpg",
+        Some("image/jpg") => "jpg",
+        Some("image/png") => "png",
+        Some("image/webp") => "webp",
+        Some("image/gif") => "gif",
+        Some("image/bmp") => "bmp",
+        Some("image/svg+xml") => "svg",
+        _ => "png",
+    }
 }
 
 #[tauri::command]
@@ -1184,7 +1429,10 @@ pub fn run() {
             clear_clipboard_history,
             remove_clipboard_history_item,
             copy_clipboard_history_item,
-            toggle_clipboard_history_pin
+            toggle_clipboard_history_pin,
+            persist_todo_images,
+            remove_todo_images,
+            cleanup_todo_images
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -14,11 +14,13 @@ import {
   IconClock,
   IconClockHour4,
   IconChevronDown,
+  IconChevronLeft,
   IconChevronRight,
   IconClose,
   IconGripVertical,
   IconMessageCircle,
   IconPencil,
+  IconPhoto,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
@@ -26,6 +28,7 @@ import {
   IconRepeat,
   IconTrash,
 } from "./icons";
+import { useTodoImageSrc } from "../hooks/useTodoImageSrc";
 
 interface TodoItemProps {
   todo: Todo;
@@ -33,6 +36,7 @@ interface TodoItemProps {
   remaining: number;
   isHighlighted?: boolean;
   isDragging?: boolean;
+  dropPosition?: "before" | "after" | null;
   batchMode?: boolean;
   isBatchSelected?: boolean;
   itemRef?: (node: HTMLElement | null) => void;
@@ -44,6 +48,7 @@ interface TodoItemProps {
   onEdit: () => void;
   onReset: () => void;
   onUpdateComment: (comment: string) => void;
+  onUpdateImages: (images: TodoImage[]) => void;
   onToggleFavorite: () => void;
   onToggleBatchSelect?: () => void;
   onAddSubtask: (parentSubtaskId: string | null) => void;
@@ -59,20 +64,43 @@ interface TodoItemProps {
 }
 
 function TodoImageLightbox({
-  image,
+  todoId,
+  images,
+  activeIndex,
+  onNavigate,
+  onRemoveCurrent,
   onClose,
 }: {
-  image: TodoImage;
+  todoId: string;
+  images: readonly TodoImage[];
+  activeIndex: number;
+  onNavigate: (direction: -1 | 1) => void;
+  onRemoveCurrent: () => void;
   onClose: () => void;
 }) {
+  const image = images[activeIndex];
+  const src = useTodoImageSrc(todoId, image);
+  const [imageFailed, setImageFailed] = useState(false);
+  const hasMultipleImages = images.length > 1;
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [src]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (!hasMultipleImages) return;
+      if (event.key === "ArrowLeft") onNavigate(-1);
+      if (event.key === "ArrowRight") onNavigate(1);
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [hasMultipleImages, onClose, onNavigate]);
 
   return (
     <div
@@ -92,9 +120,95 @@ function TodoImageLightbox({
       >
         <IconClose size={14} />
       </button>
-      <img src={image.dataUrl} alt={image.name} className="todo-image-lightbox__image" />
-      <div className="todo-image-lightbox__caption">{image.name}</div>
+      <button
+        type="button"
+        className="todo-image-lightbox__delete"
+        onClick={onRemoveCurrent}
+        aria-label="删除当前图片"
+        title="删除当前图片"
+      >
+        <IconTrash size={14} />
+      </button>
+      {hasMultipleImages && (
+        <>
+          <button
+            type="button"
+            className="todo-image-lightbox__nav todo-image-lightbox__nav--prev"
+            onClick={() => onNavigate(-1)}
+            aria-label="查看上一张图片"
+            title="上一张"
+          >
+            <IconChevronLeft size={22} />
+          </button>
+          <button
+            type="button"
+            className="todo-image-lightbox__nav todo-image-lightbox__nav--next"
+            onClick={() => onNavigate(1)}
+            aria-label="查看下一张图片"
+            title="下一张"
+          >
+            <IconChevronRight size={22} />
+          </button>
+        </>
+      )}
+      {src && !imageFailed ? (
+        <img
+          src={src}
+          alt={image.name}
+          className="todo-image-lightbox__image"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <div className="todo-image-lightbox__fallback" role="img" aria-label="图片加载失败">
+          <IconPhoto size={36} />
+        </div>
+      )}
+      <div className="todo-image-lightbox__caption">
+        {hasMultipleImages ? `${activeIndex + 1}/${images.length} · ` : ""}
+        {image.name}
+      </div>
     </div>
+  );
+}
+
+function TodoImageThumb({
+  todoId,
+  image,
+  onClick,
+}: {
+  todoId: string;
+  image: TodoImage;
+  onClick: () => void;
+}) {
+  const src = useTodoImageSrc(todoId, image);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [src]);
+
+  return (
+    <button
+      type="button"
+      className="todo-item__image-btn"
+      onClick={onClick}
+      aria-label={`查看图片 ${image.name}`}
+      title="点击放大查看"
+    >
+      {src && !imageFailed ? (
+        <img
+          src={src}
+          alt=""
+          className="todo-item__image"
+          draggable={false}
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <span className="todo-item__image-fallback" aria-hidden>
+          <IconPhoto size={18} />
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -383,6 +497,7 @@ export function TodoItem({
   remaining,
   isHighlighted = false,
   isDragging = false,
+  dropPosition = null,
   batchMode = false,
   isBatchSelected = false,
   itemRef,
@@ -394,6 +509,7 @@ export function TodoItem({
   onEdit,
   onReset,
   onUpdateComment,
+  onUpdateImages,
   onToggleFavorite,
   onToggleBatchSelect,
   onAddSubtask,
@@ -439,7 +555,7 @@ export function TodoItem({
   const completedAt = todo.completedAt;
   const completedTime = todo.completedAt != null ? formatClockTime(todo.completedAt) : null;
   const todoImages = todo.images ?? [];
-  const [activeImage, setActiveImage] = useState<TodoImage | null>(null);
+  const [activeImageIndex, setActiveImageIndex] = useState<number | null>(null);
   const reminderDueAt = getReminderDueAt(todo);
   const reminderFired =
     reminderDueAt != null &&
@@ -462,14 +578,28 @@ export function TodoItem({
     setCommentEditorOpen(false);
   };
 
-  useEffect(() => {
-    if (activeImage == null) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setActiveImage(null);
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeImage]);
+  const activeImage =
+    activeImageIndex == null ? null : todoImages[activeImageIndex] ?? null;
+
+  const navigateActiveImage = (direction: -1 | 1) => {
+    if (todoImages.length <= 1) return;
+    setActiveImageIndex((current) => {
+      const index = current ?? 0;
+      return (index + direction + todoImages.length) % todoImages.length;
+    });
+  };
+
+  const removeActiveImage = () => {
+    if (activeImageIndex == null) return;
+    const visibleImages = todoImages.slice(0, 3);
+    const nextImages = visibleImages.filter((_, index) => index !== activeImageIndex);
+    onUpdateImages(nextImages);
+    if (nextImages.length === 0) {
+      setActiveImageIndex(null);
+      return;
+    }
+    setActiveImageIndex(Math.min(activeImageIndex, nextImages.length - 1));
+  };
 
   const finishSubtaskDrag = () => {
     window.removeEventListener("pointermove", handleSubtaskDragMove);
@@ -530,7 +660,13 @@ export function TodoItem({
     <div
       ref={itemRef}
       data-todo-id={todo.id}
-      className={`todo-item-shell ${batchMode ? "is-batch-mode" : ""}`}
+      className={[
+        "todo-item-shell",
+        batchMode ? "is-batch-mode" : "",
+        dropPosition ? `is-drop-${dropPosition}` : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
     {batchMode && (
       <button
@@ -802,22 +938,13 @@ export function TodoItem({
 
       {todoImages.length > 0 && (
         <div className="todo-item__images">
-          {todoImages.slice(0, 3).map((image) => (
-            <button
+          {todoImages.slice(0, 3).map((image, index) => (
+            <TodoImageThumb
               key={image.id}
-              type="button"
-              className="todo-item__image-btn"
-              onClick={() => setActiveImage(image)}
-              aria-label={`查看图片 ${image.name}`}
-              title="点击放大查看"
-            >
-              <img
-                src={image.dataUrl}
-                alt=""
-                className="todo-item__image"
-                draggable={false}
-              />
-            </button>
+              todoId={todo.id}
+              image={image}
+              onClick={() => setActiveImageIndex(index)}
+            />
           ))}
         </div>
       )}
@@ -920,7 +1047,14 @@ export function TodoItem({
         </div>
       )}
       {activeImage && (
-        <TodoImageLightbox image={activeImage} onClose={() => setActiveImage(null)} />
+        <TodoImageLightbox
+          todoId={todo.id}
+          images={todoImages.slice(0, 3)}
+          activeIndex={activeImageIndex ?? 0}
+          onNavigate={navigateActiveImage}
+          onRemoveCurrent={removeActiveImage}
+          onClose={() => setActiveImageIndex(null)}
+        />
       )}
     </div>
   );

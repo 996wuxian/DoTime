@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import type {
   CSSProperties,
   ChangeEvent,
+  DragEvent,
   ReactNode,
   WheelEvent,
 } from "react";
@@ -19,6 +20,7 @@ import {
   createTodoImageFromFile,
   MAX_TODO_IMAGES,
 } from "../utils/todoImages";
+import { useTodoImageSrc } from "../hooks/useTodoImageSrc";
 import {
   getDefaultReminderTime,
   normalizeReminderTime,
@@ -65,6 +67,8 @@ interface TodoEditorFormProps {
   titleIcon: ReactNode;
   submitLabel: string;
   className: string;
+  todoId?: string;
+  showImages?: boolean;
   autoFocus?: boolean;
   onSubmit: (draft: TodoDraft) => void;
   onCancel: () => void;
@@ -111,6 +115,34 @@ type TaskMode = "normal" | "record" | "countdown";
 
 type ActiveTimePicker = "task" | "reminder" | null;
 
+function TodoFormImagePreview({
+  todoId,
+  image,
+}: {
+  todoId?: string;
+  image: TodoImage;
+}) {
+  const src = useTodoImageSrc(todoId, image);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  return src && !failed ? (
+    <img
+      src={src}
+      alt={image.name}
+      draggable={false}
+      onError={() => setFailed(true)}
+    />
+  ) : (
+    <div className="todo-form__image-placeholder" role="img" aria-label="图片加载失败">
+      <IconPhoto size={20} />
+    </div>
+  );
+}
+
 export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
   return {
     title: "",
@@ -136,6 +168,8 @@ export function TodoEditorForm({
   titleIcon,
   submitLabel,
   className,
+  todoId,
+  showImages = true,
   autoFocus = false,
   onSubmit,
   onCancel,
@@ -150,6 +184,7 @@ export function TodoEditorForm({
     useState<ActiveTimePicker>(null);
   const [timePickerPosition, setTimePickerPosition] =
     useState<CSSProperties | null>(null);
+  const [draggingImageId, setDraggingImageId] = useState<string | null>(null);
   const taskTimeRef = useRef<HTMLDivElement | null>(null);
   const taskTimeButtonRef = useRef<HTMLButtonElement | null>(null);
   const reminderTimeRef = useRef<HTMLDivElement | null>(null);
@@ -213,6 +248,38 @@ export function TodoEditorForm({
       images: current.images.filter((image) => image.id !== id),
     }));
   };
+
+  const reorderDraftImage = (draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
+    setDraft((current) => {
+      const draggedIndex = current.images.findIndex(
+        (image) => image.id === draggedId,
+      );
+      const targetIndex = current.images.findIndex(
+        (image) => image.id === targetId,
+      );
+      if (draggedIndex < 0 || targetIndex < 0) return current;
+      const nextImages = [...current.images];
+      const [draggedImage] = nextImages.splice(draggedIndex, 1);
+      nextImages.splice(targetIndex, 0, draggedImage);
+      return { ...current, images: nextImages };
+    });
+  };
+
+  const handleImageDragStart =
+    (imageId: string) => (event: DragEvent<HTMLElement>) => {
+      setDraggingImageId(imageId);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", imageId);
+    };
+
+  const handleImageDrop =
+    (targetId: string) => (event: DragEvent<HTMLElement>) => {
+      event.preventDefault();
+      const draggedId = event.dataTransfer.getData("text/plain") || draggingImageId;
+      if (draggedId) reorderDraftImage(draggedId, targetId);
+      setDraggingImageId(null);
+    };
 
   const handleReminderToggle = (enabled: boolean) => {
     setDraft((current) => ({
@@ -468,7 +535,7 @@ export function TodoEditorForm({
       reminderTime: draft.reminderEnabled
         ? normalizeReminderTime(draft.reminderTime)
         : null,
-      images: draft.images.slice(0, MAX_IMAGE_SELECTION),
+      images: showImages ? draft.images.slice(0, MAX_IMAGE_SELECTION) : [],
     });
   };
 
@@ -867,6 +934,7 @@ export function TodoEditorForm({
         )}
       </section>
 
+      {showImages && (
       <section className="todo-form__images" aria-label="待办图片">
         <div className="field__label-row">
           <span className="field__label">
@@ -897,8 +965,19 @@ export function TodoEditorForm({
         {draft.images.length > 0 ? (
           <div className="todo-form__image-list">
             {draft.images.map((image) => (
-              <figure key={image.id} className="todo-form__image-item">
-                <img src={image.dataUrl} alt={image.name} draggable={false} />
+              <figure
+                key={image.id}
+                className={`todo-form__image-item ${
+                  draggingImageId === image.id ? "is-dragging" : ""
+                }`}
+                draggable
+                onDragStart={handleImageDragStart(image.id)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={handleImageDrop(image.id)}
+                onDragEnd={() => setDraggingImageId(null)}
+                title="拖拽调整顺序"
+              >
+                <TodoFormImagePreview todoId={todoId} image={image} />
                 <button
                   type="button"
                   className="todo-form__image-remove"
@@ -915,6 +994,7 @@ export function TodoEditorForm({
           <div className="todo-form__images-empty">最多添加 3 张图片</div>
         )}
       </section>
+      )}
 
       {activeTimePicker != null && (
         <div

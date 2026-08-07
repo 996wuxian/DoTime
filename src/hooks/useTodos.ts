@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Todo,
+  TodoCategoryDivider,
   TodoDateSummary,
   TodoImage,
   TodoSubtask,
@@ -64,6 +65,11 @@ import {
   readActiveReminderGroup,
   saveActiveReminderGroup,
 } from "../utils/reminders";
+import {
+  getTodoImagesSignature,
+  persistTodoImages,
+  removeTodoImages as removeStoredTodoImages,
+} from "../utils/todoImages";
 
 const REMINDER_RETRY_DELAY_MS = 30 * 1000;
 const MAX_REMINDER_TIMER_DELAY_MS = 60 * 1000;
@@ -146,6 +152,21 @@ function createInitialSubtasks(
     }));
 }
 
+function hasInlineTodoImages(images: readonly TodoImage[] = []): boolean {
+  return images.some((image) => typeof image.dataUrl === "string");
+}
+
+async function removeTodoImageDirectories(ids: Iterable<string>): Promise<void> {
+  const todoIds = [...new Set(ids)].filter(Boolean);
+  if (todoIds.length === 0) return;
+
+  const results = await Promise.allSettled(
+    todoIds.map((id) => removeStoredTodoImages(id)),
+  );
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed) console.error("Failed to remove todo images", failed.reason);
+}
+
 function hasTimingSubtask(todo: Todo): boolean {
   const visit = (subtasks: readonly TodoSubtask[]): boolean =>
     subtasks.some((subtask) => subtask.isTiming || visit(subtask.children));
@@ -162,6 +183,9 @@ export function useTodos(selectedDate: string) {
   const [manualSortDates, setManualSortDates] = useState<Set<string>>(
     () => new Set(initialData.data.manualSortDates),
   );
+  const [categoryDividers, setCategoryDividers] = useState<TodoCategoryDivider[]>(
+    initialData.data.categoryDividers,
+  );
   const [storageNotice, setStorageNotice] = useState<string | null>(
     initialData.notice,
   );
@@ -171,20 +195,104 @@ export function useTodos(selectedDate: string) {
     useState<boolean | null>(null);
   const reminderScanInFlightRef = useRef(false);
   const reminderLastFailedAtRef = useRef(0);
+  const pendingTodoImageSyncRef = useRef<Set<string>>(new Set());
+  const syncedTodoImageSignaturesRef = useRef<Map<string, string> | null>(null);
+
+  if (syncedTodoImageSignaturesRef.current == null) {
+    syncedTodoImageSignaturesRef.current = new Map(
+      initialData.data.todos
+        .filter((todo) => !hasInlineTodoImages(todo.images))
+        .map((todo) => [todo.id, getTodoImagesSignature(todo.images)]),
+    );
+  }
+
+  useEffect(() => {
+    const syncedSignatures = syncedTodoImageSignaturesRef.current;
+    if (syncedSignatures == null || pendingTodoImageSyncRef.current.size > 0) {
+      return;
+    }
+
+    const currentTodoIds = new Set(todos.map((todo) => todo.id));
+    const removedIds = [...syncedSignatures.keys()].filter(
+      (id) => !currentTodoIds.has(id),
+    );
+    for (const id of removedIds) syncedSignatures.delete(id);
+    if (removedIds.length > 0) {
+      void removeTodoImageDirectories(removedIds);
+    }
+
+    const targets = todos.filter((todo) => {
+      const signature = getTodoImagesSignature(todo.images);
+      if (signature === "" && !syncedSignatures.has(todo.id)) return false;
+      return syncedSignatures.get(todo.id) !== signature;
+    });
+    if (targets.length === 0) return;
+
+    const pendingIds = new Set(targets.map((todo) => todo.id));
+    pendingTodoImageSyncRef.current = pendingIds;
+
+    void (async () => {
+      const updates: { id: string; images: TodoImage[] }[] = [];
+
+      await Promise.all(
+        targets.map(async (todo) => {
+          try {
+            const storedImages = await persistTodoImages(todo.id, todo.images);
+            syncedSignatures.set(
+              todo.id,
+              getTodoImagesSignature(storedImages),
+            );
+            updates.push({ id: todo.id, images: storedImages });
+          } catch (error) {
+            console.error("Failed to persist todo images", error);
+          }
+        }),
+      );
+
+      pendingTodoImageSyncRef.current = new Set();
+      if (updates.length === 0) return;
+
+      setTodos((current) => {
+        const imagesByTodoId = new Map(
+          updates.map((update) => [update.id, update.images]),
+        );
+        let changed = false;
+        const nextTodos = current.map((todo) => {
+          const images = imagesByTodoId.get(todo.id);
+          if (images == null) return todo;
+
+          const currentSignature = getTodoImagesSignature(todo.images);
+          const nextSignature = getTodoImagesSignature(images);
+          if (
+            currentSignature === nextSignature &&
+            !hasInlineTodoImages(todo.images)
+          ) {
+            return todo;
+          }
+
+          changed = true;
+          return { ...todo, images };
+        });
+
+        return changed ? nextTodos : current;
+      });
+    })();
+  }, [todos]);
 
   useEffect(() => {
     const result = saveAppData(
-      createAppDataDocument(todos, manualSortDates),
+      createAppDataDocument(todos, manualSortDates, categoryDividers),
       localStorage,
     );
     if (!result.ok) setStorageNotice(`保存失败：${result.error}`);
-  }, [manualSortDates, todos]);
+  }, [categoryDividers, manualSortDates, todos]);
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
       if (event.key !== APP_DATA_STORAGE_KEY) return;
       const loaded = loadAppData(localStorage);
       setTodos(loaded.data.todos);
+      setCategoryDividers(loaded.data.categoryDividers);
       setManualSortDates(new Set(loaded.data.manualSortDates));
       if (loaded.notice) setStorageNotice(loaded.notice);
     };
@@ -344,6 +452,14 @@ export function useTodos(selectedDate: string) {
       });
   }, [manualSortDates, todos, selectedDate, tick]);
 
+  const dayCategoryDividers = useMemo(
+    () =>
+      categoryDividers
+        .filter((divider) => divider.date === selectedDate)
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt),
+    [categoryDividers, selectedDate],
+  );
+
   const stats = useMemo(() => {
     const list = dayTodos;
     const total = list.length;
@@ -443,21 +559,84 @@ export function useTodos(selectedDate: string) {
   );
 
   const removeTodo = useCallback((id: string) => {
+    void removeTodoImageDirectories([id]);
     setTodos((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const clearDayTodos = useCallback(() => {
+    const removedIds = todos
+      .filter((todo) => todo.date === selectedDate)
+      .map((todo) => todo.id);
+    void removeTodoImageDirectories(removedIds);
     setTodos((prev) => prev.filter((todo) => todo.date !== selectedDate));
+    setCategoryDividers((prev) =>
+      prev.filter((divider) => divider.date !== selectedDate),
+    );
     setManualSortDates((prev) => {
       if (!prev.has(selectedDate)) return prev;
       const next = new Set(prev);
       next.delete(selectedDate);
       return next;
     });
-  }, [selectedDate]);
+  }, [selectedDate, todos]);
+
+  const addCategoryDividerBetween = useCallback(
+    (
+      date: string,
+      title: string,
+      beforeTodoId: string,
+      afterTodoId: string,
+    ) => {
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle) return;
+      const beforeTodo = todos.find((todo) => todo.id === beforeTodoId);
+      const afterTodo = todos.find((todo) => todo.id === afterTodoId);
+      if (beforeTodo == null || afterTodo == null) return;
+      const now = Date.now();
+      const sortOrder = (beforeTodo.sortOrder + afterTodo.sortOrder) / 2;
+      const divider: TodoCategoryDivider = {
+        id: `category-${now}-${Math.random().toString(36).slice(2, 9)}`,
+        title: trimmedTitle,
+        date,
+        sortOrder,
+        createdAt: now,
+        updatedAt: now,
+      };
+      setCategoryDividers((prev) => [...prev, divider]);
+      setManualSortDates((prev) => {
+        if (prev.has(date)) return prev;
+        const next = new Set(prev);
+        next.add(date);
+        return next;
+      });
+    },
+    [todos],
+  );
+
+  const updateCategoryDivider = useCallback((id: string, title: string) => {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) return;
+    const now = Date.now();
+    setCategoryDividers((prev) =>
+      prev.map((divider) =>
+        divider.id === id
+          ? { ...divider, title: trimmedTitle, updatedAt: now }
+          : divider,
+      ),
+    );
+  }, []);
+
+  const removeCategoryDivider = useCallback((id: string) => {
+    setCategoryDividers((prev) => prev.filter((divider) => divider.id !== id));
+  }, []);
 
   const reorderTodo = useCallback(
-    (draggedId: string, targetId: string) => {
+    (
+      draggedId: string,
+      targetId: string,
+      position: "before" | "after" = "before",
+      targetType: "todo" | "category" = "todo",
+    ) => {
       if (draggedId === targetId) return;
 
       setTodos((prev) => {
@@ -471,21 +650,65 @@ export function useTodos(selectedDate: string) {
 
             return a.sortOrder - b.sortOrder;
           });
-        const draggedIndex = orderedDayTodos.findIndex(
-          (todo) => todo.id === draggedId,
+        const orderedDayDividers = categoryDividers
+          .filter((divider) => divider.date === selectedDate)
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+        const timeline = [
+          ...orderedDayTodos.map((todo) => ({
+            type: "todo" as const,
+            id: todo.id,
+            sortOrder: todo.sortOrder,
+            createdAt: todo.createdAt,
+          })),
+          ...orderedDayDividers.map((divider) => ({
+            type: "category" as const,
+            id: divider.id,
+            sortOrder: divider.sortOrder,
+            createdAt: divider.createdAt,
+          })),
+        ].sort((a, b) => {
+          const sortDifference = a.sortOrder - b.sortOrder;
+          return sortDifference !== 0 ? sortDifference : a.createdAt - b.createdAt;
+        });
+        const draggedIndex = timeline.findIndex(
+          (item) => item.type === "todo" && item.id === draggedId,
         );
-        const targetIndex = orderedDayTodos.findIndex(
-          (todo) => todo.id === targetId,
+        const targetExists = timeline.some(
+          (item) => item.type === targetType && item.id === targetId,
         );
 
-        if (draggedIndex < 0 || targetIndex < 0) return prev;
+        if (draggedIndex < 0 || !targetExists) return prev;
 
-        const reordered = [...orderedDayTodos];
+        const reordered = [...timeline];
         const [draggedTodo] = reordered.splice(draggedIndex, 1);
-        reordered.splice(targetIndex, 0, draggedTodo);
+        const targetIndex = reordered.findIndex(
+          (item) => item.type === targetType && item.id === targetId,
+        );
+        if (targetIndex < 0) return prev;
+        reordered.splice(
+          position === "after" ? targetIndex + 1 : targetIndex,
+          0,
+          draggedTodo,
+        );
 
         const sortOrderById = new Map(
-          reordered.map((todo, index) => [todo.id, (index + 1) * 1000]),
+          reordered
+            .map((item, index) => [item, (index + 1) * 1000] as const)
+            .filter(([item]) => item.type === "todo")
+            .map(([item, sortOrder]) => [item.id, sortOrder]),
+        );
+        const categorySortOrderById = new Map(
+          reordered
+            .map((item, index) => [item, (index + 1) * 1000] as const)
+            .filter(([item]) => item.type === "category")
+            .map(([item, sortOrder]) => [item.id, sortOrder]),
+        );
+
+        setCategoryDividers((current) =>
+          current.map((divider) => {
+            const sortOrder = categorySortOrderById.get(divider.id);
+            return sortOrder == null ? divider : { ...divider, sortOrder };
+          }),
         );
 
         return prev.map((todo) => {
@@ -501,7 +724,7 @@ export function useTodos(selectedDate: string) {
         return next;
       });
     },
-    [manualSortDates, selectedDate],
+    [categoryDividers, manualSortDates, selectedDate],
   );
 
   const toggleComplete = useCallback((id: string) => {
@@ -518,6 +741,14 @@ export function useTodos(selectedDate: string) {
 
   const updateComment = useCallback((id: string, comment: string) => {
     setTodos((prev) => updateTodoComment(prev, id, comment));
+  }, []);
+
+  const updateTodoImages = useCallback((id: string, images: readonly TodoImage[]) => {
+    setTodos((prev) =>
+      prev.map((todo) =>
+        todo.id === id ? { ...todo, images: [...images].slice(0, 3) } : todo,
+      ),
+    );
   }, []);
 
   const toggleFavorite = useCallback((id: string) => {
@@ -546,7 +777,9 @@ export function useTodos(selectedDate: string) {
   }, []);
 
   const removeSelectedTodos = useCallback((ids: Iterable<string>) => {
-    setTodos((prev) => removeTodos(prev, ids));
+    const todoIds = [...new Set(ids)];
+    void removeTodoImageDirectories(todoIds);
+    setTodos((prev) => removeTodos(prev, todoIds));
   }, []);
 
   const clearSelectedFavorites = useCallback((ids: Iterable<string>) => {
@@ -671,17 +904,19 @@ export function useTodos(selectedDate: string) {
 
   const exportTodosData = useCallback(
     () =>
-      exportAppDataAsText(createAppDataDocument(todos, manualSortDates)),
-    [manualSortDates, todos],
+      exportAppDataAsText(
+        createAppDataDocument(todos, manualSortDates, categoryDividers),
+      ),
+    [categoryDividers, manualSortDates, todos],
   );
 
   const exportSelectedDateData = useCallback(
     () =>
       exportAppDataAsText(
-        createAppDataDocument(todos, manualSortDates),
+        createAppDataDocument(todos, manualSortDates, categoryDividers),
         selectedDate,
       ),
-    [manualSortDates, selectedDate, todos],
+    [categoryDividers, manualSortDates, selectedDate, todos],
   );
 
   const importTodosData = useCallback(
@@ -690,6 +925,7 @@ export function useTodos(selectedDate: string) {
       if (!result.ok) return result;
 
       setTodos(result.data.todos);
+      setCategoryDividers(result.data.categoryDividers);
       setManualSortDates(new Set(result.data.manualSortDates));
       setStorageNotice(`已导入 ${result.data.todos.length} 个待办。`);
       return result;
@@ -700,15 +936,20 @@ export function useTodos(selectedDate: string) {
   return {
     allTodos: todos,
     dayTodos,
+    dayCategoryDividers,
     stats,
     todoDateSummaries,
     addTodo,
     removeTodo,
     clearDayTodos,
     reorderTodo,
+    addCategoryDividerBetween,
+    updateCategoryDivider,
+    removeCategoryDivider,
     toggleComplete,
     updateTodo,
     updateComment,
+    updateTodoImages,
     toggleFavorite,
     clearFavorites,
     completeTodos,

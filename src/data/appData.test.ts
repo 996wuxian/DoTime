@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Todo } from "../types";
+import type { Todo, TodoCategoryDivider } from "../types";
 import {
   APP_DATA_STORAGE_KEY,
   APP_DATA_VERSION,
@@ -28,6 +28,15 @@ class MemoryStorage implements StorageLike {
   }
 }
 
+class FailingAuxiliaryStorage extends MemoryStorage {
+  setItem(key: string, value: string): void {
+    if (key.includes("backup") || key === LEGACY_TODO_STORAGE_KEY) {
+      throw new Error("quota exceeded");
+    }
+    super.setItem(key, value);
+  }
+}
+
 function createTodo(overrides: Partial<Todo> = {}): Todo {
   return {
     id: "todo-1",
@@ -52,6 +61,20 @@ function createTodo(overrides: Partial<Todo> = {}): Todo {
     recurrenceSeriesId: null,
     recurrence: null,
     recurrenceTemplate: null,
+    ...overrides,
+  };
+}
+
+function createCategoryDivider(
+  overrides: Partial<TodoCategoryDivider> = {},
+): TodoCategoryDivider {
+  return {
+    id: "category-1",
+    title: "上午",
+    date: "2026-07-29",
+    sortOrder: 1500,
+    createdAt: 1,
+    updatedAt: 1,
     ...overrides,
   };
 }
@@ -109,6 +132,73 @@ describe("app data storage", () => {
     expect(backup.todos[0].title).toEqual("旧数据");
   });
 
+  it("does not persist inline image data into localStorage", () => {
+    const storage = new MemoryStorage();
+    const todo = createTodo({
+      images: [
+        {
+          id: "image-inline",
+          name: "临时图片",
+          mimeType: "image/png",
+          dataUrl: "data:image/png;base64,aaaa",
+        },
+        {
+          id: "image-file",
+          name: "已保存图片",
+          mimeType: "image/png",
+          fileName: "image-file.png",
+        },
+      ],
+    });
+
+    const result = saveAppData(createAppDataDocument([todo], []), storage);
+    const saved = JSON.parse(
+      storage.getItem(APP_DATA_STORAGE_KEY) ?? "null",
+    ) as { todos: Todo[] };
+
+    expect(result.ok).toEqual(true);
+    expect(JSON.stringify(saved)).not.toContain("data:image");
+    expect(saved.todos[0].images).toStrictEqual([
+      {
+        id: "image-file",
+        name: "已保存图片",
+        mimeType: "image/png",
+        fileName: "image-file.png",
+      },
+    ]);
+  });
+
+  it("persists todo category dividers", () => {
+    const storage = new MemoryStorage();
+    const divider = createCategoryDivider();
+
+    const result = saveAppData(
+      createAppDataDocument([createTodo()], [], [divider]),
+      storage,
+    );
+    const loaded = loadAppData(storage);
+
+    expect(result.ok).toEqual(true);
+    expect(loaded.data.categoryDividers).toStrictEqual([divider]);
+  });
+
+  it("keeps saving primary data when backups or legacy mirrors fail", () => {
+    const storage = new FailingAuxiliaryStorage();
+    storage.setItem(
+      APP_DATA_STORAGE_KEY,
+      JSON.stringify(createAppDataDocument([createTodo({ title: "旧数据" })], [])),
+    );
+    const next = createAppDataDocument([createTodo({ title: "新数据" })], []);
+
+    const result = saveAppData(next, storage);
+    const saved = JSON.parse(
+      storage.getItem(APP_DATA_STORAGE_KEY) ?? "null",
+    ) as { todos: Todo[] };
+
+    expect(result.ok).toEqual(true);
+    expect(saved.todos[0].title).toEqual("新数据");
+  });
+
   it("rejects unsupported future data versions", () => {
     const result = parseImportedAppData(
       JSON.stringify({ version: 99, todos: [], manualSortDates: [] }),
@@ -118,6 +208,28 @@ describe("app data storage", () => {
       ok: false,
       error: "暂不支持 v99 数据文件。",
     });
+  });
+
+  it("loads todo image metadata stored on disk", () => {
+    const todo = createTodo({
+      images: [
+        {
+          id: "image-1",
+          name: "proof.png",
+          mimeType: "image/png",
+          fileName: "image-1.png",
+        },
+      ],
+    });
+    const storage = new MemoryStorage();
+    storage.setItem(
+      APP_DATA_STORAGE_KEY,
+      JSON.stringify(createAppDataDocument([todo], [])),
+    );
+
+    const result = loadAppData(storage);
+
+    expect(result.data.todos[0].images).toStrictEqual(todo.images);
   });
 
   it("exports readable text with spacing between todos", () => {

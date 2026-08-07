@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -30,6 +31,7 @@ import {
   IconBookmark,
   IconCalendarEvent,
   IconChartBar,
+  IconCheck,
   IconCircleCheck,
   IconClipboardText,
   IconClock,
@@ -47,7 +49,7 @@ import {
 import type { StatisticsPeriod } from "./domain/statistics";
 import { useTodos } from "./hooks/useTodos";
 import { useTaskTemplates } from "./hooks/useTaskTemplates";
-import type { Todo, TodoSubtask } from "./types";
+import type { Todo, TodoCategoryDivider, TodoSubtask } from "./types";
 import { URGENCY_LABELS } from "./types";
 import { shiftDateKey } from "./utils/calendar";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
@@ -75,16 +77,30 @@ const MINI_OPACITY_STEP = 0.05;
 const TODO_HIGHLIGHT_MS = 2000;
 const TODO_DRAG_LONG_PRESS_MS = 180;
 const TODO_DRAG_CANCEL_DISTANCE = 8;
-const TODO_DRAG_SWAP_UP_THRESHOLD = 0.4;
-const TODO_DRAG_SWAP_DOWN_THRESHOLD = 0.6;
 
 type TodoDragState = {
   pointerId: number;
   draggedId: string;
   startX: number;
   startY: number;
+  offsetX: number;
+  offsetY: number;
   active: boolean;
   longPressTimer: number;
+};
+
+type TodoDragPreview = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  html: string;
+};
+
+type TodoDropTarget = {
+  targetId: string;
+  targetType: "todo" | "category";
+  position: "before" | "after";
 };
 
 type SubtaskEditorTarget = {
@@ -106,6 +122,20 @@ type SubtaskSyncTarget = {
 };
 
 type BatchConfirmAction = "delete";
+
+type CompletionUndo = {
+  todoId: string;
+  title: string;
+};
+
+type CategoryInsertTarget = {
+  beforeTodoId: string;
+  afterTodoId: string;
+};
+
+type TodoTimelineItem =
+  | { type: "todo"; todo: Todo }
+  | { type: "category"; divider: TodoCategoryDivider };
 
 function findTodoSubtask(
   subtasks: readonly TodoSubtask[] = [],
@@ -236,6 +266,159 @@ function FavoriteTodoCard({
   );
 }
 
+function TodoCategoryDividerRow({
+  divider,
+  dropPosition,
+  onRename,
+  onRemove,
+}: {
+  divider: TodoCategoryDivider;
+  dropPosition?: "before" | "after" | null;
+  onRename: (title: string) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(divider.title);
+
+  useEffect(() => {
+    setDraft(divider.title);
+  }, [divider.title]);
+
+  const submit = () => {
+    const title = draft.trim();
+    if (!title) return;
+    onRename(title);
+    setEditing(false);
+  };
+
+  return (
+    <div
+      className={[
+        "todo-category-row",
+        dropPosition ? `is-drop-${dropPosition}` : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      data-category-id={divider.id}
+    >
+      <div className="todo-category-row__line" aria-hidden />
+      {editing ? (
+        <form
+          className="todo-category-row__form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submit();
+          }}
+        >
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setDraft(divider.title);
+                setEditing(false);
+              }
+            }}
+            maxLength={24}
+            autoFocus
+            aria-label="分类名"
+          />
+          <button type="submit" aria-label="保存分类名" title="保存">
+            <IconCheck size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(divider.title);
+              setEditing(false);
+            }}
+            aria-label="取消编辑分类名"
+            title="取消"
+          >
+            <IconClose size={13} />
+          </button>
+        </form>
+      ) : (
+        <div className="todo-category-row__label">
+          <button type="button" onClick={() => setEditing(true)}>
+            {divider.title}
+          </button>
+          <button
+            type="button"
+            className="todo-category-row__delete"
+            onClick={onRemove}
+            aria-label={`删除分类 ${divider.title}`}
+            title="删除分类"
+          >
+            <IconTrash size={13} />
+          </button>
+        </div>
+      )}
+      <div className="todo-category-row__line" aria-hidden />
+    </div>
+  );
+}
+
+function TodoCategoryInsertRow({
+  active,
+  draft,
+  onStart,
+  onDraftChange,
+  onSubmit,
+  onCancel,
+}: {
+  active: boolean;
+  draft: string;
+  onStart: () => void;
+  onDraftChange: (value: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  if (!active) {
+    return (
+      <div className="todo-category-insert">
+        <button
+          type="button"
+          className="todo-category-insert__button"
+          onClick={onStart}
+          aria-label="在这里添加分类"
+          title="添加分类"
+        >
+          <IconPlus size={14} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="todo-category-input"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <input
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onCancel();
+        }}
+        placeholder="分类名"
+        maxLength={24}
+        autoFocus
+        aria-label="分类名"
+      />
+      <button type="submit" aria-label="保存分类" title="保存">
+        <IconCheck size={13} />
+      </button>
+      <button type="button" onClick={onCancel} aria-label="取消添加分类" title="取消">
+        <IconClose size={13} />
+      </button>
+    </form>
+  );
+}
+
 function clampMiniOpacity(value: number) {
   return Math.min(MINI_OPACITY_MAX, Math.max(MINI_OPACITY_MIN, value));
 }
@@ -250,6 +433,11 @@ async function showClipboardWindow() {
   await invoke("show_clipboard_window").catch((error) => {
     console.error("failed to show clipboard window", error);
   });
+}
+
+async function cleanupStoredTodoImages(todos: readonly Todo[]) {
+  const { cleanupTodoImages } = await import("./utils/todoImages");
+  return cleanupTodoImages(todos);
 }
 
 function App() {
@@ -280,6 +468,12 @@ function App() {
   );
   const [pendingBatchAction, setPendingBatchAction] =
     useState<BatchConfirmAction | null>(null);
+  const [completionUndo, setCompletionUndo] = useState<CompletionUndo | null>(
+    null,
+  );
+  const [categoryInsertTarget, setCategoryInsertTarget] =
+    useState<CategoryInsertTarget | null>(null);
+  const [categoryDraft, setCategoryDraft] = useState("");
   const [highlightedTodoId, setHighlightedTodoId] = useState<string | null>(
     null,
   );
@@ -301,20 +495,30 @@ function App() {
   const todoItemRefs = useRef(new Map<string, HTMLElement>());
   const highlightTimerRef = useRef<number | null>(null);
   const dragStateRef = useRef<TodoDragState | null>(null);
-  const dayTodoIdsRef = useRef<string[]>([]);
+  const todoDropTargetRef = useRef<TodoDropTarget | null>(null);
   const [draggingTodoId, setDraggingTodoId] = useState<string | null>(null);
+  const [todoDragPreview, setTodoDragPreview] =
+    useState<TodoDragPreview | null>(null);
+  const [todoDropTarget, setTodoDropTarget] = useState<TodoDropTarget | null>(
+    null,
+  );
   const {
     allTodos,
     dayTodos,
+    dayCategoryDividers,
     stats,
     todoDateSummaries,
     addTodo,
     removeTodo,
     clearDayTodos,
     reorderTodo,
+    addCategoryDividerBetween,
+    updateCategoryDivider,
+    removeCategoryDivider,
     toggleComplete,
     updateTodo,
     updateComment,
+    updateTodoImages,
     toggleFavorite,
     clearFavorites,
     completeTodos,
@@ -484,6 +688,24 @@ function App() {
     selectedCount > 0
       ? `将删除已选择的 ${selectedCount} 个待办（包含子待办和计时记录），此操作不可撤销。`
       : "请先选择要删除的待办。";
+  const dayTimelineItems = useMemo<TodoTimelineItem[]>(
+    () =>
+      [
+        ...dayTodos.map((todo) => ({ type: "todo" as const, todo })),
+        ...dayCategoryDividers.map((divider) => ({
+          type: "category" as const,
+          divider,
+        })),
+      ].sort((a, b) => {
+        const sortA = a.type === "todo" ? a.todo.sortOrder : a.divider.sortOrder;
+        const sortB = b.type === "todo" ? b.todo.sortOrder : b.divider.sortOrder;
+        if (sortA !== sortB) return sortA - sortB;
+        const createdA = a.type === "todo" ? a.todo.createdAt : a.divider.createdAt;
+        const createdB = b.type === "todo" ? b.todo.createdAt : b.divider.createdAt;
+        return createdA - createdB;
+      }),
+    [dayCategoryDividers, dayTodos],
+  );
 
   useEffect(() => {
     if (miniIndex !== activeMiniIndex) setMiniIndex(activeMiniIndex);
@@ -566,8 +788,10 @@ function App() {
   }, [draggingTodoId]);
 
   useEffect(() => {
-    dayTodoIdsRef.current = dayTodos.map((todo) => todo.id);
-  }, [dayTodos]);
+    if (completionUndo == null) return;
+    const timeoutId = window.setTimeout(() => setCompletionUndo(null), 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [completionUndo]);
 
   useEffect(() => {
     const dayTodoIds = new Set(dayTodos.map((todo) => todo.id));
@@ -757,7 +981,10 @@ function App() {
     window.removeEventListener("pointerup", handleTodoDragEnd);
     window.removeEventListener("pointercancel", handleTodoDragEnd);
     dragStateRef.current = null;
+    todoDropTargetRef.current = null;
     setDraggingTodoId(null);
+    setTodoDragPreview(null);
+    setTodoDropTarget(null);
   };
 
   const handleTodoDragMove = (event: globalThis.PointerEvent) => {
@@ -775,35 +1002,60 @@ function App() {
     }
 
     event.preventDefault();
-    const target = document.elementFromPoint(event.clientX, event.clientY);
-    const targetItem = target?.closest<HTMLElement>("[data-todo-id]");
-    const targetId = targetItem?.dataset.todoId;
-    if (!targetId || targetId === dragState.draggedId) return;
+    setTodoDragPreview((current) =>
+      current == null
+        ? current
+        : {
+            ...current,
+            x: event.clientX - dragState.offsetX,
+            y: event.clientY - dragState.offsetY,
+          },
+    );
 
-    const currentOrder = dayTodoIdsRef.current;
-    const draggedIndex = currentOrder.indexOf(dragState.draggedId);
-    const targetIndex = currentOrder.indexOf(targetId);
-    if (draggedIndex < 0 || targetIndex < 0) return;
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    const targetItem = target?.closest<HTMLElement>(
+      "[data-todo-id], [data-category-id]",
+    );
+    if (targetItem == null) {
+      todoDropTargetRef.current = null;
+      setTodoDropTarget(null);
+      return;
+    }
+
+    const targetId =
+      targetItem?.dataset.todoId ?? targetItem?.dataset.categoryId;
+    const targetType: TodoDropTarget["targetType"] = targetItem?.dataset.todoId
+      ? "todo"
+      : "category";
+    if (!targetId || targetId === dragState.draggedId) {
+      todoDropTargetRef.current = null;
+      setTodoDropTarget(null);
+      return;
+    }
 
     const targetRect = targetItem.getBoundingClientRect();
     const relativeY = (event.clientY - targetRect.top) / targetRect.height;
-    const isMovingDown = targetIndex > draggedIndex;
-    const crossedSwapLine = isMovingDown
-      ? relativeY >= TODO_DRAG_SWAP_DOWN_THRESHOLD
-      : relativeY <= TODO_DRAG_SWAP_UP_THRESHOLD;
-    if (!crossedSwapLine) return;
-
-    const nextOrder = [...currentOrder];
-    const [draggedId] = nextOrder.splice(draggedIndex, 1);
-    nextOrder.splice(targetIndex, 0, draggedId);
-    dayTodoIdsRef.current = nextOrder;
-
-    reorderTodo(dragState.draggedId, targetId);
+    const nextDropTarget: TodoDropTarget = {
+      targetId,
+      targetType,
+      position: relativeY >= 0.5 ? "after" : "before",
+    };
+    todoDropTargetRef.current = nextDropTarget;
+    setTodoDropTarget(nextDropTarget);
   };
 
   const handleTodoDragEnd = (event: globalThis.PointerEvent) => {
     const dragState = dragStateRef.current;
     if (!dragState || event.pointerId !== dragState.pointerId) return;
+    const dropTarget = todoDropTargetRef.current;
+    if (dragState.active && dropTarget != null) {
+      reorderTodo(
+        dragState.draggedId,
+        dropTarget.targetId,
+        dropTarget.position,
+        dropTarget.targetType,
+      );
+    }
     finishTodoDrag();
   };
 
@@ -817,17 +1069,30 @@ function App() {
 
       finishTodoDrag();
 
+      const node = todoItemRefs.current.get(id);
+      const rect = node?.getBoundingClientRect();
       const dragState: TodoDragState = {
         pointerId: event.pointerId,
         draggedId: id,
         startX: event.clientX,
         startY: event.clientY,
+        offsetX: rect == null ? 0 : event.clientX - rect.left,
+        offsetY: rect == null ? 0 : event.clientY - rect.top,
         active: false,
         longPressTimer: window.setTimeout(() => {
           const current = dragStateRef.current;
           if (!current || current.pointerId !== event.pointerId) return;
           current.active = true;
+          const previewNode = todoItemRefs.current.get(id);
+          const previewRect = previewNode?.getBoundingClientRect();
           setDraggingTodoId(id);
+          setTodoDragPreview({
+            x: event.clientX - current.offsetX,
+            y: event.clientY - current.offsetY,
+            width: previewRect?.width ?? rect?.width ?? 360,
+            height: previewRect?.height ?? rect?.height ?? 80,
+            html: previewNode?.outerHTML ?? "",
+          });
         }, TODO_DRAG_LONG_PRESS_MS),
       };
 
@@ -921,6 +1186,14 @@ function App() {
     handleExitBatchMode();
   };
 
+  const handleBatchMoveQuick = (days: number) => {
+    if (selectedCount === 0) return;
+    const targetDate = shiftDateKey(selectedDate, days);
+    moveTodos(selectedTodoIds, targetDate);
+    setSelectedDate(targetDate);
+    handleExitBatchMode();
+  };
+
   const handleBatchClearFavorites = () => {
     if (selectedCount === 0) return;
     clearSelectedFavorites(selectedTodoIds);
@@ -968,6 +1241,40 @@ function App() {
     updateTodo(editingTodo.id, draft);
     setEditingTodoId(null);
     setSelectedDate(draft.date);
+  };
+
+  const handleToggleTodoCompletion = (todo: Todo) => {
+    toggleComplete(todo.id);
+    setCompletionUndo(
+      !todo.completed && todo.recurrence == null
+        ? { todoId: todo.id, title: todo.title }
+        : null,
+    );
+  };
+
+  const handleSubmitCategoryInsert = () => {
+    if (categoryInsertTarget == null) return;
+    const title = categoryDraft.trim();
+    if (!title) return;
+    addCategoryDividerBetween(
+      selectedDate,
+      title,
+      categoryInsertTarget.beforeTodoId,
+      categoryInsertTarget.afterTodoId,
+    );
+    setCategoryDraft("");
+    setCategoryInsertTarget(null);
+  };
+
+  const handleCancelCategoryInsert = () => {
+    setCategoryDraft("");
+    setCategoryInsertTarget(null);
+  };
+
+  const handleUndoCompletion = () => {
+    if (completionUndo == null) return;
+    toggleComplete(completionUndo.todoId);
+    setCompletionUndo(null);
   };
 
   const handleSubmitSubtask = (draft: TodoDraft) => {
@@ -1298,7 +1605,7 @@ function App() {
             if (miniTodo) pauseTiming(miniTodo.id);
           }}
           onToggle={() => {
-            if (miniTodo) toggleComplete(miniTodo.id);
+            if (miniTodo) handleToggleTodoCompletion(miniTodo);
           }}
           onRemove={() => {
             if (miniTodo) handleRemoveTodo(miniTodo.id);
@@ -1399,6 +1706,7 @@ function App() {
             onExportAll={exportTodosData}
             onExportSelectedDate={exportSelectedDateData}
             onImport={importTodosData}
+            onCleanupImages={() => cleanupStoredTodoImages(allTodos)}
           />
           <button
             type="button"
@@ -1645,6 +1953,7 @@ function App() {
                 subtaskEditorTarget.mode === "edit" ? "保存修改" : "添加子待办"
               }
               className="todo-form card"
+              showImages={false}
               autoFocus
               onSubmit={handleSubmitSubtask}
               onCancel={() => setSubtaskEditorTarget(null)}
@@ -1676,6 +1985,7 @@ function App() {
               titleIcon={<IconPencil size={18} />}
               submitLabel="保存修改"
               className="todo-form card"
+              todoId={editingTodo.id}
               autoFocus
               onSubmit={handleSubmitEdit}
               onCancel={() => setEditingTodoId(null)}
@@ -1718,67 +2028,139 @@ function App() {
                     </p>
                   </div>
                 ) : (
-                  dayTodos.map((todo) => (
-                    <TodoItem
-                      key={todo.id}
-                      itemRef={setTodoItemRef(todo.id)}
-                      todo={todo}
-                      liveElapsed={getLiveElapsed(todo)}
-                      remaining={getCountdownRemaining(todo)}
-                      isHighlighted={highlightedTodoId === todo.id}
-                      isDragging={draggingTodoId === todo.id}
-                      batchMode={batchMode}
-                      isBatchSelected={selectedTodoIds.has(todo.id)}
-                      onStart={() => startTiming(todo.id)}
-                      onPause={() => pauseTiming(todo.id)}
-                      onStop={() => stopTiming(todo.id)}
-                      onToggle={() => toggleComplete(todo.id)}
-                      onRemove={() => handleRemoveTodo(todo.id)}
-                      onEdit={() => handleStartEdit(todo.id)}
-                      onReset={() => {
-                        setPendingDeleteTodoId(null);
-                        setPendingDeleteSubtask(null);
-                        setPendingResetTodoId(todo.id);
-                      }}
-                      onUpdateComment={(comment) =>
-                        updateComment(todo.id, comment)
-                      }
-                      onToggleFavorite={() => toggleFavorite(todo.id)}
-                      onToggleBatchSelect={() => handleToggleBatchSelect(todo.id)}
-                      onAddSubtask={(parentSubtaskId) =>
-                        handleStartAddSubtask(todo.id, parentSubtaskId)
-                      }
-                      onEditSubtask={(subtaskId) =>
-                        handleStartEditSubtask(todo.id, subtaskId)
-                      }
-                      onSyncSubtask={(subtaskId) => {
-                        setPendingDeleteTodoId(null);
-                        setPendingDeleteSubtask(null);
-                        setPendingSyncSubtask({ todoId: todo.id, subtaskId });
-                      }}
-                      onToggleSubtask={(subtaskId) =>
-                        toggleSubtask(todo.id, subtaskId)
-                      }
-                      onRemoveSubtask={(subtaskId) =>
-                        setPendingDeleteSubtask({ todoId: todo.id, subtaskId })
-                      }
-                      onReorderSubtask={(draggedSubtaskId, targetSubtaskId) =>
-                        reorderSubtask(todo.id, draggedSubtaskId, targetSubtaskId)
-                      }
-                      onStartSubtask={(subtaskId) =>
-                        startSubtaskTiming(todo.id, subtaskId)
-                      }
-                      onPauseSubtask={(subtaskId) =>
-                        pauseSubtaskTiming(todo.id, subtaskId)
-                      }
-                      onStopSubtask={(subtaskId) =>
-                        stopSubtaskTiming(todo.id, subtaskId)
-                      }
-                      onDragHandlePointerDown={handleTodoDragHandlePointerDown(
-                        todo.id,
-                      )}
-                    />
-                  ))
+                  dayTimelineItems.map((item, index) => {
+                    const nextItem = dayTimelineItems[index + 1];
+                    if (item.type === "category") {
+                      return (
+                        <TodoCategoryDividerRow
+                          key={item.divider.id}
+                          divider={item.divider}
+                          dropPosition={
+                            todoDropTarget?.targetType === "category" &&
+                            todoDropTarget.targetId === item.divider.id
+                              ? todoDropTarget.position
+                              : null
+                          }
+                          onRename={(title) =>
+                            updateCategoryDivider(item.divider.id, title)
+                          }
+                          onRemove={() => removeCategoryDivider(item.divider.id)}
+                        />
+                      );
+                    }
+
+                    const todo = item.todo;
+                    const insertTarget =
+                      nextItem?.type === "todo"
+                        ? {
+                            beforeTodoId: todo.id,
+                            afterTodoId: nextItem.todo.id,
+                          }
+                        : null;
+                    const insertActive =
+                      insertTarget != null &&
+                      categoryInsertTarget?.beforeTodoId ===
+                        insertTarget.beforeTodoId &&
+                      categoryInsertTarget.afterTodoId ===
+                        insertTarget.afterTodoId;
+
+                    return (
+                      <div key={todo.id} className="todo-timeline-group">
+                        <TodoItem
+                          itemRef={setTodoItemRef(todo.id)}
+                          todo={todo}
+                          liveElapsed={getLiveElapsed(todo)}
+                          remaining={getCountdownRemaining(todo)}
+                          isHighlighted={highlightedTodoId === todo.id}
+                          isDragging={draggingTodoId === todo.id}
+                          dropPosition={
+                            todoDropTarget?.targetType === "todo" &&
+                            todoDropTarget.targetId === todo.id
+                              ? todoDropTarget.position
+                              : null
+                          }
+                          batchMode={batchMode}
+                          isBatchSelected={selectedTodoIds.has(todo.id)}
+                          onStart={() => startTiming(todo.id)}
+                          onPause={() => pauseTiming(todo.id)}
+                          onStop={() => stopTiming(todo.id)}
+                          onToggle={() => handleToggleTodoCompletion(todo)}
+                          onRemove={() => handleRemoveTodo(todo.id)}
+                          onEdit={() => handleStartEdit(todo.id)}
+                          onReset={() => {
+                            setPendingDeleteTodoId(null);
+                            setPendingDeleteSubtask(null);
+                            setPendingResetTodoId(todo.id);
+                          }}
+                          onUpdateComment={(comment) =>
+                            updateComment(todo.id, comment)
+                          }
+                          onUpdateImages={(images) =>
+                            updateTodoImages(todo.id, images)
+                          }
+                          onToggleFavorite={() => toggleFavorite(todo.id)}
+                          onToggleBatchSelect={() =>
+                            handleToggleBatchSelect(todo.id)
+                          }
+                          onAddSubtask={(parentSubtaskId) =>
+                            handleStartAddSubtask(todo.id, parentSubtaskId)
+                          }
+                          onEditSubtask={(subtaskId) =>
+                            handleStartEditSubtask(todo.id, subtaskId)
+                          }
+                          onSyncSubtask={(subtaskId) => {
+                            setPendingDeleteTodoId(null);
+                            setPendingDeleteSubtask(null);
+                            setPendingSyncSubtask({
+                              todoId: todo.id,
+                              subtaskId,
+                            });
+                          }}
+                          onToggleSubtask={(subtaskId) =>
+                            toggleSubtask(todo.id, subtaskId)
+                          }
+                          onRemoveSubtask={(subtaskId) =>
+                            setPendingDeleteSubtask({
+                              todoId: todo.id,
+                              subtaskId,
+                            })
+                          }
+                          onReorderSubtask={(draggedSubtaskId, targetSubtaskId) =>
+                            reorderSubtask(
+                              todo.id,
+                              draggedSubtaskId,
+                              targetSubtaskId,
+                            )
+                          }
+                          onStartSubtask={(subtaskId) =>
+                            startSubtaskTiming(todo.id, subtaskId)
+                          }
+                          onPauseSubtask={(subtaskId) =>
+                            pauseSubtaskTiming(todo.id, subtaskId)
+                          }
+                          onStopSubtask={(subtaskId) =>
+                            stopSubtaskTiming(todo.id, subtaskId)
+                          }
+                          onDragHandlePointerDown={handleTodoDragHandlePointerDown(
+                            todo.id,
+                          )}
+                        />
+                        {insertTarget && (
+                          <TodoCategoryInsertRow
+                            active={insertActive}
+                            draft={categoryDraft}
+                            onStart={() => {
+                              setCategoryDraft("");
+                              setCategoryInsertTarget(insertTarget);
+                            }}
+                            onDraftChange={setCategoryDraft}
+                            onSubmit={handleSubmitCategoryInsert}
+                            onCancel={handleCancelCategoryInsert}
+                          />
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </section>
             </>
@@ -1899,6 +2281,24 @@ function App() {
                 <div className="batch-actions__commands">
                   <button
                     type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleBatchMoveQuick(1)}
+                    disabled={selectedCount === 0}
+                  >
+                    <IconCalendarEvent size={14} />
+                    明天
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleBatchMoveQuick(7)}
+                    disabled={selectedCount === 0}
+                  >
+                    <IconCalendarEvent size={14} />
+                    下周
+                  </button>
+                  <button
+                    type="button"
                     className="btn btn-primary btn-sm"
                     onClick={handleBatchComplete}
                     disabled={selectedCount === 0}
@@ -1951,6 +2351,27 @@ function App() {
         )}
       </main>
       {deleteConfirmDialog}
+      {todoDragPreview && (
+        <div
+          className="todo-drag-preview"
+          style={{
+            left: todoDragPreview.x,
+            top: todoDragPreview.y,
+            width: todoDragPreview.width,
+            height: todoDragPreview.height,
+          }}
+          aria-hidden
+          dangerouslySetInnerHTML={{ __html: todoDragPreview.html }}
+        />
+      )}
+      {completionUndo && (
+        <div className="completion-undo" role="status" aria-live="polite">
+          <span>已完成「{completionUndo.title}」</span>
+          <button type="button" onClick={handleUndoCompletion}>
+            撤销
+          </button>
+        </div>
+      )}
       {batchDeleteConfirmDialog}
       {resetConfirmDialog}
       {clearAllConfirmDialog}

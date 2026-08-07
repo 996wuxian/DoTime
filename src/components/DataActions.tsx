@@ -5,6 +5,7 @@ import {
   IconCalendarEvent,
   IconDatabaseExport,
   IconDownload,
+  IconTrash,
   IconUpload,
 } from "./icons";
 
@@ -15,6 +16,12 @@ interface DataActionsProps {
   onExportAll: () => string;
   onExportSelectedDate: () => string;
   onImport: (text: string) => ImportAppDataResult;
+  onCleanupImages: () => Promise<{
+    removedDirs: number;
+    removedFiles: number;
+    failedDirs: number;
+    failedFiles: number;
+  }>;
 }
 
 type ActionStatus = {
@@ -44,6 +51,7 @@ export function DataActions({
   onExportAll,
   onExportSelectedDate,
   onImport,
+  onCleanupImages,
 }: DataActionsProps) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<ActionStatus | null>(
@@ -152,6 +160,31 @@ export function DataActions({
     }
   };
 
+  const handleCleanupImages = async () => {
+    try {
+      const result = await onCleanupImages();
+      const total = result.removedDirs + result.removedFiles;
+      const failed = result.failedDirs + result.failedFiles;
+      setStatus({
+        kind: failed > 0 ? "info" : "success",
+        message:
+          failed > 0
+            ? `已清理 ${result.removedDirs} 个目录、${result.removedFiles} 个文件，${failed} 项被占用未清理。`
+            : total > 0
+            ? `已清理 ${result.removedDirs} 个图片目录、${result.removedFiles} 个图片文件。`
+            : "没有发现需要清理的图片文件。",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus({
+        kind: "error",
+        message: message.includes("cleanup_todo_images")
+          ? "图片清理命令未加载，请完整重启应用后再试。"
+          : `图片清理失败：${message}`,
+      });
+    }
+  };
+
   return (
     <div ref={containerRef} className="data-actions">
       <button
@@ -199,6 +232,14 @@ export function DataActions({
             >
               <IconUpload size={15} />
               导入旧备份
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => void handleCleanupImages()}
+            >
+              <IconTrash size={15} />
+              清理图片
             </button>
           </div>
           <input

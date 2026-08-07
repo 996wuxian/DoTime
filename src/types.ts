@@ -69,7 +69,9 @@ export interface TodoSubtask {
 export interface TodoImage {
   id: string;
   name: string;
-  dataUrl: string;
+  mimeType?: string;
+  fileName?: string;
+  dataUrl?: string;
 }
 
 export interface Todo {
@@ -115,6 +117,17 @@ export interface Todo {
   recurrenceTemplate: RecurrenceTemplate | null;
   /** 最多两级子待办，组成主待办下方的第 2、3 层 */
   subtasks?: TodoSubtask[];
+}
+
+export interface TodoCategoryDivider {
+  id: string;
+  title: string;
+  /** 所属日期 YYYY-MM-DD */
+  date: string;
+  /** 同一天内的位置，和待办 sortOrder 使用同一坐标系 */
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface TodoDateSummary {

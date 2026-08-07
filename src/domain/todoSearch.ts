@@ -1,4 +1,4 @@
-import type { Todo, Urgency } from "../types";
+import type { Todo, TodoSubtask, Urgency } from "../types";
 
 export type TodoSearchStatus = "all" | "pending" | "completed" | "timing";
 export type TodoSearchUrgency = "all" | Urgency;
@@ -44,6 +44,26 @@ function getStatusRank(todo: Todo): number {
   return 2;
 }
 
+function collectSubtaskTitles(subtasks: readonly TodoSubtask[] = []): string[] {
+  const titles: string[] = [];
+  for (const subtask of subtasks) {
+    titles.push(subtask.title);
+    titles.push(...collectSubtaskTitles(subtask.children));
+  }
+  return titles;
+}
+
+function getTodoSearchText(todo: Todo): string {
+  return [
+    todo.title,
+    todo.comment ?? "",
+    ...collectSubtaskTitles(todo.subtasks),
+    ...(todo.images ?? []).map((image) => image.name),
+  ]
+    .join("\n")
+    .toLocaleLowerCase();
+}
+
 export function searchTodos(
   todos: readonly Todo[],
   filters: TodoSearchFilters,
@@ -55,7 +75,7 @@ export function searchTodos(
   for (const todo of todos) {
     if (
       normalizedQuery.length > 0 &&
-      !todo.title.toLocaleLowerCase().includes(normalizedQuery)
+      !getTodoSearchText(todo).includes(normalizedQuery)
     ) {
       continue;
     }

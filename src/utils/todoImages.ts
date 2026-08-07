@@ -1,4 +1,5 @@
 import type { TodoImage } from "../types";
+import type { Todo } from "../types";
 
 export const MAX_TODO_IMAGES = 3;
 const MAX_IMAGE_EDGE = 1440;
@@ -49,9 +50,66 @@ async function maybeResizeImage(file: File, dataUrl: string): Promise<string> {
 export async function createTodoImageFromFile(file: File): Promise<TodoImage> {
   const dataUrl = await readFileAsDataUrl(file);
   const normalized = await maybeResizeImage(file, dataUrl);
+  const mimeType = normalized === dataUrl ? file.type : "image/webp";
   return {
     id: createImageId(),
     name: file.name,
+    mimeType,
     dataUrl: normalized,
   };
+}
+
+export function getTodoImagesSignature(
+  images: readonly TodoImage[] = [],
+): string {
+  return images
+    .slice(0, MAX_TODO_IMAGES)
+    .map(
+      (image) =>
+        [
+          image.id,
+          image.name,
+          image.mimeType ?? "",
+          image.fileName ?? "",
+          image.dataUrl ? "data" : "",
+        ].join(":"),
+    )
+    .join("|");
+}
+
+export async function persistTodoImages(
+  todoId: string,
+  images: readonly TodoImage[] = [],
+): Promise<TodoImage[]> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<TodoImage[]>("persist_todo_images", {
+    todoId,
+    images: images.slice(0, MAX_TODO_IMAGES),
+  });
+}
+
+export async function removeTodoImages(todoId: string): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("remove_todo_images", { todoId });
+}
+
+export type TodoImageCleanupResult = {
+  removedDirs: number;
+  removedFiles: number;
+  failedDirs: number;
+  failedFiles: number;
+};
+
+export async function cleanupTodoImages(
+  todos: readonly Todo[],
+): Promise<TodoImageCleanupResult> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<TodoImageCleanupResult>("cleanup_todo_images", {
+    references: todos.map((todo) => ({
+      todoId: todo.id,
+      fileNames: (todo.images ?? [])
+        .map((image) => image.fileName)
+        .filter((fileName): fileName is string => Boolean(fileName)),
+    })),
+  });
 }
