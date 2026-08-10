@@ -423,6 +423,7 @@ fn show_reminder_window_inner(
 
     let _ = window.unminimize();
     window.show().map_err(|error| error.to_string())?;
+    let _ = window.set_focus();
     let _ = window.emit("dotime-reminder-group", reminder_group);
     Ok(())
 }

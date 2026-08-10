@@ -15,7 +15,12 @@ import type {
   Urgency,
 } from "../types";
 import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
-import { formatClockTime, formatDateKey, PRESET_MINUTES } from "../utils/time";
+import {
+  formatClockTime,
+  formatDateKey,
+  formatDisplayDate,
+  PRESET_MINUTES,
+} from "../utils/time";
 import {
   createTodoImageFromFile,
   MAX_TODO_IMAGES,
@@ -115,6 +120,21 @@ type TaskMode = "normal" | "record" | "countdown";
 
 type ActiveTimePicker = "task" | "reminder" | null;
 
+function formatReminderDateHint(dateKey: string, time: string) {
+  const today = formatDateKey();
+  const tomorrowDate = new Date();
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrow = formatDateKey(tomorrowDate);
+  const dateLabel =
+    dateKey === today
+      ? "今天"
+      : dateKey === tomorrow
+        ? "明天"
+        : formatDisplayDate(dateKey);
+
+  return `${dateLabel} ${time}`;
+}
+
 function TodoFormImagePreview({
   todoId,
   image,
@@ -197,6 +217,9 @@ export function TodoEditorForm({
     normalizeReminderTime(draft.taskTime) ?? formatClockTime(Date.now());
   const reminderTimeValue =
     normalizeReminderTime(draft.reminderTime) ?? getDefaultReminderTime();
+  const reminderDateTimeHint = draft.reminderEnabled
+    ? formatReminderDateHint(draft.date, reminderTimeValue)
+    : null;
   const activeTimeValue =
     activeTimePicker === "task" ? taskTimeValue : reminderTimeValue;
   const [selectedHour, selectedMinute] = activeTimeValue.split(":");
@@ -709,6 +732,11 @@ export function TodoEditorForm({
               </span>
             </button>
           </div>
+          {reminderDateTimeHint && (
+            <span className="field__hint">
+              实际提醒：{reminderDateTimeHint}
+            </span>
+          )}
         </div>
       </div>
 

@@ -3842,6 +3842,14 @@ a,
   cursor: not-allowed;
 }
 
+.field__hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .time-picker-popover {
   position: fixed;
   z-index: 60;
@@ -6178,10 +6186,10 @@ body.is-clipboard-window #root {
   margin: 12px;
   display: grid;
   place-items: center;
-  border: 1px dashed var(--border);
+  /* border: 1px dashed var(--border); */
   border-radius: 8px;
   color: var(--text-dim);
-  background: rgba(148, 163, 184, 0.04);
+  /* background: rgba(148, 163, 184, 0.04); */
   font-size: 0.86rem;
 }
 

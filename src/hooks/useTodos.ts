@@ -350,7 +350,9 @@ export function useTodos(selectedDate: string) {
 
   const scanReminders = useCallback(() => {
     const now = Date.now();
-    if (reminderScanInFlightRef.current) return;
+    if (reminderScanInFlightRef.current) {
+      return;
+    }
     if (now - reminderLastFailedAtRef.current < REMINDER_RETRY_DELAY_MS) {
       return;
     }
@@ -401,25 +403,29 @@ export function useTodos(selectedDate: string) {
   }, [todos]);
 
   useEffect(() => {
-    if (nativeReminderSchedulerAvailable !== false) return;
-
     const nextReminderAt = getNextPendingReminderAt(todos);
     if (nextReminderAt == null) return;
 
     const now = Date.now();
+    const nativeSchedulerGraceDelay =
+      nativeReminderSchedulerAvailable === true ? 1500 : 0;
     const retryDelay = reminderLastFailedAtRef.current
       ? Math.max(
           0,
           REMINDER_RETRY_DELAY_MS - (now - reminderLastFailedAtRef.current),
         )
       : 0;
-    const reminderDelay = Math.max(0, nextReminderAt - now);
+    const reminderDelay =
+      Math.max(0, nextReminderAt - now) + nativeSchedulerGraceDelay;
     const delay = Math.min(
       Math.max(retryDelay, reminderDelay),
       MAX_REMINDER_TIMER_DELAY_MS,
     );
 
-    const id = window.setTimeout(scanReminders, delay);
+    const id = window.setTimeout(() => {
+      scanReminders();
+      setReminderRetryToken((token) => token + 1);
+    }, delay);
     return () => window.clearTimeout(id);
   }, [nativeReminderSchedulerAvailable, reminderRetryToken, scanReminders, todos]);
 

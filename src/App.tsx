@@ -1773,15 +1773,18 @@ function App() {
     <div className="app">
       <header
         className="titlebar"
+        data-tauri-drag-region
       >
         <div
           className="brand"
+          data-tauri-drag-region
         >
           <img
             src="/logo.png"
             alt="doTime"
             className="app-logo"
             draggable={false}
+            data-tauri-drag-region
           />
           <button
             type="button"
@@ -1810,29 +1813,33 @@ function App() {
           >
             <IconClipboardText size={17} />
           </button>
-          <section className="stats-row" aria-label="日期统计">
-            <div className="stat-card" title="待办">
+          <section
+            className="stats-row"
+            aria-label="日期统计"
+            data-tauri-drag-region
+          >
+            <div className="stat-card" title="待办" data-tauri-drag-region>
               <span className="stat-card__icon">
                 <IconListCheck size={14} />
               </span>
               <span className="stat-card__label">待办</span>
               <span className="stat-card__value">{stats.total}</span>
             </div>
-            <div className="stat-card" title="已完成">
+            <div className="stat-card" title="已完成" data-tauri-drag-region>
               <span className="stat-card__icon stat-card__icon--success">
                 <IconCircleCheck size={14} />
               </span>
               <span className="stat-card__label">已完成</span>
               <span className="stat-card__value">{stats.done}</span>
             </div>
-            <div className="stat-card" title="计时中">
+            <div className="stat-card" title="计时中" data-tauri-drag-region>
               <span className="stat-card__icon stat-card__icon--primary">
                 <IconClockHour4 size={14} />
               </span>
               <span className="stat-card__label">计时中</span>
               <span className="stat-card__value">{stats.timing}</span>
             </div>
-            <div className="stat-card" title="总耗时">
+            <div className="stat-card" title="总耗时" data-tauri-drag-region>
               <span className="stat-card__icon">
                 <IconClockHour4 size={14} />
               </span>

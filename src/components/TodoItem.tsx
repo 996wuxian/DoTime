@@ -3,6 +3,8 @@ import type { Todo, TodoImage, TodoSubtask } from "../types";
 import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
 import {
   formatClockTime,
+  formatDateKey,
+  formatDisplayDate,
   formatDuration,
   formatDurationHuman,
 } from "../utils/time";
@@ -61,6 +63,17 @@ interface TodoItemProps {
   onPauseSubtask: (subtaskId: string) => void;
   onStopSubtask: (subtaskId: string) => void;
   onDragHandlePointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
+}
+
+function formatReminderMeta(dateKey: string, time: string) {
+  const today = formatDateKey();
+  const tomorrowDate = new Date();
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrow = formatDateKey(tomorrowDate);
+
+  if (dateKey === today) return time;
+  if (dateKey === tomorrow) return `明天 ${time}`;
+  return `${formatDisplayDate(dateKey)} ${time}`;
 }
 
 function TodoImageLightbox({
@@ -796,9 +809,13 @@ export function TodoItem({
                 className={`meta-item meta-reminder ${
                   reminderFired ? "meta-reminder--fired" : ""
                 }`}
+                title={`${reminderFired ? "已提醒" : "提醒"} ${formatDisplayDate(
+                  todo.date,
+                )} ${todo.reminderTime}`}
               >
                 <IconBell size={13} />
-                {reminderFired ? "已提醒" : "提醒"} {todo.reminderTime}
+                {reminderFired ? "已提醒" : "提醒"}{" "}
+                {formatReminderMeta(todo.date, todo.reminderTime)}
               </span>
             )}
             {todo.recurrence && (
