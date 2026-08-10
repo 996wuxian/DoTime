@@ -218,6 +218,25 @@ a,
   line-height: 1.2;
 }
 
+.brand__title-button {
+  min-width: 0;
+  padding: 4px 6px;
+  margin: 0 0 0 -6px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  background: transparent;
+}
+
+.brand__title-button:hover,
+.brand__title-button:focus-visible {
+  outline: none;
+  border-color: var(--border);
+  background: rgba(148, 163, 184, 0.1);
+}
+
 .brand__sub {
   margin: 1px 0 0;
   color: var(--text-muted);
@@ -2507,6 +2526,81 @@ a,
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+.about-dialog {
+  width: min(560px, 100%);
+}
+
+.about-dialog__icon {
+  color: var(--primary);
+  background: var(--primary-soft);
+  overflow: hidden;
+}
+
+.about-dialog__icon img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.about-dialog__summary {
+  margin-top: 4px;
+}
+
+.about-dialog__list {
+  margin: 14px 0 0;
+  display: grid;
+  gap: 8px;
+}
+
+.about-dialog__list > div {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.about-dialog__list dt {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.about-dialog__list dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.about-dialog__link {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--primary-hover);
+  text-align: left;
+  font: inherit;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.about-dialog__link:hover,
+.about-dialog__link:focus-visible {
+  outline: none;
+  color: var(--primary-hover);
+  text-decoration: none;
+}
+
+.about-dialog__link:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 .btn-add-open {
@@ -5031,6 +5125,12 @@ a,
   background: #e1f2ed;
 }
 
+.status-badge--overtime {
+  color: #f97316;
+  background: rgba(249, 115, 22, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.18);
+}
+
 .todo-item__subtask-progress {
   height: 23px;
   padding: 0 6px;
@@ -5077,6 +5177,12 @@ a,
 :root[data-theme="light"] .status-badge--done {
   color: #047857;
   background: #e1f2ed;
+}
+
+:root[data-theme="light"] .status-badge--overtime {
+  color: #c2410c;
+  background: rgba(251, 146, 60, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(194, 65, 12, 0.12);
 }
 
 .progress-bar {

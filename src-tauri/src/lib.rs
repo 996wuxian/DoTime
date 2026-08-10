@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::{
     mpsc::{self, Receiver, RecvTimeoutError, Sender},
     Mutex,
@@ -363,6 +364,26 @@ fn show_clipboard_window(app: tauri::AppHandle) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())?;
     let _ = window.set_focus();
     Ok(())
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("only http and https urls can be opened".into());
+    }
+
+    #[cfg(windows)]
+    let result = Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", &url])
+        .spawn();
+
+    #[cfg(target_os = "macos")]
+    let result = Command::new("open").arg(&url).spawn();
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = Command::new("xdg-open").arg(&url).spawn();
+
+    result.map(|_| ()).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1421,6 +1442,7 @@ pub fn run() {
             close_reminder_window,
             close_clipboard_window,
             show_clipboard_window,
+            open_external_url,
             show_reminder_window,
             schedule_reminders,
             get_active_reminder_group,

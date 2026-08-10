@@ -51,12 +51,68 @@ export type SubtaskDetails = Pick<
   | "recordTimeEnabled"
 >;
 
+export type InitialTodoSubtaskOptions = Pick<
+  TodoSubtask,
+  "countdownEnabled" | "recordTimeEnabled"
+> & {
+  plannedSeconds: number;
+};
+
 function createSeriesId(now = Date.now()): string {
   return `series-${now}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 function createSubtaskId(now = Date.now()): string {
   return `subtask-${now}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+export function createInitialTodoSubtasks(
+  titles: readonly string[] = [],
+  options: InitialTodoSubtaskOptions = {
+    countdownEnabled: false,
+    plannedSeconds: 25 * 60,
+    recordTimeEnabled: false,
+  },
+  now = Date.now(),
+): TodoSubtask[] {
+  const subtasks = titles
+    .map((title) => title.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+
+  if (subtasks.length === 0) return [];
+
+  const useCountdown = options.countdownEnabled;
+  const totalPlannedSeconds = Math.max(60, options.plannedSeconds);
+  const basePlannedSeconds = useCountdown
+    ? Math.max(60, Math.floor(totalPlannedSeconds / subtasks.length))
+    : 0;
+  const remainder = useCountdown
+    ? Math.max(0, totalPlannedSeconds - basePlannedSeconds * subtasks.length)
+    : 0;
+
+  return subtasks.map((title, index) => {
+    const plannedSeconds = useCountdown
+      ? basePlannedSeconds + (index < remainder ? 1 : 0)
+      : 0;
+
+    return {
+      id: createSubtaskId(now + index),
+      title,
+      urgency: "medium" as const,
+      plannedSeconds,
+      countdownEnabled: useCountdown,
+      recordTimeEnabled: useCountdown || options.recordTimeEnabled,
+      completed: false,
+      isTiming: false,
+      timingStartedAt: null,
+      elapsedSeconds: 0,
+      actualDurationSeconds: null,
+      createdAt: now + index,
+      completedAt: null,
+      children: [],
+    };
+  });
 }
 
 function settleSubtaskTiming(subtask: TodoSubtask, now: number): TodoSubtask {
@@ -128,22 +184,103 @@ function completeSubtask(subtask: TodoSubtask, now: number): TodoSubtask {
   };
 }
 
-function uncompleteSubtask(subtask: TodoSubtask, now: number): TodoSubtask {
-  const elapsedSeconds = Math.max(
-    subtask.elapsedSeconds,
-    subtask.actualDurationSeconds ?? 0,
-  );
-  const shouldResumeTiming = subtask.recordTimeEnabled;
-
+function uncompleteSubtask(subtask: TodoSubtask): TodoSubtask {
   return {
     ...subtask,
     completed: false,
     completedAt: null,
-    isTiming: shouldResumeTiming,
-    timingStartedAt: shouldResumeTiming ? now : null,
-    elapsedSeconds,
     actualDurationSeconds: null,
+    isTiming: false,
+    timingStartedAt: null,
   };
+}
+
+function getTodoLiveElapsedSeconds(todo: Pick<
+  Todo,
+  "elapsedSeconds" | "isTiming" | "timingStartedAt"
+>, now: number): number {
+  if (todo.isTiming && todo.timingStartedAt != null) {
+    return todo.elapsedSeconds + Math.floor((now - todo.timingStartedAt) / 1000);
+  }
+  return todo.elapsedSeconds;
+}
+
+function getSubtaskLiveElapsedSeconds(
+  subtask: Pick<TodoSubtask, "elapsedSeconds" | "isTiming" | "timingStartedAt">,
+  now: number,
+): number {
+  if (subtask.isTiming && subtask.timingStartedAt != null) {
+    return (
+      subtask.elapsedSeconds + Math.floor((now - subtask.timingStartedAt) / 1000)
+    );
+  }
+  return subtask.elapsedSeconds;
+}
+
+function syncSequentialSubtasks(
+  subtasks: readonly TodoSubtask[] = [],
+  now: number,
+  parentElapsedSeconds: number,
+  parentTimingActive: boolean,
+): TodoSubtask[] {
+  let changed = false;
+  let countdownElapsedBefore = 0;
+
+  const nextSubtasks = subtasks.map((subtask) => {
+    let nextSubtask = subtask;
+
+    if (
+      parentTimingActive &&
+      !subtask.completed &&
+      !subtask.isTiming &&
+      subtask.recordTimeEnabled &&
+      (!subtask.countdownEnabled ||
+        parentElapsedSeconds >= countdownElapsedBefore)
+    ) {
+      nextSubtask = {
+        ...subtask,
+        isTiming: true,
+        timingStartedAt: now,
+      };
+    }
+
+    if (!nextSubtask.completed && nextSubtask.children.length > 0) {
+      const childNext = syncSequentialSubtasks(
+        nextSubtask.children,
+        now,
+        getSubtaskLiveElapsedSeconds(nextSubtask, now),
+        nextSubtask.isTiming,
+      );
+      if (childNext !== nextSubtask.children) {
+        nextSubtask = { ...nextSubtask, children: childNext };
+      }
+    }
+
+    if (nextSubtask !== subtask) {
+      changed = true;
+    }
+
+    if (subtask.countdownEnabled) {
+      countdownElapsedBefore += Math.max(0, subtask.plannedSeconds);
+    }
+
+    return nextSubtask;
+  });
+
+  return changed ? nextSubtasks : (subtasks as TodoSubtask[]);
+}
+
+export function syncTodoSubtaskTiming(todo: Todo, now: number): Todo {
+  if (!todo.subtasks || todo.subtasks.length === 0) return todo;
+
+  const subtasks = syncSequentialSubtasks(
+    todo.subtasks,
+    now,
+    getTodoLiveElapsedSeconds(todo, now),
+    todo.isTiming && !todo.completed,
+  );
+
+  return subtasks === todo.subtasks ? todo : { ...todo, subtasks };
 }
 
 function updateSubtasks(
@@ -749,14 +886,14 @@ export function startTodoTiming(
     ) {
       return todo;
     }
-    return {
-      ...todo,
-      isTiming: true,
-      timingStartedAt: now,
-      subtasks: updateSubtasks(todo.subtasks, (subtask) =>
-        startSubtaskTiming(subtask, now),
-      ),
-    };
+    return syncTodoSubtaskTiming(
+      {
+        ...todo,
+        isTiming: true,
+        timingStartedAt: now,
+      },
+      now,
+    );
   });
 }
 
@@ -821,7 +958,7 @@ export function toggleTodoCompletion(todo: Todo, now: number): Todo {
     );
     const shouldResumeTiming = todo.recordTimeEnabled && elapsedSeconds > 0;
 
-    return {
+    const restoredTodo = {
       ...todo,
       completed: false,
       completedAt: null,
@@ -830,9 +967,11 @@ export function toggleTodoCompletion(todo: Todo, now: number): Todo {
       elapsedSeconds,
       actualDurationSeconds: null,
       subtasks: updateSubtasks(todo.subtasks, (subtask) =>
-        uncompleteSubtask(subtask, now),
+        uncompleteSubtask(subtask),
       ),
     };
+
+    return syncTodoSubtaskTiming(restoredTodo, now);
   }
 
   let elapsedSeconds = todo.elapsedSeconds;

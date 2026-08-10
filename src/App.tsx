@@ -36,7 +36,9 @@ import {
   IconClipboardText,
   IconClock,
   IconClockHour4,
+  IconCode,
   IconClose,
+  IconDownload,
   IconListCheck,
   IconDockTop,
   IconPencil,
@@ -77,6 +79,11 @@ const MINI_OPACITY_STEP = 0.05;
 const TODO_HIGHLIGHT_MS = 2000;
 const TODO_DRAG_LONG_PRESS_MS = 180;
 const TODO_DRAG_CANCEL_DISTANCE = 8;
+const APP_VERSION = "1.1.1";
+const APP_DEVELOPMENT_DATE = "2026-07-24";
+const APP_AUTHOR = "996wuxian";
+const APP_REPOSITORY_URL = "https://github.com/996wuxian/DoTime";
+const APP_DOWNLOAD_URL = "https://github.com/996wuxian/DoTime/releases";
 
 type TodoDragState = {
   pointerId: number;
@@ -154,8 +161,33 @@ function getSubtaskEditorDraft(
   todos: readonly Todo[],
   selectedDate: string,
 ): TodoDraft {
-  if (target?.mode !== "edit") return createDefaultTodoDraft(selectedDate);
+  if (target == null) return createDefaultTodoDraft(selectedDate);
   const todo = todos.find((item) => item.id === target.todoId);
+  if (target?.mode !== "edit") {
+    const parent =
+      todo == null
+        ? null
+        : target.parentSubtaskId == null
+          ? todo
+          : findTodoSubtask(todo.subtasks, target.parentSubtaskId);
+    if (parent == null) return createDefaultTodoDraft(selectedDate);
+
+    const draft = createDefaultTodoDraft(selectedDate);
+    const countdownEnabled = parent.countdownEnabled;
+    return {
+      ...draft,
+      urgency: parent.urgency,
+      plannedSeconds: countdownEnabled
+        ? Math.max(
+            60,
+            parent.plannedSeconds > 0 ? parent.plannedSeconds : draft.plannedSeconds,
+          )
+        : draft.plannedSeconds,
+      countdownEnabled,
+      recordTimeEnabled: countdownEnabled ? true : parent.recordTimeEnabled,
+    };
+  }
+
   const subtask =
     todo == null ? null : findTodoSubtask(todo.subtasks, target.subtaskId);
   if (subtask == null) return createDefaultTodoDraft(selectedDate);
@@ -435,6 +467,13 @@ async function showClipboardWindow() {
   });
 }
 
+async function openExternalUrl(url: string) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("open_external_url", { url }).catch((error) => {
+    console.error("failed to open external url", error);
+  });
+}
+
 async function cleanupStoredTodoImages(todos: readonly Todo[]) {
   const { cleanupTodoImages } = await import("./utils/todoImages");
   return cleanupTodoImages(todos);
@@ -443,6 +482,7 @@ async function cleanupStoredTodoImages(todos: readonly Todo[]) {
 function App() {
   const [selectedDate, setSelectedDate] = useState(() => formatDateKey());
   const [todoFormOpen, setTodoFormOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [subtaskEditorTarget, setSubtaskEditorTarget] =
     useState<SubtaskEditorTarget | null>(null);
@@ -608,6 +648,15 @@ function App() {
     document.body.classList.toggle("is-mini-mode", miniMode);
     return () => document.body.classList.remove("is-mini-mode");
   }, [miniMode]);
+
+  useEffect(() => {
+    if (!aboutOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAboutOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [aboutOpen]);
 
   useEffect(() => {
     localStorage.setItem(MINI_OPACITY_STORAGE_KEY, String(miniOpacity));
@@ -1582,6 +1631,104 @@ function App() {
     </div>
   ) : null;
 
+  const aboutDialog = aboutOpen ? (
+    <div
+      className="confirm-overlay"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) setAboutOpen(false);
+      }}
+    >
+      <section
+        className="confirm-dialog about-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="about-dialog-title"
+      >
+        <div className="confirm-dialog__icon about-dialog__icon" aria-hidden>
+          <img src="/logo.png" alt="" draggable={false} />
+        </div>
+        <div className="confirm-dialog__content">
+          <div className="confirm-dialog__header">
+            <div>
+              <h2 id="about-dialog-title">doTime</h2>
+              <p className="about-dialog__summary">
+                本地优先的待办、倒计时与耗时追踪工具
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon-only confirm-dialog__close"
+              onClick={() => setAboutOpen(false)}
+              aria-label="关闭关于 doTime"
+              title="关闭"
+            >
+              <IconClose size={16} />
+            </button>
+          </div>
+
+          <dl className="about-dialog__list">
+            <div>
+              <dt>版本号</dt>
+              <dd>v{APP_VERSION}</dd>
+            </div>
+            <div>
+              <dt>开发日期</dt>
+              <dd>{APP_DEVELOPMENT_DATE}</dd>
+            </div>
+            <div>
+              <dt>作者</dt>
+              <dd>{APP_AUTHOR}</dd>
+            </div>
+            <div>
+              <dt>仓库地址</dt>
+              <dd>
+                <button
+                  type="button"
+                  className="about-dialog__link"
+                  onClick={() => void openExternalUrl(APP_REPOSITORY_URL)}
+                >
+                  {APP_REPOSITORY_URL}
+                </button>
+              </dd>
+            </div>
+            <div>
+              <dt>下载地址</dt>
+              <dd>
+                <button
+                  type="button"
+                  className="about-dialog__link"
+                  onClick={() => void openExternalUrl(APP_DOWNLOAD_URL)}
+                >
+                  {APP_DOWNLOAD_URL}
+                </button>
+              </dd>
+            </div>
+          </dl>
+
+          <div className="confirm-dialog__actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => void openExternalUrl(APP_REPOSITORY_URL)}
+            >
+              <IconCode size={14} />
+              仓库
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => void openExternalUrl(APP_DOWNLOAD_URL)}
+            >
+              <IconDownload size={14} />
+              下载
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  ) : null;
+
   if (miniMode) {
     return (
       <div className="app app--mini">
@@ -1617,6 +1764,7 @@ function App() {
         {resetConfirmDialog}
         {clearAllConfirmDialog}
         {syncConfirmDialog}
+        {aboutDialog}
       </div>
     );
   }
@@ -1628,8 +1776,6 @@ function App() {
       >
         <div
           className="brand"
-          data-tauri-drag-region
-          onDoubleClick={() => void toggleMaximizeFromTitlebar()}
         >
           <img
             src="/logo.png"
@@ -1637,11 +1783,15 @@ function App() {
             className="app-logo"
             draggable={false}
           />
-          <div data-tauri-drag-region>
-            <h1 className="brand__title" data-tauri-drag-region>
-              doTime
-            </h1>
-          </div>
+          <button
+            type="button"
+            className="brand__title-button"
+            onClick={() => setAboutOpen(true)}
+            aria-label="查看 doTime 关于信息"
+            title="关于 doTime"
+          >
+            <h1 className="brand__title">doTime</h1>
+          </button>
         </div>
 
         <div
@@ -2376,6 +2526,7 @@ function App() {
       {resetConfirmDialog}
       {clearAllConfirmDialog}
       {syncConfirmDialog}
+      {aboutDialog}
     </div>
   );
 }

@@ -24,6 +24,7 @@ import {
   addTodoSubtask,
   clearTodoFavorites,
   clearSelectedTodoFavorites,
+  createInitialTodoSubtasks,
   moveTodosToDate,
   pauseTodoTiming,
   pauseTodoSubtaskTiming,
@@ -36,6 +37,7 @@ import {
   startTodoTiming,
   stopTodoSubtaskTiming,
   stopTodoTimingWithRecurrence,
+  syncTodoSubtaskTiming,
   syncTodoSubtaskElapsedFromParent,
   toggleTodoSubtask,
   toggleTodoCompletionWithRecurrence,
@@ -120,36 +122,6 @@ function getPendingScheduledReminders(todos: Todo[]): ScheduledReminder[] {
 
 function createId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function createSubtaskId(now = Date.now()): string {
-  return `subtask-${now}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function createInitialSubtasks(
-  titles: readonly string[] = [],
-  now = Date.now(),
-): TodoSubtask[] {
-  return titles
-    .map((title) => title.trim())
-    .filter(Boolean)
-    .slice(0, 20)
-    .map((title, index) => ({
-      id: createSubtaskId(now + index),
-      title,
-      urgency: "medium" as const,
-      plannedSeconds: 0,
-      countdownEnabled: false,
-      recordTimeEnabled: false,
-      completed: false,
-      isTiming: false,
-      timingStartedAt: null,
-      elapsedSeconds: 0,
-      actualDurationSeconds: null,
-      createdAt: now + index,
-      completedAt: null,
-      children: [],
-    }));
 }
 
 function hasInlineTodoImages(images: readonly TodoImage[] = []): boolean {
@@ -344,6 +316,19 @@ export function useTodos(selectedDate: string) {
     const id = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, [todos]);
+
+  useEffect(() => {
+    const now = Date.now();
+    setTodos((current) => {
+      let changed = false;
+      const nextTodos = current.map((todo) => {
+        const synced = syncTodoSubtaskTiming(todo, now);
+        if (synced !== todo) changed = true;
+        return synced;
+      });
+      return changed ? nextTodos : current;
+    });
+  }, [tick]);
 
   useEffect(() => {
     let disposed = false;
@@ -546,7 +531,15 @@ export function useTodos(selectedDate: string) {
               : `series-${now}-${Math.random().toString(36).slice(2, 9)}`,
           recurrence: normalizedRecurrence,
           recurrenceTemplate: null,
-          subtasks: createInitialSubtasks(subtaskTitles, now),
+          subtasks: createInitialTodoSubtasks(
+            subtaskTitles,
+            {
+              countdownEnabled,
+              plannedSeconds,
+              recordTimeEnabled,
+            },
+            now,
+          ),
           images: [...images].slice(0, 3),
         };
         todo.recurrenceTemplate =

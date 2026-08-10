@@ -4,6 +4,7 @@ import {
   applyReminderAction,
   applyReminderFired,
   addTodoSubtask,
+  createInitialTodoSubtasks,
   pauseTodoTiming,
   removeTodoSubtask,
   renameTodoSubtask,
@@ -12,6 +13,7 @@ import {
   stopTodoSubtaskTiming,
   stopTodoTimingWithRecurrence,
   syncTodoSubtaskElapsedFromParent,
+  syncTodoSubtaskTiming,
   toggleTodoSubtask,
   toggleTodoCompletion,
   toggleTodoCompletionWithRecurrence,
@@ -117,6 +119,55 @@ describe("todo timing state", () => {
     expect(timedChild?.isTiming).toEqual(true);
     expect(timedChild?.timingStartedAt).toEqual(1000);
     expect(untimedChild?.isTiming).toEqual(false);
+  });
+
+  it("starts countdown subtasks sequentially as the parent time advances", () => {
+    const todo = createTodo({
+      isTiming: true,
+      timingStartedAt: 1000,
+      subtasks: [
+        subtask({
+          id: "subtask-1",
+          title: "第一项",
+          plannedSeconds: 1800,
+          countdownEnabled: true,
+          recordTimeEnabled: true,
+          isTiming: true,
+          timingStartedAt: 1000,
+        }),
+        subtask({
+          id: "subtask-2",
+          title: "第二项",
+          plannedSeconds: 1800,
+          countdownEnabled: true,
+          recordTimeEnabled: true,
+        }),
+      ],
+    });
+
+    const result = syncTodoSubtaskTiming(todo, 1000 + 1800 * 1000);
+
+    expect(result.subtasks?.[0].isTiming).toEqual(true);
+    expect(result.subtasks?.[1].isTiming).toEqual(true);
+    expect(result.subtasks?.[1].timingStartedAt).toEqual(1000 + 1800 * 1000);
+  });
+
+  it("splits initial countdown subtasks evenly", () => {
+    const subtasks = createInitialTodoSubtasks(
+      ["第一项", "第二项"],
+      {
+        countdownEnabled: true,
+        plannedSeconds: 3600,
+        recordTimeEnabled: true,
+      },
+      1000,
+    );
+
+    expect(subtasks).toHaveLength(2);
+    expect(subtasks[0].countdownEnabled).toEqual(true);
+    expect(subtasks[0].plannedSeconds).toEqual(1800);
+    expect(subtasks[1].plannedSeconds).toEqual(1800);
+    expect(subtasks[0].recordTimeEnabled).toEqual(true);
   });
 
   it("pauses timing subtasks when the parent todo pauses", () => {

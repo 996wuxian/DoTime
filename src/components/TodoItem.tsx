@@ -286,13 +286,16 @@ function SubtaskRow({
 }) {
   const childStats = getDirectSubtaskStats(subtask.children);
   const childrenCollapsed = collapsedIds.has(subtask.id);
-  const statusLabel = subtask.completed
-    ? "已完成"
-    : subtask.isTiming
-      ? "进行中"
-      : "待开始";
   const liveElapsed = getSubtaskLiveElapsed(subtask);
   const countdownEnabled = subtask.countdownEnabled && subtask.plannedSeconds > 0;
+  const subtaskOvertime = countdownEnabled && liveElapsed > subtask.plannedSeconds;
+  const statusLabel = subtask.completed
+    ? "已完成"
+    : subtaskOvertime
+      ? "已超时"
+      : subtask.isTiming
+        ? "进行中"
+        : "待开始";
   const showRecordElapsed = liveElapsed > 0 || subtask.isTiming;
 
   return (
@@ -317,149 +320,153 @@ function SubtaskRow({
         </button>
 
         <>
-            <div className="todo-subtask__main">
-              <button
-                type="button"
-                className={`todo-subtask__title ${
-                  subtask.completed ? "is-completed" : ""
-                }`}
-                onClick={() => onToggle(subtask.id)}
-              >
-                {subtask.title}
-              </button>
-              <span className={`badge badge--${subtask.urgency} todo-subtask__badge`}>
-                {URGENCY_LABELS[subtask.urgency]}
-              </span>
-              {!subtask.completed && (
-                <span
-                  className={`status-badge status-badge--${
-                    subtask.isTiming ? "active" : "idle"
-                  } todo-subtask__status`}
-                >
-                  {statusLabel}
-                </span>
-              )}
-              {depth === 1 && childStats.total > 0 && (
-                <button
-                  type="button"
-                  className="todo-subtask__child-progress"
-                  onClick={() => onToggleCollapse(subtask.id)}
-                  aria-expanded={!childrenCollapsed}
-                  title={childrenCollapsed ? "展开子待办" : "折叠子待办"}
-                >
-                  {childrenCollapsed ? (
-                    <IconChevronRight size={12} />
-                  ) : (
-                    <IconChevronDown size={12} />
-                  )}
-                  {childStats.done}/{childStats.total}
-                </button>
-              )}
-            </div>
-            <span className="todo-subtask__elapsed">
-              {countdownEnabled ? (
-                <>
-                  <span className="todo-subtask__time-item">
-                    <IconClock size={12} />
-                    <span className="todo-subtask__time-label">计划</span>
-                    {formatDuration(subtask.plannedSeconds)}
-                  </span>
-                  <span className="todo-subtask__time-item">
-                    <IconClockHour4 size={12} />
-                    <span className="todo-subtask__time-label">已用</span>
-                    {formatDuration(liveElapsed)}
-                  </span>
-                </>
-              ) : (
-                showRecordElapsed && (
-                  <>
-                    <IconClockHour4 size={12} />
-                    {formatDuration(liveElapsed)}
-                  </>
-                )
-              )}
+          <div className="todo-subtask__main">
+            <button
+              type="button"
+              className={`todo-subtask__title ${
+                subtask.completed ? "is-completed" : ""
+              }`}
+              onClick={() => onToggle(subtask.id)}
+            >
+              {subtask.title}
+            </button>
+            <span className={`badge badge--${subtask.urgency} todo-subtask__badge`}>
+              {URGENCY_LABELS[subtask.urgency]}
             </span>
-            <div className="todo-subtask__actions">
-              {depth === 1 && (
-                <button
-                  type="button"
-                  onClick={() => onStartAdd(subtask.id)}
-                  aria-label="添加下级子待办"
-                  title="添加下级"
-                >
-                  <IconPlus size={14} />
-                </button>
-              )}
+            {!subtask.completed && (
+              <span
+                className={`status-badge status-badge--${
+                  subtaskOvertime
+                    ? "overtime"
+                    : subtask.isTiming
+                      ? "active"
+                      : "idle"
+                } todo-subtask__status`}
+              >
+                {statusLabel}
+              </span>
+            )}
+            {depth === 1 && childStats.total > 0 && (
               <button
                 type="button"
-                onClick={() => onStartEdit(subtask.id)}
-                aria-label="编辑子待办"
-                title="编辑"
+                className="todo-subtask__child-progress"
+                onClick={() => onToggleCollapse(subtask.id)}
+                aria-expanded={!childrenCollapsed}
+                title={childrenCollapsed ? "展开子待办" : "折叠子待办"}
               >
-                <IconPencil size={14} />
+                {childrenCollapsed ? (
+                  <IconChevronRight size={12} />
+                ) : (
+                  <IconChevronDown size={12} />
+                )}
+                {childStats.done}/{childStats.total}
               </button>
-              {countdownSyncEnabled && !subtask.completed && (
-                <button
-                  type="button"
-                  onClick={() => onSync(subtask.id)}
-                  aria-label="同步父待办已用时间"
-                  title="同步父待办已用时间"
-                >
-                  <IconRepeat size={14} />
-                </button>
-              )}
+            )}
+          </div>
+          <span className="todo-subtask__elapsed">
+            {countdownEnabled ? (
+              <>
+                <span className="todo-subtask__time-item">
+                  <IconClock size={12} />
+                  <span className="todo-subtask__time-label">计划</span>
+                  {formatDuration(subtask.plannedSeconds)}
+                </span>
+                <span className="todo-subtask__time-item">
+                  <IconClockHour4 size={12} />
+                  <span className="todo-subtask__time-label">已用</span>
+                  {formatDuration(liveElapsed)}
+                </span>
+              </>
+            ) : (
+              showRecordElapsed && (
+                <>
+                  <IconClockHour4 size={12} />
+                  {formatDuration(liveElapsed)}
+                </>
+              )
+            )}
+          </span>
+          <div className="todo-subtask__actions">
+            {depth === 1 && (
               <button
                 type="button"
-                className="is-danger"
-                onClick={() => onRemove(subtask.id)}
-                aria-label="删除子待办"
-                title="删除"
+                onClick={() => onStartAdd(subtask.id)}
+                aria-label="添加下级子待办"
+                title="添加下级"
               >
-                <IconTrash size={14} />
+                <IconPlus size={14} />
               </button>
-              {subtask.recordTimeEnabled && !subtask.completed && !subtask.isTiming && (
+            )}
+            <button
+              type="button"
+              onClick={() => onStartEdit(subtask.id)}
+              aria-label="编辑子待办"
+              title="编辑"
+            >
+              <IconPencil size={14} />
+            </button>
+            {countdownSyncEnabled && !subtask.completed && (
+              <button
+                type="button"
+                onClick={() => onSync(subtask.id)}
+                aria-label="同步父待办已用时间"
+                title="同步父待办已用时间"
+              >
+                <IconRepeat size={14} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="is-danger"
+              onClick={() => onRemove(subtask.id)}
+              aria-label="删除子待办"
+              title="删除"
+            >
+              <IconTrash size={14} />
+            </button>
+            {subtask.recordTimeEnabled && !subtask.completed && !subtask.isTiming && (
+              <button
+                type="button"
+                className="todo-subtask__timer-action"
+                onClick={() => onStart(subtask.id)}
+                aria-label="开始子待办计时"
+                title="开始计时"
+              >
+                <IconPlayerPlay size={14} />
+              </button>
+            )}
+            {subtask.isTiming && (
+              <>
                 <button
                   type="button"
                   className="todo-subtask__timer-action"
-                  onClick={() => onStart(subtask.id)}
-                  aria-label="开始子待办计时"
-                  title="开始计时"
+                  onClick={() => onPause(subtask.id)}
+                  aria-label="暂停子待办计时"
+                  title="暂停计时"
                 >
-                  <IconPlayerPlay size={14} />
+                  <IconPlayerPause size={14} />
                 </button>
-              )}
-              {subtask.isTiming && (
-                <>
-                  <button
-                    type="button"
-                    className="todo-subtask__timer-action"
-                    onClick={() => onPause(subtask.id)}
-                    aria-label="暂停子待办计时"
-                    title="暂停计时"
-                  >
-                    <IconPlayerPause size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="todo-subtask__timer-action is-danger"
-                    onClick={() => onStop(subtask.id)}
-                    aria-label="结束子待办计时"
-                    title="结束计时"
-                  >
-                    <IconPlayerStop size={14} />
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                className="todo-subtask__sort"
-                onPointerDown={onDragHandlePointerDown(subtask.id)}
-                aria-label="拖拽排序子待办"
-                title="长按拖拽排序"
-              >
-                <IconGripVertical size={14} />
-              </button>
-            </div>
+                <button
+                  type="button"
+                  className="todo-subtask__timer-action is-danger"
+                  onClick={() => onStop(subtask.id)}
+                  aria-label="结束子待办计时"
+                  title="结束计时"
+                >
+                  <IconPlayerStop size={14} />
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="todo-subtask__sort"
+              onPointerDown={onDragHandlePointerDown(subtask.id)}
+              aria-label="拖拽排序子待办"
+              title="长按拖拽排序"
+            >
+              <IconGripVertical size={14} />
+            </button>
+          </div>
         </>
       </div>
 
