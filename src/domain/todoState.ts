@@ -144,14 +144,13 @@ function toggleSubtaskCompletion(subtask: TodoSubtask, now: number): TodoSubtask
       subtask.elapsedSeconds,
       subtask.actualDurationSeconds ?? 0,
     );
-    const shouldResumeTiming = subtask.recordTimeEnabled;
 
     return {
       ...subtask,
       completed: false,
       completedAt: null,
-      isTiming: shouldResumeTiming,
-      timingStartedAt: shouldResumeTiming ? now : null,
+      isTiming: false,
+      timingStartedAt: null,
       elapsedSeconds,
       actualDurationSeconds: null,
     };
@@ -185,6 +184,11 @@ function completeSubtask(subtask: TodoSubtask, now: number): TodoSubtask {
 }
 
 function uncompleteSubtask(subtask: TodoSubtask): TodoSubtask {
+  const elapsedSeconds = Math.max(
+    subtask.elapsedSeconds,
+    subtask.actualDurationSeconds ?? 0,
+  );
+
   return {
     ...subtask,
     completed: false,
@@ -192,6 +196,7 @@ function uncompleteSubtask(subtask: TodoSubtask): TodoSubtask {
     actualDurationSeconds: null,
     isTiming: false,
     timingStartedAt: null,
+    elapsedSeconds,
   };
 }
 
@@ -349,21 +354,20 @@ function completeTodoAfterSubtasks(todo: Todo, now: number): Todo {
   return toggleTodoCompletion(todo, now);
 }
 
-function uncompleteTodoAfterSubtasks(todo: Todo, now: number): Todo {
+function uncompleteTodoAfterSubtasks(todo: Todo): Todo {
   if (!todo.completed || areAllSubtasksCompleted(todo.subtasks)) return todo;
 
   const elapsedSeconds = Math.max(
     todo.elapsedSeconds,
     todo.actualDurationSeconds ?? 0,
   );
-  const shouldResumeTiming = todo.recordTimeEnabled && elapsedSeconds > 0;
 
   return {
     ...todo,
     completed: false,
     completedAt: null,
-    isTiming: shouldResumeTiming,
-    timingStartedAt: shouldResumeTiming ? now : null,
+    isTiming: false,
+    timingStartedAt: null,
     elapsedSeconds,
     actualDurationSeconds: null,
   };
@@ -604,7 +608,7 @@ export function toggleTodoSubtask(
     };
 
     return completeTodoAfterSubtasks(
-      uncompleteTodoAfterSubtasks(updatedTodo, now),
+      uncompleteTodoAfterSubtasks(updatedTodo),
       now,
     );
   });
@@ -956,14 +960,13 @@ export function toggleTodoCompletion(todo: Todo, now: number): Todo {
       todo.elapsedSeconds,
       todo.actualDurationSeconds ?? 0,
     );
-    const shouldResumeTiming = todo.recordTimeEnabled && elapsedSeconds > 0;
 
     const restoredTodo = {
       ...todo,
       completed: false,
       completedAt: null,
-      isTiming: shouldResumeTiming,
-      timingStartedAt: shouldResumeTiming ? now : null,
+      isTiming: false,
+      timingStartedAt: null,
       elapsedSeconds,
       actualDurationSeconds: null,
       subtasks: updateSubtasks(todo.subtasks, (subtask) =>

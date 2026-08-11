@@ -707,6 +707,7 @@ export function TodoItem({
         "todo-item",
         "card",
         countdownEnabled ? "has-countdown" : "",
+        countdownEnabled && liveElapsed > 0 ? "has-countdown-elapsed" : "",
         reminderEnabled ? "has-reminder" : "",
         !countdownEnabled && timeTrackingEnabled && (liveElapsed > 0 || todo.isTiming)
           ? "has-record-elapsed"

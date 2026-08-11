@@ -1,7 +1,7 @@
 {
   "name": "dotime",
   "private": true,
-  "version": "1.1.2",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "tauri": "tauri dev",
@@ -15,8 +15,10 @@
     "tauri:cli": "tauri"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
     "@tabler/icons-react": "^3.45.0",
     "@tauri-apps/api": "^2",
+    "gsap": "^3.15.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

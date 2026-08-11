@@ -294,7 +294,7 @@ describe("todo timing state", () => {
     expect(result[0].subtasks?.[1].completed).toEqual(true);
   });
 
-  it("resumes an elapsed task when completion is cancelled", () => {
+  it("keeps an elapsed task paused when completion is cancelled", () => {
     const todo = createTodo({
       completed: true,
       completedAt: 500,
@@ -305,9 +305,26 @@ describe("todo timing state", () => {
     const result = toggleTodoCompletion(todo, 1000);
 
     expect(result.completed).toEqual(false);
-    expect(result.isTiming).toEqual(true);
-    expect(result.timingStartedAt).toEqual(1000);
+    expect(result.isTiming).toEqual(false);
+    expect(result.timingStartedAt).toEqual(null);
+    expect(result.elapsedSeconds).toEqual(120);
     expect(result.actualDurationSeconds).toEqual(null);
+  });
+
+  it("keeps a never-started countdown stopped when completion is cancelled", () => {
+    const todo = createTodo({
+      completed: true,
+      completedAt: 500,
+      elapsedSeconds: 0,
+      actualDurationSeconds: null,
+    });
+
+    const result = toggleTodoCompletion(todo, 1000);
+
+    expect(result.completed).toEqual(false);
+    expect(result.isTiming).toEqual(false);
+    expect(result.timingStartedAt).toEqual(null);
+    expect(result.elapsedSeconds).toEqual(0);
   });
 
   it("uncompletes all subtasks when parent completion is cancelled", () => {
@@ -349,13 +366,15 @@ describe("todo timing state", () => {
     expect(result.completed).toEqual(false);
     expect(parent?.completed).toEqual(false);
     expect(parent?.completedAt).toEqual(null);
-    expect(parent?.isTiming).toEqual(true);
-    expect(parent?.timingStartedAt).toEqual(1000);
+    expect(parent?.isTiming).toEqual(false);
+    expect(parent?.timingStartedAt).toEqual(null);
+    expect(parent?.elapsedSeconds).toEqual(60);
     expect(parent?.actualDurationSeconds).toEqual(null);
     expect(child?.completed).toEqual(false);
     expect(child?.completedAt).toEqual(null);
-    expect(child?.isTiming).toEqual(true);
-    expect(child?.timingStartedAt).toEqual(1000);
+    expect(child?.isTiming).toEqual(false);
+    expect(child?.timingStartedAt).toEqual(null);
+    expect(child?.elapsedSeconds).toEqual(30);
     expect(child?.actualDurationSeconds).toEqual(null);
   });
 
@@ -393,12 +412,12 @@ describe("todo timing state", () => {
 
     expect(result[0].completed).toEqual(false);
     expect(result[0].completedAt).toEqual(null);
-    expect(result[0].isTiming).toEqual(true);
-    expect(result[0].timingStartedAt).toEqual(1000);
+    expect(result[0].isTiming).toEqual(false);
+    expect(result[0].timingStartedAt).toEqual(null);
     expect(result[0].actualDurationSeconds).toEqual(null);
     expect(cancelledSubtask?.completed).toEqual(false);
-    expect(cancelledSubtask?.isTiming).toEqual(true);
-    expect(cancelledSubtask?.timingStartedAt).toEqual(1000);
+    expect(cancelledSubtask?.isTiming).toEqual(false);
+    expect(cancelledSubtask?.timingStartedAt).toEqual(null);
     expect(cancelledSubtask?.elapsedSeconds).toEqual(20);
     expect(cancelledSubtask?.actualDurationSeconds).toEqual(null);
     expect(unchangedSubtask?.completed).toEqual(true);

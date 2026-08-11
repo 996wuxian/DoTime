@@ -51,6 +51,20 @@
         "transparent": false,
         "visible": false,
         "shadow": true
+      },
+      {
+        "label": "mini-subtasks",
+        "title": "doTime 子待办",
+        "url": "index.html?view=mini-subtasks",
+        "width": 460,
+        "height": 96,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
       }
     ],
     "security": {

@@ -54,6 +54,12 @@ import { useTaskTemplates } from "./hooks/useTaskTemplates";
 import type { Todo, TodoCategoryDivider, TodoSubtask } from "./types";
 import { URGENCY_LABELS } from "./types";
 import { shiftDateKey } from "./utils/calendar";
+import {
+  MINI_SUBTASKS_CLOSED_EVENT,
+  MINI_SUBTASKS_HOVER_EVENT,
+  MINI_SUBTASKS_VISIBILITY_EVENT,
+  buildMiniSubtasksGroup,
+} from "./utils/miniSubtasks";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
 import {
   formatClockTime,
@@ -479,6 +485,25 @@ async function cleanupStoredTodoImages(todos: readonly Todo[]) {
   return cleanupTodoImages(todos);
 }
 
+async function showMiniSubtasksWindow(todo: Todo) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const group = buildMiniSubtasksGroup(todo);
+  if (group == null) return;
+
+  await invoke("show_mini_subtasks_window", {
+    subtasksGroup: JSON.stringify(group),
+  }).catch((error) => {
+    console.error("failed to show mini subtasks window", error);
+  });
+}
+
+async function closeMiniSubtasksWindow() {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("close_mini_subtasks_window").catch((error) => {
+    console.error("failed to close mini subtasks window", error);
+  });
+}
+
 function App() {
   const [selectedDate, setSelectedDate] = useState(() => formatDateKey());
   const [todoFormOpen, setTodoFormOpen] = useState(false);
@@ -491,6 +516,9 @@ function App() {
   const [miniIndex, setMiniIndex] = useState(0);
   const [miniAutoHideEnabled, setMiniAutoHideEnabled] = useState(false);
   const [miniAutoHideRevealed, setMiniAutoHideRevealed] = useState(true);
+  const [miniSubtasksOpen, setMiniSubtasksOpen] = useState(false);
+  const [miniSubtasksHovered, setMiniSubtasksHovered] = useState(false);
+  const miniSubtasksHoverLastAtRef = useRef(0);
   const [miniOpacity, setMiniOpacity] = useState(() => loadMiniOpacity());
   const [mainView, setMainView] = useState<
     "todos" | "plan" | "statistics" | "review"
@@ -645,6 +673,44 @@ function App() {
   }, [miniMode]);
 
   useEffect(() => {
+    if (!miniMode) {
+      setMiniSubtasksOpen(false);
+      setMiniSubtasksHovered(false);
+      void closeMiniSubtasksWindow();
+    }
+  }, [miniMode]);
+
+  useEffect(() => {
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen(MINI_SUBTASKS_CLOSED_EVENT, () => {
+          if (!disposed) {
+            setMiniSubtasksOpen(false);
+            setMiniSubtasksHovered(false);
+          }
+        }),
+      )
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        cleanup = unlisten;
+      })
+      .catch(() => {
+        cleanup = undefined;
+      });
+
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
+  }, []);
+
+  useEffect(() => {
     document.body.classList.toggle("is-mini-mode", miniMode);
     return () => document.body.classList.remove("is-mini-mode");
   }, [miniMode]);
@@ -759,6 +825,76 @@ function App() {
   useEffect(() => {
     if (miniIndex !== activeMiniIndex) setMiniIndex(activeMiniIndex);
   }, [activeMiniIndex, miniIndex]);
+
+  useEffect(() => {
+    if (!miniMode || !miniSubtasksOpen || miniTodo == null) return;
+    if ((miniTodo.subtasks ?? []).length === 0) {
+      setMiniSubtasksOpen(false);
+      void closeMiniSubtasksWindow();
+      return;
+    }
+    void showMiniSubtasksWindow(miniTodo);
+  }, [miniMode, miniSubtasksOpen, miniTodo]);
+
+  useEffect(() => {
+    if (!miniMode || !miniSubtasksOpen) return;
+    const visible = !miniAutoHideEnabled || miniAutoHideRevealed;
+    let cancelled = false;
+
+    void (async () => {
+      const { emit } = await import("@tauri-apps/api/event");
+      if (cancelled) return;
+      await emit(MINI_SUBTASKS_VISIBILITY_EVENT, { visible });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [miniMode, miniSubtasksOpen, miniAutoHideEnabled, miniAutoHideRevealed]);
+
+  useEffect(() => {
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen<{ hovered: boolean }>(MINI_SUBTASKS_HOVER_EVENT, (event) => {
+          if (disposed) return;
+          const nextHovered = Boolean(event.payload?.hovered);
+          miniSubtasksHoverLastAtRef.current = nextHovered ? Date.now() : 0;
+          setMiniSubtasksHovered(nextHovered);
+        }),
+      )
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        cleanup = unlisten;
+      })
+      .catch(() => {
+        cleanup = undefined;
+      });
+
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!miniMode || !miniSubtasksOpen || !miniSubtasksHovered) return;
+    const id = window.setInterval(() => {
+      const lastHoveredAt = miniSubtasksHoverLastAtRef.current;
+      if (lastHoveredAt === 0) return;
+      if (Date.now() - lastHoveredAt > 900) {
+        miniSubtasksHoverLastAtRef.current = 0;
+        setMiniSubtasksHovered(false);
+      }
+    }, 300);
+
+    return () => window.clearInterval(id);
+  }, [miniMode, miniSubtasksOpen, miniSubtasksHovered]);
 
   useEffect(() => {
     if (miniMode && !canEnterMiniMode) void handleExitMiniMode();
@@ -959,6 +1095,19 @@ function App() {
     if (!miniAutoHideEnabled || !miniAutoHideRevealed) return;
     setMiniAutoHideRevealed(false);
     await collapseMiniWindowMode();
+  };
+
+  const handleToggleMiniSubtasks = () => {
+    if (miniTodo == null || (miniTodo.subtasks ?? []).length === 0) return;
+    setMiniSubtasksOpen((open) => {
+      const nextOpen = !open;
+      if (!nextOpen) {
+        void closeMiniSubtasksWindow();
+      } else {
+        void showMiniSubtasksWindow(miniTodo);
+      }
+      return nextOpen;
+    });
   };
 
   const handleRemoveTodo = (id: string) => {
@@ -1742,9 +1891,12 @@ function App() {
           onOpacityChange={changeMiniOpacity}
           autoHideEnabled={miniAutoHideEnabled}
           autoHideRevealed={miniAutoHideRevealed}
+          subtasksOpen={miniSubtasksOpen}
+          subtasksHovered={miniSubtasksHovered}
           onToggleAutoHide={() => void handleToggleMiniAutoHide()}
           onReveal={() => void handleRevealMiniMode()}
           onHide={() => void handleHideMiniMode()}
+          onToggleSubtasks={() => void handleToggleMiniSubtasks()}
           onStart={() => {
             if (miniTodo) startTiming(miniTodo.id);
           }}

@@ -13,6 +13,14 @@ const MINI_OPACITY_MAX: f64 = 1.0;
 const REMINDER_WINDOW_WIDTH: f64 = 620.0;
 const REMINDER_WINDOW_HEIGHT: f64 = 380.0;
 const REMINDER_WINDOW_MARGIN: f64 = 16.0;
+const MINI_SUBTASKS_WINDOW_WIDTH: f64 = 460.0;
+const MINI_SUBTASKS_WINDOW_HEIGHT: f64 = 96.0;
+const MINI_SUBTASKS_WINDOW_MAX_HEIGHT: f64 = 320.0;
+const MINI_SUBTASKS_WINDOW_ROW_HEIGHT: f64 = 56.0;
+const MINI_SUBTASKS_WINDOW_VERTICAL_CHROME: f64 = 22.0;
+const MINI_SUBTASKS_WINDOW_MARGIN: f64 = 4.0;
+const MINI_SUBTASKS_WINDOW_STACK_GAP: f64 = 4.0;
+const MINI_SUBTASKS_PARENT_INSET: f64 = 18.0;
 const CLIPBOARD_POLL_INTERVAL_MS: u64 = 800;
 const CLIPBOARD_MAX_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 const CLIPBOARD_HISTORY_LIMIT: usize = 100;
@@ -27,6 +35,7 @@ use tauri::{
 
 struct ReminderState(Mutex<Option<String>>);
 struct ReminderScheduleState(Sender<Vec<ScheduledReminder>>);
+struct MiniSubtasksState(Mutex<Option<String>>);
 struct ClipboardHistoryState {
     items: Mutex<Vec<ClipboardSnapshot>>,
     suppressed_fingerprint: Mutex<Option<String>>,
@@ -340,6 +349,17 @@ fn close_clipboard_window(window: tauri::Window) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn close_mini_subtasks_window(
+    app: tauri::AppHandle,
+    state: State<'_, MiniSubtasksState>,
+) -> Result<(), String> {
+    *state.0.lock().map_err(|error| error.to_string())? = None;
+    hide_mini_subtasks_windows(&app);
+    let _ = app.emit("dotime-mini-subtasks-closed", serde_json::json!({}));
+    Ok(())
+}
+
+#[tauri::command]
 fn show_clipboard_window(app: tauri::AppHandle) -> Result<(), String> {
     let window = match app.get_webview_window("clipboard") {
         Some(window) => window,
@@ -364,6 +384,16 @@ fn show_clipboard_window(app: tauri::AppHandle) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())?;
     let _ = window.set_focus();
     Ok(())
+}
+
+#[tauri::command]
+fn show_mini_subtasks_window(
+    app: tauri::AppHandle,
+    state: State<'_, MiniSubtasksState>,
+    subtasks_group: String,
+) -> Result<(), String> {
+    *state.0.lock().map_err(|error| error.to_string())? = Some(subtasks_group.clone());
+    show_mini_subtasks_window_inner(&app, subtasks_group)
 }
 
 #[tauri::command]
@@ -425,6 +455,50 @@ fn show_reminder_window_inner(
     window.show().map_err(|error| error.to_string())?;
     let _ = window.set_focus();
     let _ = window.emit("dotime-reminder-group", reminder_group);
+    Ok(())
+}
+
+fn show_mini_subtasks_window_inner(
+    app: &tauri::AppHandle,
+    subtasks_group: String,
+) -> Result<(), String> {
+    let item_count = mini_subtasks_item_count(&subtasks_group);
+    if item_count == 0 {
+        hide_mini_subtasks_windows(app);
+        return Ok(());
+    }
+
+    let window = match app.get_webview_window("mini-subtasks") {
+        Some(window) => window,
+        None => WebviewWindowBuilder::new(
+            app,
+            "mini-subtasks",
+            WebviewUrl::App("index.html?view=mini-subtasks".into()),
+        )
+        .title("doTime 子待办")
+        .visible(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .inner_size(
+            MINI_SUBTASKS_WINDOW_WIDTH,
+            mini_subtasks_window_height(item_count),
+        )
+        .build()
+        .map_err(|error| error.to_string())?,
+    };
+
+    position_mini_subtasks_window(&window, item_count);
+
+    let _ = window.unminimize();
+    let _ = window.set_always_on_top(true);
+    window.show().map_err(|error| error.to_string())?;
+    let _ = window.set_focus();
+    let _ = window.emit("dotime-mini-subtasks-group", subtasks_group);
+
+    hide_extra_mini_subtasks_windows(app, 1);
     Ok(())
 }
 
@@ -512,6 +586,17 @@ fn schedule_reminders(
 
 #[tauri::command]
 fn get_active_reminder_group(state: State<'_, ReminderState>) -> Result<Option<String>, String> {
+    state
+        .0
+        .lock()
+        .map(|group| group.clone())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_active_mini_subtasks_group(
+    state: State<'_, MiniSubtasksState>,
+) -> Result<Option<String>, String> {
     state
         .0
         .lock()
@@ -1328,6 +1413,125 @@ fn position_reminder_window(window: &tauri::WebviewWindow) {
     }
 }
 
+fn mini_subtasks_item_count(subtasks_group: &str) -> usize {
+    serde_json::from_str::<serde_json::Value>(subtasks_group)
+        .ok()
+        .and_then(|value| value.get("items").and_then(|items| items.as_array().cloned()))
+        .map(|items| items.len())
+        .unwrap_or(0)
+}
+
+fn mini_subtasks_window_height(item_count: usize) -> f64 {
+    (item_count as f64 * MINI_SUBTASKS_WINDOW_ROW_HEIGHT + MINI_SUBTASKS_WINDOW_VERTICAL_CHROME)
+        .clamp(MINI_SUBTASKS_WINDOW_HEIGHT, MINI_SUBTASKS_WINDOW_MAX_HEIGHT)
+}
+
+fn hide_mini_subtasks_windows(app: &tauri::AppHandle) {
+    for (label, window) in app.webview_windows() {
+        if is_mini_subtasks_window_label(&label) {
+            let _ = window.hide();
+        }
+    }
+}
+
+fn hide_extra_mini_subtasks_windows(app: &tauri::AppHandle, keep_count: usize) {
+    for (label, window) in app.webview_windows() {
+        if let Some(index) = mini_subtasks_window_index(&label) {
+            if index >= keep_count {
+                let _ = window.hide();
+            }
+        }
+    }
+}
+
+fn mini_subtasks_window_index(label: &str) -> Option<usize> {
+    if label == "mini-subtasks" {
+        Some(0)
+    } else {
+        label
+            .strip_prefix("mini-subtasks-")
+            .and_then(|index| index.parse::<usize>().ok())
+    }
+}
+
+fn is_mini_subtasks_window_label(label: &str) -> bool {
+    mini_subtasks_window_index(label).is_some()
+}
+
+fn position_mini_subtasks_window(
+    window: &tauri::WebviewWindow,
+    item_count: usize,
+) {
+    let main_window = window
+        .app_handle()
+        .get_webview_window("main")
+        .or_else(|| window.app_handle().get_webview_window("reminder"));
+
+    if let Some(main_window) = main_window {
+        if let (Ok(position), Ok(size)) = (main_window.outer_position(), main_window.outer_size()) {
+            let scale_factor = main_window.scale_factor().unwrap_or(1.0);
+            let window_height = mini_subtasks_window_height(item_count) * scale_factor;
+            let stack_gap = MINI_SUBTASKS_WINDOW_STACK_GAP * scale_factor;
+            let margin = MINI_SUBTASKS_WINDOW_MARGIN * scale_factor;
+            let parent_inset = MINI_SUBTASKS_PARENT_INSET * scale_factor;
+            let max_window_width = MINI_SUBTASKS_WINDOW_WIDTH * scale_factor;
+            let parent_width = size.width as f64;
+            let window_width = (parent_width - parent_inset * 2.0)
+                .min(max_window_width)
+                .max(1.0);
+            let monitor = main_window
+                .current_monitor()
+                .ok()
+                .flatten()
+                .or_else(|| main_window.primary_monitor().ok().flatten());
+            let (mut x, mut stack_y) = (
+                position.x as f64 + ((parent_width - window_width) / 2.0).max(0.0),
+                position.y as f64 + size.height as f64 + stack_gap,
+            );
+
+            if let Some(monitor) = monitor {
+                let work_area = monitor.work_area();
+                let min_x = work_area.position.x as f64 + margin;
+                let max_x = work_area.position.x as f64 + work_area.size.width as f64
+                    - window_width
+                    - margin;
+                let min_y = work_area.position.y as f64 + margin;
+                let max_y = work_area.position.y as f64 + work_area.size.height as f64
+                    - window_height
+                    - margin;
+
+                if stack_y > max_y {
+                    stack_y = position.y as f64 - window_height - stack_gap;
+                }
+                x = x.clamp(min_x, max_x.max(min_x));
+                stack_y = stack_y.clamp(min_y, max_y.max(min_y));
+            }
+
+            let _ = window.set_position(PhysicalPosition::new(x, stack_y));
+            let _ = window.set_size(PhysicalSize::new(window_width, window_height));
+            return;
+        }
+    }
+
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+    let window_height = mini_subtasks_window_height(item_count) * scale_factor;
+    let margin = MINI_SUBTASKS_WINDOW_MARGIN * scale_factor;
+    let window_width = MINI_SUBTASKS_WINDOW_WIDTH * scale_factor;
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+
+    if let Some(monitor) = monitor {
+        let work_area = monitor.work_area();
+        let x = work_area.position.x as f64 + margin;
+        let y = work_area.position.y as f64 + margin;
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+        let _ = window.set_size(PhysicalSize::new(window_width, window_height));
+    }
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
@@ -1380,6 +1584,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(ReminderState(Mutex::new(None)))
         .manage(ReminderScheduleState(reminder_schedule_sender))
+        .manage(MiniSubtasksState(Mutex::new(None)))
         .manage(ClipboardHistoryState {
             items: Mutex::new(Vec::new()),
             suppressed_fingerprint: Mutex::new(None),
@@ -1435,6 +1640,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("reminder") {
                 position_reminder_window(&window);
             }
+            hide_mini_subtasks_windows(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1442,12 +1648,15 @@ pub fn run() {
             hide_main_window,
             close_reminder_window,
             close_clipboard_window,
+            close_mini_subtasks_window,
             show_clipboard_window,
+            show_mini_subtasks_window,
             open_external_url,
             show_reminder_window,
-            schedule_reminders,
             get_active_reminder_group,
+            schedule_reminders,
             clear_active_reminder_group,
+            get_active_mini_subtasks_group,
             get_clipboard_history,
             clear_clipboard_history,
             remove_clipboard_history_item,
