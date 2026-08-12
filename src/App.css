@@ -2415,6 +2415,17 @@ a,
   background: var(--primary-soft);
 }
 
+.todo-item__pin-action:hover:not(:disabled),
+.todo-item__pin-action:focus-visible {
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+}
+
+.todo-item__pin-action.is-active {
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+}
+
 .todo-item__favorite-action.is-active {
   color: var(--warning);
   background: rgba(255, 176, 32, 0.13);
@@ -6097,6 +6108,7 @@ body.is-todo-dragging {
   background: transparent;
 }
 
+html.is-mini-subtasks-window,
 body.is-mini-subtasks-window {
   background: transparent;
   overflow: hidden;
@@ -6361,6 +6373,263 @@ body.is-mini-subtasks-window #root {
 :root[data-theme="light"] .mini-icon-btn.btn-delete:hover:not(:disabled) {
   color: #dc2626;
   background: rgba(220, 38, 38, 0.08);
+}
+
+/* Pinned todo window */
+html.is-pinned-todo-window,
+body.is-pinned-todo-window {
+  background: transparent;
+  overflow: hidden;
+}
+
+html.is-pinned-subtasks-window,
+body.is-pinned-subtasks-window {
+  background: transparent;
+  overflow: hidden;
+}
+
+body.is-pinned-todo-window #root {
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+}
+
+body.is-pinned-subtasks-window #root {
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+}
+
+.pinned-todo-window {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.pinned-subtasks-window {
+  width: 100%;
+  height: 100%;
+  max-width: 340px;
+  overflow: hidden;
+}
+
+.pinned-subtasks-window.is-collapsed {
+  max-height: 42px;
+}
+
+.pinned-todo-window__shell {
+  width: 100%;
+  height: 46px;
+  margin-left: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  overflow: hidden;
+  position: relative;
+  border-radius: 12px 0 0 12px;
+  background: var(--bg-card);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+  will-change: height;
+  contain: layout paint size;
+}
+
+.pinned-todo-card {
+  width: 100%;
+  height: 100%;
+  min-height: 46px;
+  min-width: 0;
+  padding: 5px 12px 5px 8px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 1px;
+  align-items: center;
+  align-content: center;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  box-shadow: none;
+  cursor: grab;
+  user-select: none;
+  overflow: hidden;
+  will-change: transform;
+}
+
+.pinned-todo-card:active {
+  cursor: grabbing;
+}
+
+.pinned-todo-card.is-completed {
+  opacity: 0.78;
+}
+
+.pinned-todo-card.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0;
+  min-height: 46px;
+  padding: 6px 10px;
+}
+
+.pinned-todo-card.is-empty p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.pinned-todo-card__check {
+  width: 20px;
+  height: 20px;
+  margin-top: 0;
+  justify-self: center;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.pinned-todo-card__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 0;
+  justify-content: center;
+}
+
+.pinned-todo-card__title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 20px;
+  overflow: hidden;
+}
+
+.pinned-todo-card__title-row h1 {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.2;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinned-todo-card__title-row .badge,
+.pinned-todo-card__title-row .status-badge {
+  flex-shrink: 0;
+}
+
+.pinned-todo-card__meta {
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  overflow: hidden;
+  min-height: 0;
+  line-height: 1.15;
+}
+
+.pinned-todo-card__meta .meta-item {
+  color: inherit;
+}
+
+.pinned-todo-card__meta .meta-elapsed {
+  color: var(--primary-hover);
+}
+
+:root[data-theme="light"] .pinned-todo-card__meta .meta-elapsed {
+  color: #0f766e;
+}
+
+.pinned-todo-card__meta .meta-done {
+  color: var(--success);
+}
+
+.pinned-todo-card__meta .meta-reminder {
+  color: #d8b4fe;
+}
+
+:root[data-theme="light"] .pinned-todo-card__meta .meta-reminder {
+  color: #0f766e;
+}
+
+.pinned-todo-window.is-collapsed .pinned-todo-card__meta {
+  display: none;
+}
+
+.pinned-todo-window.is-expanded .pinned-todo-card {
+  grid-template-columns: 20px minmax(0, 1fr);
+}
+
+.pinned-todo-window.is-expanded .pinned-todo-card__body {
+  gap: 3px;
+}
+
+.pinned-todo-window.is-expanded .pinned-todo-card__body {
+  align-self: stretch;
+}
+
+.pinned-todo-card__meta span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pinned-todo-card__meta svg {
+  flex-shrink: 0;
+}
+
+.pinned-todo-card__progress {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  height: 3px;
+  margin-top: 1px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+  overflow: hidden;
+}
+
+.pinned-todo-window.is-collapsed .pinned-todo-card__progress {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin-top: 0;
+}
+
+.pinned-todo-window.is-collapsed .pinned-todo-card__title-row,
+.pinned-todo-window.is-collapsed .pinned-todo-card__meta {
+  width: 100%;
+}
+
+.pinned-todo-card__progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #5eead4, #14b8a6);
+  transition: width 0.4s linear;
+}
+
+:root[data-theme="light"] .pinned-todo-card {
+  background: transparent;
+  box-shadow: none;
 }
 
 /* Clipboard window */

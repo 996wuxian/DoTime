@@ -2,13 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { createAppDataDocument, loadAppData, saveAppData } from "../data/appData";
-import { buildMiniSubtasksGroup } from "../utils/miniSubtasks";
 import { emitAppDataUpdated } from "../utils/appDataEvents";
 import {
-  MINI_SUBTASKS_GROUP_EVENT,
-  MINI_SUBTASKS_CLOSED_EVENT,
-  MINI_SUBTASKS_HOVER_EVENT,
-  MINI_SUBTASKS_VISIBILITY_EVENT,
   parseMiniSubtasksGroup,
   type MiniSubtaskItem,
   type MiniSubtasksGroup,
@@ -34,14 +29,9 @@ import {
   toggleTodoSubtask,
 } from "../domain/todoState";
 
-async function closeMiniSubtasksWindow() {
+async function closePinnedSubtasksWindow(slot: string) {
   const { invoke } = await import("@tauri-apps/api/core");
-  await invoke("close_mini_subtasks_window");
-}
-
-async function emitMiniSubtasksHover(hovered: boolean) {
-  const { emit } = await import("@tauri-apps/api/event");
-  await emit(MINI_SUBTASKS_HOVER_EVENT, { hovered });
+  await invoke("close_pinned_subtasks_window", { slot });
 }
 
 function getLiveElapsed(item: MiniSubtaskItem, now: number) {
@@ -57,8 +47,8 @@ function getProgress(item: MiniSubtaskItem, liveElapsed: number) {
   return Math.max(0, Math.min(100, (remaining / item.plannedSeconds) * 100));
 }
 
-async function updateMiniSubtaskTodo(
-  updater: (todos: Todo[]) => Todo[],
+async function updatePinnedSubtaskTodo(
+  updater: (todos: Todo[]) => Todo[] ,
 ) {
   const result = loadAppData(localStorage);
   const nextTodos = updater(result.data.todos);
@@ -76,7 +66,7 @@ async function updateMiniSubtaskTodo(
 
 type RenderState = "entering" | "visible" | "exiting";
 
-type RenderedMiniSubtask = {
+type RenderedPinnedSubtask = {
   item: MiniSubtaskItem;
   state: RenderState;
 };
@@ -85,19 +75,20 @@ const ITEM_ENTER_GAP = 0.06;
 const ITEM_EXIT_GAP = 0.04;
 const ITEM_ENTER_DURATION = 0.24;
 const ITEM_EXIT_DURATION = 0.16;
+const PINNED_SUBTASKS_COLLAPSED_HEIGHT = 42;
 
-export function MiniSubtasksWindow() {
+export function PinnedSubtasksWindow() {
   const [group, setGroup] = useState<MiniSubtasksGroup | null>(null);
   const [now, setNow] = useState(Date.now());
-  const [renderedItems, setRenderedItems] = useState<RenderedMiniSubtask[]>([]);
+  const [expanded, setExpanded] = useState(false);
+  const [renderedItems, setRenderedItems] = useState<RenderedPinnedSubtask[]>([]);
+  const shellRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
-  const renderedItemsRef = useRef<RenderedMiniSubtask[]>([]);
+  const renderedItemsRef = useRef<RenderedPinnedSubtask[]>([]);
   const pendingItemsRef = useRef<MiniSubtaskItem[] | null>(null);
   const activeTodoIdRef = useRef<string | null>(null);
   const latestGroupUpdatedAtRef = useRef(0);
-  const parentVisibleRef = useRef(true);
-  const hoverHeartbeatRef = useRef<number | null>(null);
-  const activeTodoId = group?.todoId ?? null;
+  const slot = new URLSearchParams(window.location.search).get("slot") ?? "";
 
   useEffect(() => {
     renderedItemsRef.current = renderedItems;
@@ -111,74 +102,102 @@ export function MiniSubtasksWindow() {
   }, [group]);
 
   const refreshGroupFromStorage = () => {
-    if (activeTodoId == null) return;
+    if (activeTodoIdRef.current == null) return;
     const result = loadAppData(localStorage);
-    const nextTodo = result.data.todos.find((todo) => todo.id === activeTodoId);
-    const nextGroup = nextTodo ? buildMiniSubtasksGroup(nextTodo) : null;
+    const nextTodo = result.data.todos.find((todo) => todo.id === activeTodoIdRef.current);
+    const nextGroup = nextTodo
+      ? {
+          todoId: nextTodo.id,
+          parentTitle: nextTodo.title,
+          items: (nextTodo.subtasks ?? []).flatMap((subtask) => [
+            {
+              id: subtask.id,
+              title: subtask.title,
+              urgency: subtask.urgency,
+              completed: subtask.completed,
+              countdownEnabled: subtask.countdownEnabled,
+              recordTimeEnabled: subtask.recordTimeEnabled,
+              plannedSeconds: subtask.plannedSeconds,
+              elapsedSeconds: subtask.elapsedSeconds,
+              actualDurationSeconds: subtask.actualDurationSeconds,
+              isTiming: subtask.isTiming,
+              timingStartedAt: subtask.timingStartedAt,
+              level: 0,
+            },
+            ...subtask.children.flatMap((child) => [
+              {
+                id: child.id,
+                title: child.title,
+                urgency: child.urgency,
+                completed: child.completed,
+                countdownEnabled: child.countdownEnabled,
+                recordTimeEnabled: child.recordTimeEnabled,
+                plannedSeconds: child.plannedSeconds,
+                elapsedSeconds: child.elapsedSeconds,
+                actualDurationSeconds: child.actualDurationSeconds,
+                isTiming: child.isTiming,
+                timingStartedAt: child.timingStartedAt,
+                level: 1,
+              },
+            ]),
+          ]),
+          updatedAt: Date.now(),
+        }
+      : null;
     setGroup(nextGroup);
     if (nextGroup == null) {
-      void closeMiniSubtasksWindow();
+      void closePinnedSubtasksWindow(slot);
     }
   };
 
   const mutateCurrentTodo = async (updater: (todos: Todo[]) => Todo[]) => {
     try {
-      await updateMiniSubtaskTodo(updater);
+      await updatePinnedSubtaskTodo(updater);
       refreshGroupFromStorage();
     } catch (error) {
-      console.error("failed to update mini subtask", error);
+      console.error("failed to update pinned subtask", error);
     }
   };
 
   const handleToggleItem = (itemId: string) => {
-    if (activeTodoId == null) return;
+    if (group == null) return;
     const nowTs = Date.now();
     void mutateCurrentTodo((todos) =>
-      toggleTodoSubtask(todos, activeTodoId, itemId, nowTs),
+      toggleTodoSubtask(todos, group.todoId, itemId, nowTs),
     );
   };
 
   const handleDeleteItem = (itemId: string) => {
-    if (activeTodoId == null) return;
-    void mutateCurrentTodo((todos) => removeTodoSubtask(todos, activeTodoId, itemId));
+    if (group == null) return;
+    void mutateCurrentTodo((todos) => removeTodoSubtask(todos, group.todoId, itemId));
   };
 
   const handleStartItem = (itemId: string) => {
-    if (activeTodoId == null) return;
+    if (group == null) return;
     const nowTs = Date.now();
-    void mutateCurrentTodo((todos) => startTodoSubtaskTiming(todos, activeTodoId, itemId, nowTs));
+    void mutateCurrentTodo((todos) =>
+      startTodoSubtaskTiming(todos, group.todoId, itemId, nowTs),
+    );
   };
 
   const handlePauseItem = (itemId: string) => {
-    if (activeTodoId == null) return;
+    if (group == null) return;
     const nowTs = Date.now();
-    void mutateCurrentTodo((todos) => pauseTodoSubtaskTiming(todos, activeTodoId, itemId, nowTs));
+    void mutateCurrentTodo((todos) =>
+      pauseTodoSubtaskTiming(todos, group.todoId, itemId, nowTs),
+    );
   };
 
   const handleStopItem = (itemId: string) => {
-    if (activeTodoId == null) return;
+    if (group == null) return;
     const nowTs = Date.now();
-    void mutateCurrentTodo((todos) => stopTodoSubtaskTiming(todos, activeTodoId, itemId, nowTs));
-  };
-
-  const stopHoverHeartbeat = () => {
-    if (hoverHeartbeatRef.current == null) return;
-    window.clearInterval(hoverHeartbeatRef.current);
-    hoverHeartbeatRef.current = null;
-  };
-
-  const updateHoverState = (hovered: boolean) => {
-    stopHoverHeartbeat();
-    void emitMiniSubtasksHover(hovered);
-    if (!hovered) return;
-
-    hoverHeartbeatRef.current = window.setInterval(() => {
-      void emitMiniSubtasksHover(true);
-    }, 240);
+    void mutateCurrentTodo((todos) =>
+      stopTodoSubtaskTiming(todos, group.todoId, itemId, nowTs),
+    );
   };
 
   useEffect(() => {
-    document.body.classList.add("is-mini-subtasks-window");
+    document.body.classList.add("is-pinned-subtasks-window");
     const root = document.documentElement;
     const body = document.body;
     const previousBodyBackground = body.style.background;
@@ -187,17 +206,9 @@ export function MiniSubtasksWindow() {
     body.style.background = "transparent";
 
     return () => {
-      document.body.classList.remove("is-mini-subtasks-window");
+      document.body.classList.remove("is-pinned-subtasks-window");
       body.style.background = previousBodyBackground;
       root.style.background = previousBackground;
-    };
-  }, []);
-
-  useEffect(() => {
-    void emitMiniSubtasksHover(false);
-    return () => {
-      stopHoverHeartbeat();
-      void emitMiniSubtasksHover(false);
     };
   }, []);
 
@@ -212,13 +223,17 @@ export function MiniSubtasksWindow() {
       ]);
 
       const activeGroup = parseMiniSubtasksGroup(
-        await invoke<string | null>("get_active_mini_subtasks_group"),
+        await invoke<string | null>("get_active_pinned_subtasks_group", { slot }),
       );
-      if (!cancelled) setGroup(activeGroup);
+      if (!cancelled) {
+        setGroup(activeGroup);
+        activeTodoIdRef.current = activeGroup?.todoId ?? null;
+      }
 
-      cleanup = await listen<string>(MINI_SUBTASKS_GROUP_EVENT, (event) => {
+      cleanup = await listen<string>(`dotime-pinned-subtasks-${slot}`, (event) => {
         const nextGroup = parseMiniSubtasksGroup(event.payload);
         setGroup(nextGroup);
+        activeTodoIdRef.current = nextGroup?.todoId ?? null;
       });
     })();
 
@@ -226,113 +241,18 @@ export function MiniSubtasksWindow() {
       cancelled = true;
       cleanup?.();
     };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    let cleanup: (() => void) | undefined;
-
-    void (async () => {
-      const [{ listen }, { getCurrentWindow }] = await Promise.all([
-        import("@tauri-apps/api/event"),
-        import("@tauri-apps/api/window"),
-      ]);
-      cleanup = await listen<{ visible: boolean }>(
-        MINI_SUBTASKS_VISIBILITY_EVENT,
-        (event) => {
-          if (cancelled) return;
-          const nextVisible = Boolean(event.payload?.visible);
-          if (parentVisibleRef.current === nextVisible) return;
-          parentVisibleRef.current = nextVisible;
-          if (!nextVisible) {
-            updateHoverState(false);
-          }
-          void getCurrentWindow().setIgnoreCursorEvents(!nextVisible);
-
-          if (!nextVisible) {
-            const current = renderedItemsRef.current.filter(
-              (entry) => entry.state !== "exiting",
-            );
-            if (current.length === 0) return;
-            pendingItemsRef.current = group?.items ?? pendingItemsRef.current;
-            setRenderedItems(
-              current.map((entry) => ({
-                ...entry,
-                state: "exiting" as const,
-              })),
-            );
-            return;
-          }
-
-          const nextItems = pendingItemsRef.current ?? group?.items ?? [];
-          pendingItemsRef.current = null;
-          if (nextItems.length === 0) return;
-          setRenderedItems(
-            nextItems.map((item) => ({ item, state: "entering" as const })),
-          );
-        },
-      );
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
-  }, [group]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let cleanup: (() => void) | undefined;
-
-    void (async () => {
-      const [{ listen }, { getCurrentWindow }] = await Promise.all([
-        import("@tauri-apps/api/event"),
-        import("@tauri-apps/api/window"),
-      ]);
-      cleanup = await listen(MINI_SUBTASKS_CLOSED_EVENT, () => {
-        if (cancelled) return;
-        activeTodoIdRef.current = null;
-        latestGroupUpdatedAtRef.current = 0;
-        pendingItemsRef.current = null;
-        updateHoverState(false);
-        void getCurrentWindow().setIgnoreCursorEvents(true);
-        setRenderedItems([]);
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
-  }, []);
+  }, [slot]);
 
   useEffect(() => {
     const nextItems = group?.items ?? [];
     const nextUpdatedAt = group?.updatedAt ?? 0;
-    if (nextUpdatedAt < latestGroupUpdatedAtRef.current) {
-      return;
-    }
+    if (nextUpdatedAt < latestGroupUpdatedAtRef.current) return;
     latestGroupUpdatedAtRef.current = nextUpdatedAt;
-    const nextTodoId = group?.todoId ?? null;
+
     const current = renderedItemsRef.current;
-    const activeCurrent = current.filter((entry) => entry.state !== "exiting");
-    const currentSignature = activeCurrent.map((entry) => entry.item.id).join("|");
+    const currentSignature = current.map((entry) => entry.item.id).join("|");
     const nextSignature = nextItems.map((item) => item.id).join("|");
     const nextById = new Map(nextItems.map((item) => [item.id, item]));
-
-    if (!parentVisibleRef.current) {
-      pendingItemsRef.current = nextItems;
-      return;
-    }
-
-    if (activeTodoIdRef.current !== nextTodoId) {
-      activeTodoIdRef.current = nextTodoId;
-      pendingItemsRef.current = null;
-      setRenderedItems(
-        nextItems.map((item) => ({ item, state: "entering" as const })),
-      );
-      return;
-    }
 
     if (currentSignature === nextSignature) {
       setRenderedItems(
@@ -346,40 +266,32 @@ export function MiniSubtasksWindow() {
 
     if (current.length === 0) {
       pendingItemsRef.current = null;
-      setRenderedItems(
-        nextItems.map((item) => ({ item, state: "entering" as const })),
-      );
+      setRenderedItems(nextItems.map((item) => ({ item, state: "entering" })));
       return;
     }
 
     pendingItemsRef.current = nextItems;
-    setRenderedItems(
-      current
-        .map((entry) => ({
-          ...entry,
-          state: "exiting" as const,
-        })),
-    );
+    setRenderedItems(current.map((entry) => ({ ...entry, state: "exiting" })));
   }, [group]);
 
   useGSAP(
     () => {
-      const enteringIds = new Set(
-        renderedItems
-          .filter((entry) => entry.state === "entering")
-          .map((entry) => entry.item.id),
-      );
-      const exitingIds = new Set(
-        renderedItems
-          .filter((entry) => entry.state === "exiting")
-          .map((entry) => entry.item.id),
-      );
-      const visibleIds = new Set(
-        renderedItems
-          .filter((entry) => entry.state === "visible")
-          .map((entry) => entry.item.id),
-      );
+      if (shellRef.current == null) return;
 
+      gsap.to(shellRef.current, {
+        height: expanded
+          ? shellRef.current.scrollHeight
+          : PINNED_SUBTASKS_COLLAPSED_HEIGHT,
+        duration: 0.2,
+        ease: "power2.out",
+        overwrite: "auto",
+      });
+    },
+    { dependencies: [expanded, renderedItems.length], scope: shellRef },
+  );
+
+  useGSAP(
+    () => {
       const enteringNodes = Array.from(
         listRef.current?.querySelectorAll<HTMLElement>(
           ".mini-subtasks-window__item.is-entering",
@@ -394,16 +306,14 @@ export function MiniSubtasksWindow() {
         listRef.current?.querySelectorAll<HTMLElement>(
           ".mini-subtasks-window__item.is-visible",
         ) ?? [],
-      ).filter((node) => visibleIds.has(node.dataset.itemId ?? ""));
+      );
 
       if (enteringNodes.length > 0) {
         const timeline = gsap.timeline({
           onComplete: () => {
             setRenderedItems((currentItems) =>
               currentItems.map((entry) =>
-                enteringIds.has(entry.item.id)
-                  ? { ...entry, state: "visible" }
-                  : entry,
+                entry.state === "entering" ? { ...entry, state: "visible" } : entry,
               ),
             );
           },
@@ -431,24 +341,14 @@ export function MiniSubtasksWindow() {
           onComplete: () => {
             const pendingItems = pendingItemsRef.current;
             pendingItemsRef.current = null;
-
-            if (!parentVisibleRef.current) {
-              setRenderedItems([]);
-              return;
-            }
-
             if (pendingItems != null && pendingItems.length > 0) {
               setRenderedItems(
-                pendingItems.map((item) => ({
-                  item,
-                  state: "entering" as const,
-                })),
+                pendingItems.map((item) => ({ item, state: "entering" })),
               );
               return;
             }
-
             setRenderedItems((currentItems) =>
-              currentItems.filter((entry) => !exitingIds.has(entry.item.id)),
+              currentItems.filter((entry) => entry.state !== "exiting"),
             );
           },
         });
@@ -478,16 +378,19 @@ export function MiniSubtasksWindow() {
 
   return (
     <main
-      className="mini-subtasks-window"
-      aria-label="子待办窗口"
-      onMouseEnter={() => updateHoverState(true)}
-      onMouseLeave={() => updateHoverState(false)}
+      ref={shellRef}
+      className={`mini-subtasks-window pinned-subtasks-window ${
+        expanded ? "is-expanded" : "is-collapsed"
+      }`}
+      aria-label="固定子待办窗口"
+      onMouseEnter={() => setExpanded(true)}
+      onMouseLeave={() => setExpanded(false)}
     >
       <button
         type="button"
         className="mini-subtasks-window__close"
-        onClick={() => void closeMiniSubtasksWindow()}
-        aria-label="关闭子待办窗口"
+        onClick={() => void closePinnedSubtasksWindow(slot)}
+        aria-label="关闭固定子待办窗口"
         title="关闭"
       >
         <IconClose size={14} />

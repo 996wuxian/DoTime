@@ -22,6 +22,7 @@ import {
   IconGripVertical,
   IconMessageCircle,
   IconPencil,
+  IconPin,
   IconPhoto,
   IconPlayerPause,
   IconPlayerPlay,
@@ -41,6 +42,7 @@ interface TodoItemProps {
   dropPosition?: "before" | "after" | null;
   batchMode?: boolean;
   isBatchSelected?: boolean;
+  isPinned?: boolean;
   itemRef?: (node: HTMLElement | null) => void;
   onStart: () => void;
   onPause: () => void;
@@ -52,6 +54,7 @@ interface TodoItemProps {
   onUpdateComment: (comment: string) => void;
   onUpdateImages: (images: TodoImage[]) => void;
   onToggleFavorite: () => void;
+  onPin: () => void;
   onToggleBatchSelect?: () => void;
   onAddSubtask: (parentSubtaskId: string | null) => void;
   onEditSubtask: (subtaskId: string) => void;
@@ -520,6 +523,7 @@ export function TodoItem({
   dropPosition = null,
   batchMode = false,
   isBatchSelected = false,
+  isPinned = false,
   itemRef,
   onStart,
   onPause,
@@ -531,6 +535,7 @@ export function TodoItem({
   onUpdateComment,
   onUpdateImages,
   onToggleFavorite,
+  onPin,
   onToggleBatchSelect,
   onAddSubtask,
   onEditSubtask,
@@ -885,6 +890,18 @@ export function TodoItem({
             title={todo.favorite ? "取消收藏" : "收藏"}
           >
             <IconBookmark size={16} />
+          </button>
+          <button
+            type="button"
+            className={`btn btn-ghost btn-icon-only todo-item__pin-action ${
+              isPinned ? "is-active" : ""
+            }`}
+            onClick={onPin}
+            aria-pressed={isPinned}
+            aria-label={isPinned ? "取消固定待办窗口" : "固定待办到新窗口"}
+            title={isPinned ? "取消固定" : "固定到新窗口"}
+          >
+            <IconPin size={16} />
           </button>
           <button
             type="button"

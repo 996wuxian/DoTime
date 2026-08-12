@@ -69,6 +69,21 @@ export function buildMiniSubtasksGroup(todo: Todo): MiniSubtasksGroup | null {
   };
 }
 
+export function buildMiniSubtasksGroupFromSubtasks(
+  todoId: string,
+  parentTitle: string,
+  subtasks: readonly TodoSubtask[] = [],
+): MiniSubtasksGroup | null {
+  const items = flattenMiniSubtasks(subtasks);
+  if (items.length === 0) return null;
+  return {
+    todoId,
+    parentTitle,
+    items,
+    updatedAt: Date.now(),
+  };
+}
+
 export function parseMiniSubtasksGroup(value: unknown): MiniSubtasksGroup | null {
   if (typeof value !== "string") return null;
 

@@ -28,7 +28,7 @@
         "label": "reminder",
         "title": "doTime 提醒",
         "url": "index.html?view=reminder",
-        "width": 620,
+        "width": 420,
         "height": 380,
         "resizable": false,
         "decorations": false,
@@ -61,6 +61,212 @@
         "resizable": false,
         "decorations": false,
         "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-todo-0",
+        "title": "doTime 固定待办",
+        "url": "index.html?view=pinned-todo&slot=0",
+        "width": 210,
+        "height": 46,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-todo-1",
+        "title": "doTime 固定待办",
+        "url": "index.html?view=pinned-todo&slot=1",
+        "width": 210,
+        "height": 46,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-todo-2",
+        "title": "doTime 固定待办",
+        "url": "index.html?view=pinned-todo&slot=2",
+        "width": 210,
+        "height": 46,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-todo-3",
+        "title": "doTime 固定待办",
+        "url": "index.html?view=pinned-todo&slot=3",
+        "width": 210,
+        "height": 46,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-todo-4",
+        "title": "doTime 固定待办",
+        "url": "index.html?view=pinned-todo&slot=4",
+        "width": 210,
+        "height": 46,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-todo-5",
+        "title": "doTime 固定待办",
+        "url": "index.html?view=pinned-todo&slot=5",
+        "width": 210,
+        "height": 46,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-todo-6",
+        "title": "doTime 固定待办",
+        "url": "index.html?view=pinned-todo&slot=6",
+        "width": 210,
+        "height": 46,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-todo-7",
+        "title": "doTime 固定待办",
+        "url": "index.html?view=pinned-todo&slot=7",
+        "width": 210,
+        "height": 46,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-todo-8",
+        "title": "doTime 固定待办",
+        "url": "index.html?view=pinned-todo&slot=8",
+        "width": 210,
+        "height": 46,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-todo-9",
+        "title": "doTime 固定待办",
+        "url": "index.html?view=pinned-todo&slot=9",
+        "width": 210,
+        "height": 46,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
         "visible": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
@@ -70,7 +276,9 @@
     "security": {
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/todo-images/**/*"]
+        "scope": [
+          "$APPDATA/todo-images/**/*"
+        ]
       },
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data: blob: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'",
       "devCsp": "default-src 'self' http://localhost:1422; connect-src ipc: http://ipc.localhost http://localhost:1422 ws://localhost:1422 ws://localhost:1423; img-src 'self' data: blob: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; object-src 'none'; base-uri 'none'; frame-src 'none'"

@@ -31,6 +31,7 @@ import {
   IconFlame as TbFlame,
   IconGripVertical as TbGripVertical,
   IconPhoto as TbPhoto,
+  IconPin as TbPin,
   IconListCheck as TbListCheck,
   IconMessageCircle as TbMessageCircle,
   IconMinus as TbMinus,
@@ -136,6 +137,7 @@ export const IconFlame = wrap(TbFlame);
 export const IconPencil = wrap(TbPencil);
 export const IconGripVertical = wrap(TbGripVertical);
 export const IconPhoto = wrap(TbPhoto);
+export const IconPin = wrap(TbPin);
 export const IconThemeSun = wrap(TbSun);
 export const IconThemeMoon = wrap(TbMoon);
 export const IconDockBottom = wrap(TbArrowBarToDown);

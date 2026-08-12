@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -21,6 +22,18 @@ const MINI_SUBTASKS_WINDOW_VERTICAL_CHROME: f64 = 22.0;
 const MINI_SUBTASKS_WINDOW_MARGIN: f64 = 4.0;
 const MINI_SUBTASKS_WINDOW_STACK_GAP: f64 = 4.0;
 const MINI_SUBTASKS_PARENT_INSET: f64 = 18.0;
+const PINNED_TODO_WINDOW_COLLAPSED_WIDTH: f64 = 210.0;
+const PINNED_TODO_WINDOW_COLLAPSED_HEIGHT: f64 = 46.0;
+const PINNED_TODO_WINDOW_EXPANDED_HEIGHT: f64 = 60.0;
+const PINNED_TODO_WINDOW_MARGIN: f64 = 18.0;
+const PINNED_TODO_WINDOW_COUNT: usize = 10;
+const PINNED_SUBTASKS_WINDOW_WIDTH: f64 = 340.0;
+const PINNED_SUBTASKS_WINDOW_COLLAPSED_HEIGHT: f64 = 42.0;
+const PINNED_SUBTASKS_WINDOW_ROW_HEIGHT: f64 = 52.0;
+const PINNED_SUBTASKS_WINDOW_VERTICAL_CHROME: f64 = 16.0;
+const PINNED_SUBTASKS_WINDOW_MAX_HEIGHT: f64 = 240.0;
+const PINNED_SUBTASKS_WINDOW_GAP: f64 = 4.0;
+const PINNED_TODOS_UPDATED_EVENT: &str = "dotime-pinned-todos-updated";
 const CLIPBOARD_POLL_INTERVAL_MS: u64 = 800;
 const CLIPBOARD_MAX_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 const CLIPBOARD_HISTORY_LIMIT: usize = 100;
@@ -30,12 +43,15 @@ const TODO_IMAGES_DIR: &str = "todo-images";
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    utils::config::Color,
     Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindowBuilder,
 };
 
 struct ReminderState(Mutex<Option<String>>);
 struct ReminderScheduleState(Sender<Vec<ScheduledReminder>>);
 struct MiniSubtasksState(Mutex<Option<String>>);
+struct PinnedTodoState(Mutex<HashMap<String, String>>);
+struct PinnedSubtasksState(Mutex<HashMap<String, String>>);
 struct ClipboardHistoryState {
     items: Mutex<Vec<ClipboardSnapshot>>,
     suppressed_fingerprint: Mutex<Option<String>>,
@@ -394,6 +410,273 @@ fn show_mini_subtasks_window(
 ) -> Result<(), String> {
     *state.0.lock().map_err(|error| error.to_string())? = Some(subtasks_group.clone());
     show_mini_subtasks_window_inner(&app, subtasks_group)
+}
+
+#[tauri::command]
+fn show_pinned_todo_window(
+    app: tauri::AppHandle,
+    state: State<'_, PinnedTodoState>,
+    pinned_todo: String,
+) -> Result<String, String> {
+    let todo: serde_json::Value =
+        serde_json::from_str(&pinned_todo).map_err(|error| error.to_string())?;
+    let todo_id = todo
+        .get("id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "missing pinned todo id".to_string())?;
+    let slot = {
+        let pinned = state.0.lock().map_err(|error| error.to_string())?;
+        find_pinned_todo_slot(&pinned, todo_id)
+            .or_else(|| first_available_pinned_todo_slot(&pinned))
+            .ok_or_else(|| "固定待办窗口已达到上限".to_string())?
+    };
+    let window_label = pinned_todo_window_label(slot);
+
+    state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .insert(slot.to_string(), pinned_todo.clone());
+
+    let window = match app.get_webview_window(&window_label) {
+        Some(window) => window,
+        None => {
+            eprintln!("pinned todo window {window_label} was not pre-registered; building it");
+            WebviewWindowBuilder::new(
+                &app,
+                &window_label,
+                WebviewUrl::App(format!("index.html?view=pinned-todo&slot={slot}").into()),
+            )
+            .visible(false)
+            .decorations(false)
+            .transparent(true)
+            .shadow(false)
+            .background_color(Color(0, 0, 0, 0))
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .inner_size(
+                PINNED_TODO_WINDOW_COLLAPSED_WIDTH,
+                PINNED_TODO_WINDOW_COLLAPSED_HEIGHT,
+            )
+            .build()
+            .map_err(|error| error.to_string())?
+        }
+    };
+
+    let _ = window.unminimize();
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+    position_pinned_todo_window(&window, slot);
+    window.show().map_err(|error| error.to_string())?;
+    let _ = window.set_focus();
+    let _ = window.emit(format!("dotime-pinned-todo-{slot}").as_str(), pinned_todo);
+    let _ = app.emit(PINNED_TODOS_UPDATED_EVENT, ());
+    Ok(slot.to_string())
+}
+
+#[tauri::command]
+fn get_active_pinned_todo(
+    state: State<'_, PinnedTodoState>,
+    slot: String,
+) -> Result<Option<String>, String> {
+    state
+        .0
+        .lock()
+        .map(|todos| todos.get(&slot).cloned())
+        .map_err(|error| error.to_string())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActivePinnedTodo {
+    slot: String,
+    todo_id: String,
+}
+
+#[tauri::command]
+fn get_active_pinned_todos(
+    state: State<'_, PinnedTodoState>,
+) -> Result<Vec<ActivePinnedTodo>, String> {
+    let pinned = state.0.lock().map_err(|error| error.to_string())?;
+    let mut active = Vec::with_capacity(pinned.len());
+
+    for (slot, todo) in pinned.iter() {
+        let parsed =
+            serde_json::from_str::<serde_json::Value>(todo).map_err(|error| error.to_string())?;
+        let Some(todo_id) = parsed.get("id").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        active.push(ActivePinnedTodo {
+            slot: slot.clone(),
+            todo_id: todo_id.to_string(),
+        });
+    }
+
+    Ok(active)
+}
+
+#[tauri::command]
+fn remove_pinned_todo(
+    app: tauri::AppHandle,
+    state: State<'_, PinnedTodoState>,
+    subtasks_state: State<'_, PinnedSubtasksState>,
+    slot: String,
+) -> Result<(), String> {
+    let window_label = pinned_todo_window_label(slot.parse::<usize>().unwrap_or(0));
+    state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .remove(&slot);
+    if let Some(window) = app.get_webview_window(&window_label) {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    close_pinned_subtasks_window(app.clone(), subtasks_state, slot)?;
+    let _ = app.emit(PINNED_TODOS_UPDATED_EVENT, ());
+    Ok(())
+}
+
+#[tauri::command]
+fn get_active_pinned_subtasks_group(
+    state: State<'_, PinnedSubtasksState>,
+    slot: String,
+) -> Result<Option<String>, String> {
+    state
+        .0
+        .lock()
+        .map(|groups| groups.get(&slot).cloned())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn show_pinned_subtasks_window(
+    app: tauri::AppHandle,
+    state: State<'_, PinnedSubtasksState>,
+    slot: String,
+    subtasks_group: String,
+) -> Result<(), String> {
+    let item_count = mini_subtasks_item_count(&subtasks_group);
+    if item_count == 0 {
+        return close_pinned_subtasks_window(app, state, slot);
+    }
+
+    state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .insert(slot.clone(), subtasks_group.clone());
+
+    let window_label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
+    let window = match app.get_webview_window(&window_label) {
+        Some(window) => window,
+        None => WebviewWindowBuilder::new(
+            &app,
+            &window_label,
+            WebviewUrl::App(format!("index.html?view=pinned-subtasks&slot={slot}").into()),
+        )
+        .visible(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .inner_size(
+            PINNED_SUBTASKS_WINDOW_WIDTH,
+            pinned_subtasks_window_height(item_count),
+        )
+        .build()
+        .map_err(|error| error.to_string())?,
+    };
+
+    position_pinned_subtasks_window(&window, slot.parse::<usize>().unwrap_or(0), item_count, 0.0);
+    let _ = window.unminimize();
+    let _ = window.set_always_on_top(true);
+    window.show().map_err(|error| error.to_string())?;
+    let _ = window.emit(
+        format!("dotime-pinned-subtasks-{slot}").as_str(),
+        subtasks_group,
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn close_pinned_subtasks_window(
+    app: tauri::AppHandle,
+    state: State<'_, PinnedSubtasksState>,
+    slot: String,
+) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .remove(&slot);
+    let window_label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
+    if let Some(window) = app.get_webview_window(&window_label) {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn sync_pinned_subtasks_window(
+    app: tauri::AppHandle,
+    state: State<'_, PinnedSubtasksState>,
+    slot: String,
+    expanded: bool,
+) -> Result<(), String> {
+    let group = {
+        let groups = state.0.lock().map_err(|error| error.to_string())?;
+        groups.get(&slot).cloned()
+    };
+    let Some(subtasks_group) = group else {
+        return Ok(());
+    };
+
+    let item_count = mini_subtasks_item_count(&subtasks_group);
+    let window_label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
+    if let Some(window) = app.get_webview_window(&window_label) {
+        let target_height = if expanded {
+            pinned_subtasks_window_height(item_count)
+        } else {
+            PINNED_SUBTASKS_WINDOW_COLLAPSED_HEIGHT
+        };
+        let _ = window.set_size(PhysicalSize::new(
+            PINNED_SUBTASKS_WINDOW_WIDTH,
+            target_height,
+        ));
+        position_pinned_subtasks_window(
+            &window,
+            slot.parse::<usize>().unwrap_or(0),
+            item_count,
+            target_height,
+        );
+    }
+    Ok(())
+}
+
+fn pinned_todo_window_label(slot: usize) -> String {
+    format!("pinned-todo-{slot}")
+}
+
+fn pinned_subtasks_window_label(slot: usize) -> String {
+    format!("pinned-subtasks-{slot}")
+}
+
+fn find_pinned_todo_slot(pinned: &HashMap<String, String>, todo_id: &str) -> Option<usize> {
+    pinned.iter().find_map(|(slot, todo)| {
+        let parsed = serde_json::from_str::<serde_json::Value>(todo).ok()?;
+        let pinned_id = parsed.get("id").and_then(|value| value.as_str())?;
+        if pinned_id == todo_id {
+            slot.parse::<usize>().ok()
+        } else {
+            None
+        }
+    })
+}
+
+fn first_available_pinned_todo_slot(pinned: &HashMap<String, String>) -> Option<usize> {
+    (0..PINNED_TODO_WINDOW_COUNT).find(|slot| !pinned.contains_key(&slot.to_string()))
 }
 
 #[tauri::command]
@@ -1416,7 +1699,11 @@ fn position_reminder_window(window: &tauri::WebviewWindow) {
 fn mini_subtasks_item_count(subtasks_group: &str) -> usize {
     serde_json::from_str::<serde_json::Value>(subtasks_group)
         .ok()
-        .and_then(|value| value.get("items").and_then(|items| items.as_array().cloned()))
+        .and_then(|value| {
+            value
+                .get("items")
+                .and_then(|items| items.as_array().cloned())
+        })
         .map(|items| items.len())
         .unwrap_or(0)
 }
@@ -1424,6 +1711,100 @@ fn mini_subtasks_item_count(subtasks_group: &str) -> usize {
 fn mini_subtasks_window_height(item_count: usize) -> f64 {
     (item_count as f64 * MINI_SUBTASKS_WINDOW_ROW_HEIGHT + MINI_SUBTASKS_WINDOW_VERTICAL_CHROME)
         .clamp(MINI_SUBTASKS_WINDOW_HEIGHT, MINI_SUBTASKS_WINDOW_MAX_HEIGHT)
+}
+
+fn position_pinned_todo_window(window: &tauri::WebviewWindow, index: usize) {
+    let main_window = window.app_handle().get_webview_window("main");
+    let scale_factor = main_window
+        .as_ref()
+        .and_then(|main| main.scale_factor().ok())
+        .unwrap_or_else(|| window.scale_factor().unwrap_or(1.0));
+    let window_width = PINNED_TODO_WINDOW_COLLAPSED_WIDTH * scale_factor;
+    let window_height = PINNED_TODO_WINDOW_COLLAPSED_HEIGHT * scale_factor;
+    let margin = PINNED_TODO_WINDOW_MARGIN * scale_factor;
+    let stack_step = (PINNED_TODO_WINDOW_EXPANDED_HEIGHT + 14.0) * scale_factor;
+    let monitor = main_window
+        .as_ref()
+        .and_then(|main| main.current_monitor().ok().flatten())
+        .or_else(|| {
+            main_window
+                .as_ref()
+                .and_then(|main| main.primary_monitor().ok().flatten())
+        })
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten());
+
+    if let Some(monitor) = monitor {
+        let work_area = monitor.work_area();
+        let x = work_area.position.x as f64 + work_area.size.width as f64 - window_width;
+        let min_y = work_area.position.y as f64 + margin;
+        let max_y =
+            work_area.position.y as f64 + work_area.size.height as f64 - window_height - margin;
+        let y = (work_area.position.y as f64 + margin + index as f64 * stack_step)
+            .clamp(min_y, max_y.max(min_y));
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+        let _ = window.set_size(PhysicalSize::new(window_width, window_height));
+    } else {
+        let _ = window.set_size(PhysicalSize::new(window_width, window_height));
+    }
+}
+
+fn pinned_subtasks_window_height(item_count: usize) -> f64 {
+    (item_count as f64 * PINNED_SUBTASKS_WINDOW_ROW_HEIGHT + PINNED_SUBTASKS_WINDOW_VERTICAL_CHROME)
+        .clamp(
+            PINNED_SUBTASKS_WINDOW_COLLAPSED_HEIGHT,
+            PINNED_SUBTASKS_WINDOW_MAX_HEIGHT,
+        )
+}
+
+fn position_pinned_subtasks_window(
+    window: &tauri::WebviewWindow,
+    index: usize,
+    _item_count: usize,
+    target_height: f64,
+) {
+    let main_window = window.app_handle().get_webview_window("main");
+    let scale_factor = main_window
+        .as_ref()
+        .and_then(|main| main.scale_factor().ok())
+        .unwrap_or_else(|| window.scale_factor().unwrap_or(1.0));
+    let parent_width = PINNED_TODO_WINDOW_COLLAPSED_WIDTH * scale_factor;
+    let window_width = PINNED_SUBTASKS_WINDOW_WIDTH * scale_factor;
+    let window_height = target_height;
+    let gap = PINNED_SUBTASKS_WINDOW_GAP * scale_factor;
+    let monitor = main_window
+        .as_ref()
+        .and_then(|main| main.current_monitor().ok().flatten())
+        .or_else(|| {
+            main_window
+                .as_ref()
+                .and_then(|main| main.primary_monitor().ok().flatten())
+        })
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten());
+
+    if let Some(monitor) = monitor {
+        let work_area = monitor.work_area();
+        let parent_x = work_area.position.x as f64 + work_area.size.width as f64 - parent_width;
+        let x = (parent_x - window_width - gap).max(work_area.position.x as f64 + gap);
+        let y = work_area.position.y as f64
+            + PINNED_TODO_WINDOW_MARGIN * scale_factor
+            + index as f64 * (PINNED_TODO_WINDOW_EXPANDED_HEIGHT + 10.0) * scale_factor
+            + PINNED_TODO_WINDOW_COLLAPSED_HEIGHT * scale_factor
+            + gap;
+        let max_x = work_area.position.x as f64 + work_area.size.width as f64 - window_width - gap;
+        let max_y =
+            work_area.position.y as f64 + work_area.size.height as f64 - window_height - gap;
+        let min_x = work_area.position.x as f64 + gap;
+        let min_y = work_area.position.y as f64 + gap;
+        let _ = window.set_position(PhysicalPosition::new(
+            x.clamp(min_x, max_x.max(min_x)),
+            y.clamp(min_y, max_y.max(min_y)),
+        ));
+        let _ = window.set_size(PhysicalSize::new(window_width, window_height));
+    } else {
+        let _ = window.set_size(PhysicalSize::new(window_width, window_height));
+    }
 }
 
 fn hide_mini_subtasks_windows(app: &tauri::AppHandle) {
@@ -1458,10 +1839,7 @@ fn is_mini_subtasks_window_label(label: &str) -> bool {
     mini_subtasks_window_index(label).is_some()
 }
 
-fn position_mini_subtasks_window(
-    window: &tauri::WebviewWindow,
-    item_count: usize,
-) {
+fn position_mini_subtasks_window(window: &tauri::WebviewWindow, item_count: usize) {
     let main_window = window
         .app_handle()
         .get_webview_window("main")
@@ -1585,6 +1963,8 @@ pub fn run() {
         .manage(ReminderState(Mutex::new(None)))
         .manage(ReminderScheduleState(reminder_schedule_sender))
         .manage(MiniSubtasksState(Mutex::new(None)))
+        .manage(PinnedTodoState(Mutex::new(HashMap::new())))
+        .manage(PinnedSubtasksState(Mutex::new(HashMap::new())))
         .manage(ClipboardHistoryState {
             items: Mutex::new(Vec::new()),
             suppressed_fingerprint: Mutex::new(None),
@@ -1651,6 +2031,14 @@ pub fn run() {
             close_mini_subtasks_window,
             show_clipboard_window,
             show_mini_subtasks_window,
+            show_pinned_todo_window,
+            get_active_pinned_todo,
+            get_active_pinned_todos,
+            remove_pinned_todo,
+            get_active_pinned_subtasks_group,
+            show_pinned_subtasks_window,
+            close_pinned_subtasks_window,
+            sync_pinned_subtasks_window,
             open_external_url,
             show_reminder_window,
             get_active_reminder_group,

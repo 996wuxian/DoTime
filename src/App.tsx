@@ -60,6 +60,7 @@ import {
   MINI_SUBTASKS_VISIBILITY_EVENT,
   buildMiniSubtasksGroup,
 } from "./utils/miniSubtasks";
+import { buildPinnedTodoPayload } from "./utils/pinnedTodo";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
 import {
   formatClockTime,
@@ -87,6 +88,11 @@ const TODO_DRAG_LONG_PRESS_MS = 180;
 const TODO_DRAG_CANCEL_DISTANCE = 8;
 const APP_VERSION = "1.1.1";
 const APP_DEVELOPMENT_DATE = "2026-07-24";
+
+type ActivePinnedTodo = {
+  slot: string;
+  todoId: string;
+};
 const APP_AUTHOR = "996wuxian";
 const APP_REPOSITORY_URL = "https://github.com/996wuxian/DoTime";
 const APP_DOWNLOAD_URL = "https://github.com/996wuxian/DoTime/releases";
@@ -473,6 +479,23 @@ async function showClipboardWindow() {
   });
 }
 
+async function showPinnedTodoWindow(todo: Todo) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("show_pinned_todo_window", {
+    pinnedTodo: JSON.stringify(buildPinnedTodoPayload(todo)),
+  });
+}
+
+async function removePinnedTodoWindow(slot: string) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("remove_pinned_todo", { slot });
+}
+
+async function getActivePinnedTodos() {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<ActivePinnedTodo[]>("get_active_pinned_todos");
+}
+
 async function openExternalUrl(url: string) {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("open_external_url", { url }).catch((error) => {
@@ -519,6 +542,9 @@ function App() {
   const [miniSubtasksOpen, setMiniSubtasksOpen] = useState(false);
   const [miniSubtasksHovered, setMiniSubtasksHovered] = useState(false);
   const miniSubtasksHoverLastAtRef = useRef(0);
+  const [pinnedTodoSlots, setPinnedTodoSlots] = useState<Map<string, string>>(
+    () => new Map(),
+  );
   const [miniOpacity, setMiniOpacity] = useState(() => loadMiniOpacity());
   const [mainView, setMainView] = useState<
     "todos" | "plan" | "statistics" | "review"
@@ -622,9 +648,52 @@ function App() {
     moveTemplate,
   } = useTaskTemplates();
 
+  const refreshPinnedTodoSlots = () => {
+    void getActivePinnedTodos()
+      .then((items) => {
+        setPinnedTodoSlots(
+          new Map(items.map((item) => [item.todoId, item.slot])),
+        );
+      })
+      .catch((error) => {
+        console.error("failed to load pinned todos", error);
+      });
+  };
+
+  const togglePinnedTodoWindow = async (todo: Todo) => {
+    const slot = pinnedTodoSlots.get(todo.id);
+
+    try {
+      if (slot != null) {
+        await removePinnedTodoWindow(slot);
+        setPinnedTodoSlots((current) => {
+          const next = new Map(current);
+          next.delete(todo.id);
+          return next;
+        });
+      } else {
+        const nextSlot = await showPinnedTodoWindow(todo);
+        setPinnedTodoSlots((current) => {
+          const next = new Map(current);
+          next.set(todo.id, nextSlot);
+          return next;
+        });
+      }
+      refreshPinnedTodoSlots();
+    } catch (error) {
+      console.error("failed to toggle pinned todo window", error);
+      window.alert(`固定待办窗口操作失败：${String(error)}`);
+      refreshPinnedTodoSlots();
+    }
+  };
+
   useEffect(() => {
     saveTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    refreshPinnedTodoSlots();
+  }, []);
 
   useEffect(() => {
     if (!favoritesOpen) return;
@@ -714,6 +783,37 @@ function App() {
     document.body.classList.toggle("is-mini-mode", miniMode);
     return () => document.body.classList.remove("is-mini-mode");
   }, [miniMode]);
+
+  useEffect(() => {
+    let disposed = false;
+    let cleanups: Array<() => void> = [];
+
+    void import("@tauri-apps/api/event")
+      .then(async ({ listen }) => {
+        const refresh = () => {
+          if (!disposed) refreshPinnedTodoSlots();
+        };
+        const unlistenAppData = await listen("dotime-app-data-updated", refresh);
+        const unlistenPinnedTodos = await listen(
+          "dotime-pinned-todos-updated",
+          refresh,
+        );
+        if (disposed) {
+          unlistenAppData();
+          unlistenPinnedTodos();
+          return;
+        }
+        cleanups = [unlistenAppData, unlistenPinnedTodos];
+      })
+      .catch(() => {
+        cleanups = [];
+      });
+
+    return () => {
+      disposed = true;
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, []);
 
   useEffect(() => {
     if (!aboutOpen) return;
@@ -2390,6 +2490,7 @@ function App() {
                           }
                           batchMode={batchMode}
                           isBatchSelected={selectedTodoIds.has(todo.id)}
+                          isPinned={pinnedTodoSlots.has(todo.id)}
                           onStart={() => startTiming(todo.id)}
                           onPause={() => pauseTiming(todo.id)}
                           onStop={() => stopTiming(todo.id)}
@@ -2408,6 +2509,7 @@ function App() {
                             updateTodoImages(todo.id, images)
                           }
                           onToggleFavorite={() => toggleFavorite(todo.id)}
+                          onPin={() => void togglePinnedTodoWindow(todo)}
                           onToggleBatchSelect={() =>
                             handleToggleBatchSelect(todo.id)
                           }

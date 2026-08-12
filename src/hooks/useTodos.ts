@@ -18,6 +18,7 @@ import {
   type ImportAppDataResult,
   type LoadAppDataResult,
 } from "../data/appData";
+import { emitAppDataUpdated } from "../utils/appDataEvents";
 import {
   applyReminderAction,
   applyReminderFired,
@@ -257,6 +258,9 @@ export function useTodos(selectedDate: string) {
       localStorage,
     );
     if (!result.ok) setStorageNotice(`保存失败：${result.error}`);
+    void emitAppDataUpdated().catch((error) => {
+      console.error("failed to emit app data update", error);
+    });
   }, [categoryDividers, manualSortDates, todos]);
 
   useEffect(() => {
