@@ -29,10 +29,8 @@ const PINNED_TODO_WINDOW_EXPANDED_HEIGHT: f64 = 60.0;
 const PINNED_TODO_WINDOW_MARGIN: f64 = 18.0;
 const PINNED_TODO_WINDOW_COUNT: usize = 10;
 const PINNED_TODO_WINDOW_STACK_GAP: f64 = 28.0;
-const PINNED_SUBTASKS_WINDOW_COLLAPSED_WIDTH: f64 =
-    PINNED_TODO_WINDOW_COLLAPSED_WIDTH - 30.0;
-const PINNED_SUBTASKS_WINDOW_EXPANDED_WIDTH: f64 =
-    PINNED_TODO_WINDOW_EXPANDED_WIDTH - 40.0;
+const PINNED_SUBTASKS_WINDOW_COLLAPSED_WIDTH: f64 = PINNED_TODO_WINDOW_COLLAPSED_WIDTH - 30.0;
+const PINNED_SUBTASKS_WINDOW_EXPANDED_WIDTH: f64 = PINNED_TODO_WINDOW_EXPANDED_WIDTH - 40.0;
 const PINNED_SUBTASKS_WINDOW_GAP: f64 = 4.0;
 const PINNED_SUBTASKS_ITEM_COLLAPSED_HEIGHT: f64 = 46.0;
 const PINNED_SUBTASKS_LIST_GAP: f64 = 8.0;
@@ -57,6 +55,7 @@ struct ReminderScheduleState(Sender<Vec<ScheduledReminder>>);
 struct MiniSubtasksState(Mutex<Option<String>>);
 struct PinnedTodoState(Mutex<HashMap<String, String>>);
 struct PinnedSubtasksState(Mutex<HashMap<String, String>>);
+struct ClipboardMonitorState(Mutex<Option<mpsc::Sender<()>>>);
 struct ClipboardHistoryState {
     items: Mutex<Vec<ClipboardSnapshot>>,
     suppressed_fingerprint: Mutex<Option<String>>,
@@ -388,7 +387,8 @@ fn close_reminder_window(window: tauri::Window) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn close_clipboard_window(window: tauri::Window) -> Result<(), String> {
+fn close_clipboard_window(app: tauri::AppHandle, window: tauri::Window) -> Result<(), String> {
+    stop_clipboard_monitor(&app);
     window.hide().map_err(|error| error.to_string())
 }
 
@@ -427,6 +427,7 @@ fn show_clipboard_window(app: tauri::AppHandle) -> Result<(), String> {
     let _ = window.center();
     window.show().map_err(|error| error.to_string())?;
     let _ = window.set_focus();
+    start_clipboard_monitor(&app);
     Ok(())
 }
 
@@ -610,20 +611,17 @@ fn show_pinned_subtasks_window(
                 WebviewUrl::App(format!("index.html?view=pinned-subtasks&slot={slot}").into());
             let inner_height = pinned_subtasks_collapsed_height(item_count);
             app.run_on_main_thread(move || {
-                let result = WebviewWindowBuilder::new(
-                    &app_handle,
-                    &window_label_for_build,
-                    window_url,
-                )
-                .visible(false)
-                .decorations(false)
-                .transparent(true)
-                .always_on_top(true)
-                .skip_taskbar(true)
-                .resizable(false)
-                .inner_size(PINNED_SUBTASKS_WINDOW_COLLAPSED_WIDTH, inner_height)
-                .build()
-                .map_err(|error| error.to_string());
+                let result =
+                    WebviewWindowBuilder::new(&app_handle, &window_label_for_build, window_url)
+                        .visible(false)
+                        .decorations(false)
+                        .transparent(true)
+                        .always_on_top(true)
+                        .skip_taskbar(true)
+                        .resizable(false)
+                        .inner_size(PINNED_SUBTASKS_WINDOW_COLLAPSED_WIDTH, inner_height)
+                        .build()
+                        .map_err(|error| error.to_string());
                 let _ = sender.send(result);
             })
             .map_err(|error| error.to_string())?;
@@ -635,7 +633,10 @@ fn show_pinned_subtasks_window(
     };
 
     let target_height = pinned_subtasks_collapsed_height(item_count);
-    let pinned = pinned_todo_state.0.lock().map_err(|error| error.to_string())?;
+    let pinned = pinned_todo_state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?;
     position_pinned_subtasks_window(
         &window,
         slot.parse::<usize>().unwrap_or(0),
@@ -1029,57 +1030,86 @@ fn current_timestamp_millis() -> i64 {
         .unwrap_or(0)
 }
 
-fn run_clipboard_monitor(app: tauri::AppHandle) {
-    thread::spawn(move || {
-        let mut last_fingerprint = String::new();
+fn run_clipboard_monitor(app: tauri::AppHandle, receiver: Receiver<()>) {
+    let mut last_fingerprint = String::new();
 
-        loop {
-            if let Some(snapshot) = read_clipboard_snapshot() {
-                let fingerprint = clipboard_fingerprint(&snapshot);
-                if let Some(state) = app.try_state::<ClipboardHistoryState>() {
-                    let suppressed = state
-                        .suppressed_fingerprint
-                        .lock()
-                        .ok()
-                        .and_then(|mut value| value.take());
-                    if suppressed.as_deref() == Some(&fingerprint) {
-                        thread::sleep(Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS));
-                        continue;
-                    }
-                }
+    loop {
+        match receiver.recv_timeout(Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS)) {
+            Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
+            Err(RecvTimeoutError::Timeout) => {}
+        }
 
-                if fingerprint != last_fingerprint {
-                    last_fingerprint = fingerprint.clone();
-                    let mut outgoing_snapshot = snapshot.clone();
-                    if let Some(state) = app.try_state::<ClipboardHistoryState>() {
-                        if let Ok(mut history) = state.items.lock() {
-                            let mut existing = history
-                                .iter()
-                                .find(|item| clipboard_fingerprint(item) == fingerprint)
-                                .cloned()
-                                .unwrap_or_else(|| snapshot.clone());
-                            existing.captured_at = snapshot.captured_at;
-                            existing.text = snapshot.text.clone();
-                            existing.image_data_url = snapshot.image_data_url.clone();
-                            existing.image_width = snapshot.image_width;
-                            existing.image_height = snapshot.image_height;
-                            existing.byte_size = snapshot.byte_size;
-                            existing.image_dib = snapshot.image_dib.clone();
-                            outgoing_snapshot = existing.clone();
-
-                            history.retain(|item| clipboard_fingerprint(item) != fingerprint);
-                            history.insert(0, existing);
-                            history.truncate(CLIPBOARD_HISTORY_LIMIT);
-                        }
-                        save_clipboard_history_async(&state);
-                    }
-                    let _ = app.emit("dotime-clipboard-changed", outgoing_snapshot);
+        if let Some(snapshot) = read_clipboard_snapshot() {
+            let fingerprint = clipboard_fingerprint(&snapshot);
+            if let Some(state) = app.try_state::<ClipboardHistoryState>() {
+                let suppressed = state
+                    .suppressed_fingerprint
+                    .lock()
+                    .ok()
+                    .and_then(|mut value| value.take());
+                if suppressed.as_deref() == Some(&fingerprint) {
+                    continue;
                 }
             }
 
-            thread::sleep(Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS));
+            if fingerprint != last_fingerprint {
+                last_fingerprint = fingerprint.clone();
+                let mut outgoing_snapshot = snapshot.clone();
+                if let Some(state) = app.try_state::<ClipboardHistoryState>() {
+                    if let Ok(mut history) = state.items.lock() {
+                        let mut existing = history
+                            .iter()
+                            .find(|item| clipboard_fingerprint(item) == fingerprint)
+                            .cloned()
+                            .unwrap_or_else(|| snapshot.clone());
+                        existing.captured_at = snapshot.captured_at;
+                        existing.text = snapshot.text.clone();
+                        existing.image_data_url = snapshot.image_data_url.clone();
+                        existing.image_width = snapshot.image_width;
+                        existing.image_height = snapshot.image_height;
+                        existing.byte_size = snapshot.byte_size;
+                        existing.image_dib = snapshot.image_dib.clone();
+                        outgoing_snapshot = existing.clone();
+
+                        history.retain(|item| clipboard_fingerprint(item) != fingerprint);
+                        history.insert(0, existing);
+                        history.truncate(CLIPBOARD_HISTORY_LIMIT);
+                    }
+                    save_clipboard_history_async(&state);
+                }
+                let _ = app.emit("dotime-clipboard-changed", outgoing_snapshot);
+            }
         }
-    });
+    }
+}
+
+fn start_clipboard_monitor(app: &tauri::AppHandle) {
+    let Some(state) = app.try_state::<ClipboardMonitorState>() else {
+        return;
+    };
+    let Ok(mut guard) = state.0.lock() else {
+        return;
+    };
+    if guard.is_some() {
+        return;
+    }
+
+    let (sender, receiver) = mpsc::channel();
+    let app_handle = app.clone();
+    thread::spawn(move || run_clipboard_monitor(app_handle, receiver));
+    *guard = Some(sender);
+}
+
+fn stop_clipboard_monitor(app: &tauri::AppHandle) {
+    let Some(state) = app.try_state::<ClipboardMonitorState>() else {
+        return;
+    };
+    let Ok(mut guard) = state.0.lock() else {
+        return;
+    };
+    if let Some(sender) = guard.take() {
+        let _ = sender.send(());
+    }
 }
 
 fn clipboard_fingerprint(snapshot: &ClipboardSnapshot) -> String {
@@ -1771,11 +1801,7 @@ fn pinned_todo_slot_footprint(payload: &serde_json::Value) -> f64 {
     }
 }
 
-fn pinned_todo_slot_y(
-    pinned: &HashMap<String, String>,
-    index: usize,
-    margin: f64,
-) -> f64 {
+fn pinned_todo_slot_y(pinned: &HashMap<String, String>, index: usize, margin: f64) -> f64 {
     let mut y = margin;
     for i in 0..index {
         let footprint = pinned
@@ -2160,6 +2186,7 @@ pub fn run() {
         .manage(MiniSubtasksState(Mutex::new(None)))
         .manage(PinnedTodoState(Mutex::new(HashMap::new())))
         .manage(PinnedSubtasksState(Mutex::new(HashMap::new())))
+        .manage(ClipboardMonitorState(Mutex::new(None)))
         .manage(ClipboardHistoryState {
             items: Mutex::new(Vec::new()),
             suppressed_fingerprint: Mutex::new(None),
@@ -2179,7 +2206,6 @@ pub fn run() {
 
             let reminder_app = app.handle().clone();
             thread::spawn(move || run_reminder_scheduler(reminder_app, reminder_schedule_receiver));
-            run_clipboard_monitor(app.handle().clone());
 
             let show_item = MenuItem::with_id(app, "show-main", "显示主窗口", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出 doTime", true, None::<&str>)?;
