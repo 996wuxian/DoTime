@@ -52,6 +52,13 @@ function formatByteSize(bytes?: number | null) {
   return `${bytes} B`;
 }
 
+function formatHistorySize(bytes: number) {
+  if (bytes <= 0) return "0 B";
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
+
 function getClipboardLabel(item: ClipboardSnapshot) {
   if (item.kind === "image") return "图片";
   return isCodeLike(item.text ?? "") ? "代码片段" : "文字";
@@ -145,12 +152,15 @@ function getErrorMessage(error: unknown) {
 export function ClipboardWindow() {
   const [items, setItems] = useState<ClipboardSnapshot[]>([]);
   const [query, setQuery] = useState("");
-  const [enabled, setEnabled] = useState(true);
+  const [enabled, setEnabled] = useState(false);
   const [tauriReady, setTauriReady] = useState(false);
+  const [historySize, setHistorySize] = useState<number | null>(null);
   const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const copiedTimerRef = useRef<number | null>(null);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
 
   useEffect(() => {
     document.body.classList.add("is-clipboard-window");
@@ -167,6 +177,50 @@ export function ClipboardWindow() {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
 
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen("dotime-clipboard-closed", () => {
+          if (!cancelled) setEnabled(false);
+        }),
+      )
+      .then((cleanup) => {
+        if (cancelled) cleanup();
+        else unlisten = cleanup;
+      })
+      .catch(() => {
+        /* browser */
+      });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    const refreshHistorySize = async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const size = await invoke<number>("get_clipboard_history_size");
+        if (!disposed) setHistorySize(size);
+      } catch {
+        /* browser */
+      }
+    };
+
+    void refreshHistorySize();
+    const timer = window.setInterval(() => void refreshHistorySize(), 2000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
     void (async () => {
       try {
         const [{ invoke }, { listen }] = await Promise.all([
@@ -175,15 +229,48 @@ export function ClipboardWindow() {
         ]);
 
         const history = await invoke<ClipboardSnapshot[]>("get_clipboard_history");
-        if (!cancelled) {
-          setItems(history);
-          setTauriReady(true);
-        }
+        if (cancelled) return;
+        setItems(history);
+        setTauriReady(true);
+
+        const imageIds = history
+          .filter((item) => item.kind === "image")
+          .map((item) => item.id);
+        const IMAGE_LOAD_CONCURRENCY = 3;
+        let nextImageIndex = 0;
+        const loadImageWorker = async () => {
+          while (!cancelled) {
+            const id = imageIds[nextImageIndex++];
+            if (id == null) return;
+            try {
+              const full = await invoke<ClipboardSnapshot | null>(
+                "get_clipboard_history_image",
+                { id },
+              );
+              if (cancelled || full == null || !full.imageDataUrl) continue;
+              setItems((current) =>
+                current.map((item) =>
+                  item.id === id
+                    ? { ...item, imageDataUrl: full.imageDataUrl }
+                    : item,
+                ),
+              );
+            } catch (error) {
+              console.error("failed to load clipboard image preview", error);
+            }
+          }
+        };
+        void Promise.all(
+          Array.from(
+            { length: Math.min(IMAGE_LOAD_CONCURRENCY, imageIds.length) },
+            () => loadImageWorker(),
+          ),
+        );
 
         unlisten = await listen<ClipboardSnapshot>(
           "dotime-clipboard-changed",
           (event) => {
-            if (!enabled) return;
+            if (!enabledRef.current) return;
             const incomingFingerprint = getClientFingerprint(event.payload);
             setItems((current) =>
               sortClipboardItems([
@@ -208,11 +295,11 @@ export function ClipboardWindow() {
       cancelled = true;
       unlisten?.();
     };
-  }, [enabled]);
+  }, []);
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
-      if (!enabled) return;
+      if (!enabledRef.current) return;
       const item = normalizePasteItem(event);
       if (!item) return;
       const incomingFingerprint = getClientFingerprint(item);
@@ -229,7 +316,7 @@ export function ClipboardWindow() {
 
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [enabled]);
+  }, []);
 
   const filteredItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -244,6 +331,19 @@ export function ClipboardWindow() {
       ? "系统监听中"
       : "粘贴监听中"
     : "已暂停";
+
+  const toggleMonitoring = async () => {
+    const next = !enabled;
+    setEnabled(next);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke(
+        next ? "enable_clipboard_monitor" : "disable_clipboard_monitor",
+      );
+    } catch (error) {
+      console.error("failed to toggle clipboard monitor", error);
+    }
+  };
 
   const clearItems = async () => {
     setItems([]);
@@ -287,7 +387,9 @@ export function ClipboardWindow() {
       setItems((current) =>
         sortClipboardItems(
           current.map((currentItem) =>
-            currentItem.id === updatedItem.id ? updatedItem : currentItem,
+            currentItem.id === updatedItem.id
+              ? { ...updatedItem, imageDataUrl: currentItem.imageDataUrl }
+              : currentItem,
           ),
         ),
       );
@@ -306,11 +408,21 @@ export function ClipboardWindow() {
   const togglePin = async (id: string) => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      setItems(
-        await invoke<ClipboardSnapshot[]>("toggle_clipboard_history_pin", {
-          id,
-        }),
+      const nextItems = await invoke<ClipboardSnapshot[]>(
+        "toggle_clipboard_history_pin",
+        { id },
       );
+      setItems((current) => {
+        const previews = new Map(
+          current.map((item) => [item.id, item.imageDataUrl]),
+        );
+        return sortClipboardItems(
+          nextItems.map((item) => ({
+            ...item,
+            imageDataUrl: previews.get(item.id) ?? item.imageDataUrl,
+          })),
+        );
+      });
     } catch {
       setItems((current) =>
         sortClipboardItems(
@@ -333,6 +445,9 @@ export function ClipboardWindow() {
             <h1 data-tauri-drag-region>剪贴板</h1>
             <p data-tauri-drag-region>
               {statusText} · {items.length} 条记录
+              {historySize != null
+                ? ` · 占用 ${formatHistorySize(historySize)}`
+                : ""}
             </p>
           </div>
         </div>
@@ -372,7 +487,7 @@ export function ClipboardWindow() {
         <button
           type="button"
           className="btn btn-secondary btn-sm"
-          onClick={() => setEnabled((current) => !current)}
+          onClick={() => void toggleMonitoring()}
           aria-pressed={enabled}
         >
           {enabled ? "暂停" : "恢复"}
@@ -398,7 +513,9 @@ export function ClipboardWindow() {
       {filteredItems.length === 0 ? (
         <div className="clipboard-window__empty" role="status">
           {items.length === 0
-            ? "复制文字、代码或图片后会显示在这里"
+            ? tauriReady
+              ? "复制文字、代码或图片后会显示在这里"
+              : "正在加载剪贴板记录…"
             : "没有匹配的剪贴板记录"}
         </div>
       ) : (
@@ -473,6 +590,11 @@ export function ClipboardWindow() {
                   className="clipboard-window__image"
                   draggable={false}
                 />
+              ) : item.kind === "image" && !item.text ? (
+                <div className="clipboard-window__image-placeholder">
+                  <IconPhoto size={22} />
+                  <span>图片预览加载中…</span>
+                </div>
               ) : (
                 <pre className="clipboard-window__text">
                   <code>{item.text}</code>

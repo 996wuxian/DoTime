@@ -19,6 +19,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconClose,
+  IconFlame,
   IconGripVertical,
   IconMessageCircle,
   IconPencil,
@@ -305,6 +306,9 @@ function SubtaskRow({
   const liveElapsed = getSubtaskLiveElapsed(subtask);
   const countdownEnabled = subtask.countdownEnabled && subtask.plannedSeconds > 0;
   const subtaskOvertime = countdownEnabled && liveElapsed > subtask.plannedSeconds;
+  const subtaskProgress = countdownEnabled
+    ? Math.min(100, (liveElapsed / subtask.plannedSeconds) * 100)
+    : 0;
   const statusLabel = subtask.completed
     ? "已完成"
     : subtaskOvertime
@@ -346,8 +350,12 @@ function SubtaskRow({
             >
               {subtask.title}
             </button>
-            <span className={`badge badge--${subtask.urgency} todo-subtask__badge`}>
-              {URGENCY_LABELS[subtask.urgency]}
+            <span
+              className={`urgency-icon urgency-icon--${subtask.urgency} todo-subtask__urgency-icon`}
+              title={`紧急程度：${URGENCY_LABELS[subtask.urgency]}`}
+              aria-label={`紧急程度：${URGENCY_LABELS[subtask.urgency]}`}
+            >
+              <IconFlame size={13} />
             </span>
             {!subtask.completed && (
               <span
@@ -485,6 +493,15 @@ function SubtaskRow({
           </div>
         </>
       </div>
+
+      {countdownEnabled && liveElapsed > 0 && (
+        <div className="progress-bar todo-subtask__progress" aria-hidden>
+          <div
+            className="progress-bar__fill"
+            style={{ width: `${subtaskProgress}%` }}
+          />
+        </div>
+      )}
 
       {depth === 1 && subtask.children.length > 0 && !childrenCollapsed && (
         <ol className="todo-subtasks__children">
@@ -774,8 +791,12 @@ export function TodoItem({
                 {todo.title}
               </button>
             </h3>
-            <span className={`badge badge--${todo.urgency}`}>
-              {URGENCY_LABELS[todo.urgency]}
+            <span
+              className={`urgency-icon urgency-icon--${todo.urgency}`}
+              title={`紧急程度：${URGENCY_LABELS[todo.urgency]}`}
+              aria-label={`紧急程度：${URGENCY_LABELS[todo.urgency]}`}
+            >
+              <IconFlame size={13} />
             </span>
             {!todo.completed && (
               <span
@@ -968,8 +989,7 @@ export function TodoItem({
           </button>
         </div>
 
-        {countdownEnabled &&
-          (todo.isTiming || (!todo.completed && liveElapsed > 0)) && (
+        {countdownEnabled && liveElapsed > 0 && (
             <div className="progress-bar todo-item__progress" aria-hidden>
               <div
                 className="progress-bar__fill"

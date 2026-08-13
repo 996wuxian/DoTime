@@ -12,6 +12,7 @@ import {
   IconClockHour4,
   IconDockBottom,
   IconDockTop,
+  IconFlame,
   IconPlayerPause,
   IconPlayerPlay,
   IconRestore,
@@ -333,8 +334,12 @@ export function MiniTodoBar({
             <div className="mini-todo__main">
               <div className="mini-todo__title-row">
                 <h2 className="mini-todo__title">{todo.title}</h2>
-                <span className={`badge badge--${todo.urgency}`}>
-                  {URGENCY_LABELS[todo.urgency]}
+                <span
+                  className={`urgency-icon urgency-icon--${todo.urgency}`}
+                  title={`紧急程度：${URGENCY_LABELS[todo.urgency]}`}
+                  aria-label={`紧急程度：${URGENCY_LABELS[todo.urgency]}`}
+                >
+                  <IconFlame size={13} />
                 </span>
                 <span
                   className={`status-badge status-badge--${
@@ -440,7 +445,7 @@ export function MiniTodoBar({
               </button>
             </div>
 
-            {countdownEnabled && (
+            {countdownEnabled && liveElapsed > 0 && (
               <div className="mini-todo__countdown-progress" aria-hidden>
                 <div
                   className="mini-todo__countdown-fill"

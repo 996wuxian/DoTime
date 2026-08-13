@@ -42,7 +42,6 @@ import {
   IconBell,
   IconChevronDown,
   IconChevronUp,
-  IconFlag,
   IconFlame,
   IconPhoto,
   IconRepeat,
@@ -669,7 +668,7 @@ export function TodoEditorForm({
       <div className="todo-form__meta-row">
         <div className="field field--urgency">
           <span className="field__label">
-            <IconFlag size={14} />
+            <IconFlame size={14} />
             紧急程度
           </span>
           <div className="urgency-group" role="group" aria-label="紧急程度">
@@ -682,11 +681,12 @@ export function TodoEditorForm({
                 }`}
                 onClick={() => updateDraft("urgency", urgency)}
               >
-                {urgency === "critical" ? (
+                <span
+                  className={`urgency-icon urgency-icon--${urgency}`}
+                  aria-hidden
+                >
                   <IconFlame size={14} />
-                ) : (
-                  <IconFlag size={14} />
-                )}
+                </span>
                 {URGENCY_LABELS[urgency]}
               </button>
             ))}

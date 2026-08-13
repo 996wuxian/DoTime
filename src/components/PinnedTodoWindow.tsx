@@ -13,9 +13,14 @@ import {
   loadAppData,
   saveAppData,
 } from "../data/appData";
-import { toggleTodoCompletionWithRecurrence } from "../domain/todoState";
+import {
+  pauseTodoTiming,
+  startTodoTiming,
+  stopTodoTimingWithRecurrence,
+  toggleTodoCompletionWithRecurrence,
+} from "../domain/todoState";
 import { emitAppDataUpdated } from "../utils/appDataEvents";
-import { URGENCY_LABELS } from "../types";
+import { URGENCY_LABELS, type Todo } from "../types";
 import {
   buildPinnedTodoPayload,
   parsePinnedTodoPayload,
@@ -23,13 +28,18 @@ import {
   pinnedSubtasksExpandedEventForSlot,
   type PinnedTodoPayload,
 } from "../utils/pinnedTodo";
-import { formatDisplayDate, formatDuration } from "../utils/time";
+import { formatDuration } from "../utils/time";
 import {
   IconBell,
   IconCheck,
   IconClock,
   IconClockHour4,
+  IconFlame,
   IconListCheck,
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconPlayerStop,
+  IconTrash,
 } from "./icons";
 
 const PINNED_TODO_COLLAPSED_WIDTH = 210;
@@ -150,6 +160,15 @@ async function getPinnedTodoCurrentFrame() {
   };
 }
 
+async function debugFrameLog(label: string, payload: string) {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("debug_log", { message: `${label} ${payload}` });
+  } catch {
+    /* browser */
+  }
+}
+
 function emitPinnedSubtasksExpanded(slot: string, expanded: boolean) {
   void (async () => {
     try {
@@ -188,6 +207,53 @@ function togglePinnedTodoCompletion(todoId: string) {
   return nextTodos.find((item) => item.id === todoId) ?? null;
 }
 
+function updatePinnedTodoData(
+  todoId: string,
+  updater: (todo: Todo) => Todo,
+): Todo | null {
+  const result = loadAppData(localStorage);
+  let updated: Todo | null = null;
+  const nextTodos = result.data.todos.map((todo) => {
+    if (todo.id !== todoId) return todo;
+    updated = updater(todo);
+    return updated;
+  });
+  const saveResult = saveAppData(
+    createAppDataDocument(
+      nextTodos,
+      result.data.manualSortDates,
+      result.data.categoryDividers,
+    ),
+    localStorage,
+  );
+  if (!saveResult.ok) {
+    throw new Error(saveResult.error);
+  }
+  void emitAppDataUpdated().catch((error) => {
+    console.error("failed to emit app data update", error);
+  });
+  return updated;
+}
+
+function deletePinnedTodoData(todoId: string) {
+  const result = loadAppData(localStorage);
+  const nextTodos = result.data.todos.filter((todo) => todo.id !== todoId);
+  const saveResult = saveAppData(
+    createAppDataDocument(
+      nextTodos,
+      result.data.manualSortDates,
+      result.data.categoryDividers,
+    ),
+    localStorage,
+  );
+  if (!saveResult.ok) {
+    throw new Error(saveResult.error);
+  }
+  void emitAppDataUpdated().catch((error) => {
+    console.error("failed to emit app data update", error);
+  });
+}
+
 export function PinnedTodoWindow() {
   const [todo, setTodo] = useState<PinnedTodoPayload | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -195,6 +261,9 @@ export function PinnedTodoWindow() {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const collapseTimerRef = useRef<number | null>(null);
   const hoverLockUntilRef = useRef(0);
+  const hoveredRef = useRef(false);
+  const collapseCooldownUntilRef = useRef(0);
+  const pendingExpandOnMoveRef = useRef(false);
   const frameTokenRef = useRef(0);
   const frameTweenRef = useRef<ReturnType<typeof gsap.to> | null>(null);
   const dragPointerIdRef = useRef<number | null>(null);
@@ -323,29 +392,47 @@ export function PinnedTodoWindow() {
   }, []);
 
   const handleMouseEnter = () => {
+    hoveredRef.current = true;
     hoverLockUntilRef.current = Date.now() + 260;
     if (collapseTimerRef.current != null) {
       window.clearTimeout(collapseTimerRef.current);
       collapseTimerRef.current = null;
+    }
+    // 收起后窗口移动会让鼠标“被动进入”窗口；这种进入先不展开，
+    // 等鼠标在窗口内真正移动时再展开，避免反复收起/展开。
+    if (Date.now() < collapseCooldownUntilRef.current) {
+      pendingExpandOnMoveRef.current = true;
+      return;
     }
     setExpanded(true);
     emitPinnedSubtasksExpanded(slot, true);
   };
 
   const handleMouseLeave = () => {
+    hoveredRef.current = false;
+    pendingExpandOnMoveRef.current = false;
     if (collapseTimerRef.current != null) {
       window.clearTimeout(collapseTimerRef.current);
     }
-    const delay = Math.max(120, hoverLockUntilRef.current - Date.now() + 80);
+    const delay = Math.max(400, hoverLockUntilRef.current - Date.now() + 80);
     collapseTimerRef.current = window.setTimeout(() => {
       if (shellRef.current?.matches(":hover")) {
         collapseTimerRef.current = null;
         return;
       }
+      collapseCooldownUntilRef.current = Date.now() + 700;
       setExpanded(false);
       emitPinnedSubtasksExpanded(slot, false);
       collapseTimerRef.current = null;
     }, delay);
+  };
+
+  const handleShellPointerMove = () => {
+    if (pendingExpandOnMoveRef.current && hoveredRef.current) {
+      pendingExpandOnMoveRef.current = false;
+      setExpanded(true);
+      emitPinnedSubtasksExpanded(slot, true);
+    }
   };
 
   const beginDrag = () => {
@@ -441,9 +528,10 @@ export function PinnedTodoWindow() {
               : PINNED_TODO_COLLAPSED_HEIGHT,
           };
 
-      gsap.set(shell, {
-        clearProps: "width,height,right,top,position",
-      });
+      void debugFrameLog(
+        "[todo-frame]",
+        `slot=${slot} expanded=${expanded} start=${start.x.toFixed(1)},${start.width.toFixed(1)} right=${(start.x + start.width).toFixed(1)} end=${end.x.toFixed(1)},${end.width.toFixed(1)} endRight=${(end.x + end.width).toFixed(1)}`,
+      );
 
       if (expanded) {
         void bringPinnedStackToFront(slot).catch((error) => {
@@ -451,43 +539,52 @@ export function PinnedTodoWindow() {
         });
       }
 
-      const proxy = { ...start };
-      let lastFrameAt = 0;
-      const sendFrame = () => {
-        if (disposed || token !== frameTokenRef.current) return;
-        const now = performance.now();
-        if (now - lastFrameAt < 24) return;
-        lastFrameAt = now;
+      // 让窗口跟随内容：直接动画 shell 的尺寸，再把原生窗口同步到 shell 的
+      // 实际大小，避免透明窗口在快速缩放时 WebView 重绘滞后露出右侧空隙。
+      gsap.killTweensOf(shell);
+      gsap.set(shell, { width: start.width, height: start.height });
+
+      const setNativeFrame = (
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+      ) => {
         void (async () => {
           try {
             const { invoke } = await import("@tauri-apps/api/core");
             await invoke("set_pinned_window_frame", {
-              x: proxy.x,
-              y: proxy.y,
-              width: proxy.width,
-              height: proxy.height,
+              x,
+              y,
+              width,
+              height,
             });
           } catch (error) {
-            console.error("failed to animate pinned todo window frame", error);
+            console.error("failed to set pinned todo window frame", error);
           }
         })();
       };
 
-      frameTweenRef.current = gsap.to(proxy, {
-        x: end.x,
-        y: end.y,
+      // 窗口一次性跳到目标框架（透明区域不可见），内容在固定窗口内平滑生长
+      void setNativeFrame(end.x, end.y, end.width, end.height);
+
+      frameTweenRef.current = gsap.to(shell, {
         width: end.width,
         height: end.height,
-        duration: expanded ? 0.22 : 0.18,
-        ease: expanded ? "power3.out" : "power2.inOut",
-        onUpdate: sendFrame,
+        duration: expanded ? 0.28 : 0.18,
+        ease: expanded ? "power2.out" : "power2.inOut",
         onComplete: () => {
           if (disposed || token !== frameTokenRef.current) return;
-          void snapPinnedTodoWindowFrame(
-            slot,
-            expanded,
-            frame ?? undefined,
-          );
+          gsap.set(shell, { clearProps: "width,height" });
+          if (!expanded) {
+            void setNativeFrame(end.x, end.y, end.width, end.height);
+          } else {
+            void snapPinnedTodoWindowFrame(
+              slot,
+              expanded,
+              frame ?? undefined,
+            );
+          }
         },
       });
     })();
@@ -518,6 +615,7 @@ export function PinnedTodoWindow() {
               return;
             }
             if (shellRef.current?.matches(":hover")) return;
+            collapseCooldownUntilRef.current = Date.now() + 700;
             setExpanded(false);
           },
         ),
@@ -563,34 +661,56 @@ export function PinnedTodoWindow() {
     if (slot !== "") void removePinnedTodo(slot);
   };
 
-  if (todo == null) {
-    return (
-      <main
-        className={`pinned-todo-window ${
-          expanded ? "is-expanded" : "is-collapsed"
-        }`}
-      >
-        <div
-          ref={shellRef}
-          className="pinned-todo-window__shell"
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-        >
-        <section
-          className="pinned-todo-card is-empty"
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={clearPointerDragState}
-          onPointerCancel={clearPointerDragState}
-          onDoubleClickCapture={handleDoubleClickCapture}
-          title="鼠标移入展开，双击取消固定"
-        >
-            <p>暂无固定待办</p>
-          </section>
-        </div>
-      </main>
-    );
-  }
+  const handleStartTiming = () => {
+    if (todo == null) return;
+    try {
+      const updated = updatePinnedTodoData(todo.id, (item) =>
+        startTodoTiming([item], item.id, Date.now())[0],
+      );
+      if (updated != null) setTodo(buildPinnedTodoPayload(updated));
+    } catch (error) {
+      console.error("failed to start pinned todo timing", error);
+    }
+  };
+
+  const handlePauseTiming = () => {
+    if (todo == null) return;
+    try {
+      const updated = updatePinnedTodoData(todo.id, (item) =>
+        pauseTodoTiming([item], item.id, Date.now())[0],
+      );
+      if (updated != null) setTodo(buildPinnedTodoPayload(updated));
+    } catch (error) {
+      console.error("failed to pause pinned todo timing", error);
+    }
+  };
+
+  const handleStopTiming = () => {
+    if (todo == null) return;
+    try {
+      const updated = updatePinnedTodoData(todo.id, (item) =>
+        stopTodoTimingWithRecurrence([item], item.id, Date.now())[0],
+      );
+      if (updated != null) {
+        setTodo(buildPinnedTodoPayload(updated));
+        if (updated.completed && slot !== "") {
+          void removePinnedTodo(slot);
+        }
+      }
+    } catch (error) {
+      console.error("failed to stop pinned todo timing", error);
+    }
+  };
+
+  const handleDeleteTodo = () => {
+    if (todo == null) return;
+    try {
+      deletePinnedTodoData(todo.id);
+      if (slot !== "") void removePinnedTodo(slot);
+    } catch (error) {
+      console.error("failed to delete pinned todo", error);
+    }
+  };
 
   return (
     <main
@@ -603,9 +723,10 @@ export function PinnedTodoWindow() {
         className="pinned-todo-window__shell"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        onPointerMove={handleShellPointerMove}
       >
         <section
-          className={`pinned-todo-card ${todo.completed ? "is-completed" : ""}`}
+          className={`pinned-todo-card ${todo?.completed ? "is-completed" : ""}`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={clearPointerDragState}
@@ -613,84 +734,158 @@ export function PinnedTodoWindow() {
           onDoubleClickCapture={handleDoubleClickCapture}
           title="鼠标移入展开，双击取消固定"
         >
-          <button
-            type="button"
-            className={`check-btn pinned-todo-card__check ${
-              todo.completed ? "is-checked" : ""
-            }`}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              handleToggleTodo();
-            }}
-            onDoubleClick={(event) => event.stopPropagation()}
-            aria-label={todo.completed ? "标记未完成" : "标记完成"}
-            title={todo.completed ? "标记未完成" : "标记完成"}
-          >
-            {todo.completed ? <IconCheck size={11} /> : null}
-          </button>
-
-          <div className="pinned-todo-card__body">
-            <div className="pinned-todo-card__title-row">
-              <h1>{todo.title}</h1>
-              <span className={`badge badge--${todo.urgency}`}>
-                {URGENCY_LABELS[todo.urgency]}
-              </span>
-              <span
-                className={`status-badge status-badge--${
-                  todo.completed ? "done" : todo.isTiming ? "active" : "idle"
+          {todo != null && (
+            <>
+              <button
+                type="button"
+                className={`check-btn pinned-todo-card__check ${
+                  todo.completed ? "is-checked" : ""
                 }`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleToggleTodo();
+                }}
+                onDoubleClick={(event) => event.stopPropagation()}
+                aria-label={todo.completed ? "标记未完成" : "标记完成"}
+                title={todo.completed ? "标记未完成" : "标记完成"}
               >
-                {todo.completed ? "已完成" : todo.isTiming ? "进行中" : "待开始"}
-              </span>
-            </div>
+                {todo.completed ? <IconCheck size={11} /> : null}
+              </button>
 
-            <div className="pinned-todo-card__meta">
-              <span className="meta-item pinned-todo-card__meta-item">
-                <IconClock size={13} />
-                {formatDisplayDate(todo.date)}
-              </span>
-              {countdownEnabled && (
-                <span className="meta-item pinned-todo-card__meta-item">
-                  <IconClock size={13} />
-                  计划 {formatDuration(todo.plannedSeconds)}
-                </span>
-              )}
-              {todo.recordTimeEnabled && (
-                <span className="meta-item meta-elapsed pinned-todo-card__meta-item">
-                  <IconClockHour4 size={13} />
-                  已用 {formatDuration(liveElapsed)}
-                </span>
-              )}
-              {todo.actualDurationSeconds != null && !todo.isTiming && (
-                <span className="meta-item meta-done pinned-todo-card__meta-item">
-                  <IconCheck size={13} />
-                  完成耗时 {formatDuration(todo.actualDurationSeconds)}
-                </span>
-              )}
-              {todo.reminderEnabled && todo.reminderTime && (
-                <span className="meta-item meta-reminder pinned-todo-card__meta-item">
-                  <IconBell size={13} />
-                  提醒 {todo.reminderTime}
-                </span>
-              )}
-              {todo.subtaskTotal > 0 && (
-                <span className="meta-item pinned-todo-card__meta-item">
-                  <IconListCheck size={13} />
-                  子待办 {todo.subtaskDone}/{todo.subtaskTotal}
-                </span>
-              )}
-            </div>
+              <div className="pinned-todo-card__body">
+                <div className="pinned-todo-card__title-row">
+                  <h1>{todo.title}</h1>
+                  <span
+                    className={`urgency-icon urgency-icon--${todo.urgency}`}
+                    title={`紧急程度：${URGENCY_LABELS[todo.urgency]}`}
+                    aria-label={`紧急程度：${URGENCY_LABELS[todo.urgency]}`}
+                  >
+                    <IconFlame size={13} />
+                  </span>
+                  <span
+                    className={`status-badge status-badge--${
+                      todo.completed
+                        ? "done"
+                        : todo.isTiming
+                          ? "active"
+                          : "idle"
+                    }`}
+                  >
+                    {todo.completed
+                      ? "已完成"
+                      : todo.isTiming
+                        ? "进行中"
+                        : "待开始"}
+                  </span>
+                </div>
 
-            {countdownEnabled && (todo.isTiming || liveElapsed > 0) && (
-              <div className="pinned-todo-card__progress" aria-hidden>
-                <div
-                  className="pinned-todo-card__progress-fill"
-                  style={{ width: `${progress}%` }}
-                />
+                <div className="pinned-todo-card__meta">
+                  {countdownEnabled && (
+                    <span className="meta-item pinned-todo-card__meta-item">
+                      <IconClock size={13} />
+                      计划 {formatDuration(todo.plannedSeconds)}
+                    </span>
+                  )}
+                  {todo.recordTimeEnabled && (
+                    <span className="meta-item meta-elapsed pinned-todo-card__meta-item">
+                      <IconClockHour4 size={13} />
+                      已用 {formatDuration(liveElapsed)}
+                    </span>
+                  )}
+                  {todo.actualDurationSeconds != null && !todo.isTiming && (
+                    <span className="meta-item meta-done pinned-todo-card__meta-item">
+                      <IconCheck size={13} />
+                      完成耗时 {formatDuration(todo.actualDurationSeconds)}
+                    </span>
+                  )}
+                  {todo.reminderEnabled && todo.reminderTime && (
+                    <span className="meta-item meta-reminder pinned-todo-card__meta-item">
+                      <IconBell size={13} />
+                      提醒 {todo.reminderTime}
+                    </span>
+                  )}
+                  {todo.subtaskTotal > 0 && (
+                    <span className="meta-item pinned-todo-card__meta-item">
+                      <IconListCheck size={13} />
+                      子待办 {todo.subtaskDone}/{todo.subtaskTotal}
+                    </span>
+                  )}
+                  {expanded && (
+                    <span className="pinned-todo-card__actions">
+                      {(todo.countdownEnabled || todo.recordTimeEnabled) &&
+                        (todo.isTiming ? (
+                          <>
+                            <button
+                              type="button"
+                              className="pinned-card-action pinned-card-action--sm"
+                              onPointerDown={(event) =>
+                                event.stopPropagation()
+                              }
+                              onDoubleClick={(event) =>
+                                event.stopPropagation()
+                              }
+                              onClick={handlePauseTiming}
+                              aria-label="暂停计时"
+                              title="暂停计时"
+                            >
+                              <IconPlayerPause size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              className="pinned-card-action pinned-card-action--sm"
+                              onPointerDown={(event) =>
+                                event.stopPropagation()
+                              }
+                              onDoubleClick={(event) =>
+                                event.stopPropagation()
+                              }
+                              onClick={handleStopTiming}
+                              aria-label="结束计时"
+                              title="结束计时"
+                            >
+                              <IconPlayerStop size={13} />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="pinned-card-action pinned-card-action--sm"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onDoubleClick={(event) => event.stopPropagation()}
+                            onClick={handleStartTiming}
+                            aria-label="开始计时"
+                            title="开始计时"
+                          >
+                            <IconPlayerPlay size={13} />
+                          </button>
+                        ))}
+                      <button
+                        type="button"
+                        className="pinned-card-action pinned-card-action--sm is-danger"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        onClick={handleDeleteTodo}
+                        aria-label="删除待办"
+                        title="删除待办"
+                      >
+                        <IconTrash size={13} />
+                      </button>
+                    </span>
+                  )}
+                </div>
+
+                {countdownEnabled && liveElapsed > 0 && (
+                  <div className="pinned-todo-card__progress" aria-hidden>
+                    <div
+                      className="pinned-todo-card__progress-fill"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </section>
       </div>
     </main>

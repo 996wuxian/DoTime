@@ -21,6 +21,7 @@ import {
   IconClock,
   IconClockHour4,
   IconClose,
+  IconFlame,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
@@ -532,8 +533,12 @@ export function MiniSubtasksWindow() {
                         <span className="mini-subtasks-window__title">
                           {item.title}
                         </span>
-                        <span className={`badge badge--${item.urgency}`}>
-                          {URGENCY_LABELS[item.urgency]}
+                        <span
+                          className={`urgency-icon urgency-icon--${item.urgency}`}
+                          title={`紧急程度：${URGENCY_LABELS[item.urgency]}`}
+                          aria-label={`紧急程度：${URGENCY_LABELS[item.urgency]}`}
+                        >
+                          <IconFlame size={13} />
                         </span>
                         <span
                           className={`status-badge status-badge--${
@@ -569,8 +574,12 @@ export function MiniSubtasksWindow() {
                         <span className="mini-subtasks-window__title">
                           {item.title}
                         </span>
-                        <span className={`badge badge--${item.urgency}`}>
-                          {URGENCY_LABELS[item.urgency]}
+                        <span
+                          className={`urgency-icon urgency-icon--${item.urgency}`}
+                          title={`紧急程度：${URGENCY_LABELS[item.urgency]}`}
+                          aria-label={`紧急程度：${URGENCY_LABELS[item.urgency]}`}
+                        >
+                          <IconFlame size={13} />
                         </span>
                         <span
                           className={`status-badge status-badge--${
@@ -656,7 +665,7 @@ export function MiniSubtasksWindow() {
                     </div>
                   </>
                 )}
-                {countdownEnabled && (
+                {countdownEnabled && liveElapsed > 0 && (
                   <span className="mini-subtasks-window__progress" aria-hidden>
                     <span
                       className="mini-subtasks-window__progress-fill"

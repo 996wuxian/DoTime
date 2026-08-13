@@ -42,6 +42,7 @@ import {
   IconListCheck,
   IconDockTop,
   IconPencil,
+  IconPinOff,
   IconPlus,
   IconRepeat,
   IconThemeMoon,
@@ -562,6 +563,11 @@ function App() {
   const [pinnedTodoSlots, setPinnedTodoSlots] = useState<Map<string, string>>(
     () => new Map(),
   );
+  const [globalToast, setGlobalToast] = useState<{
+    message: string;
+    kind: "error" | "success";
+  } | null>(null);
+  const globalToastTimerRef = useRef<number | null>(null);
   const [miniOpacity, setMiniOpacity] = useState(() => loadMiniOpacity());
   const [mainView, setMainView] = useState<
     "todos" | "plan" | "statistics" | "review"
@@ -728,9 +734,41 @@ function App() {
       refreshPinnedTodoSlots();
     } catch (error) {
       console.error("failed to toggle pinned todo window", error);
-      window.alert(`固定待办窗口操作失败：${String(error)}`);
+      showGlobalToast(`固定待办窗口操作失败：${String(error)}`, "error");
       refreshPinnedTodoSlots();
     }
+  };
+
+  const showGlobalToast = (
+    message: string,
+    kind: "error" | "success" = "error",
+  ) => {
+    if (globalToastTimerRef.current != null) {
+      window.clearTimeout(globalToastTimerRef.current);
+    }
+    setGlobalToast({ message, kind });
+    globalToastTimerRef.current = window.setTimeout(() => {
+      setGlobalToast(null);
+      globalToastTimerRef.current = null;
+    }, 3200);
+  };
+
+  const clearAllPinnedTodos = () => {
+    const slots = [...pinnedTodoSlots.values()];
+    if (slots.length === 0) return;
+
+    void (async () => {
+      const results = await Promise.allSettled(
+        slots.map((slot) => removePinnedTodoWindow(slot)),
+      );
+      const failed = results.filter((result) => result.status === "rejected");
+      refreshPinnedTodoSlots();
+      if (failed.length > 0) {
+        showGlobalToast(`取消固定失败：${failed.length} 个窗口未能关闭`, "error");
+      } else {
+        showGlobalToast(`已取消全部固定（${slots.length} 个）`, "success");
+      }
+    })();
   };
 
   useEffect(() => {
@@ -739,6 +777,14 @@ function App() {
 
   useEffect(() => {
     refreshPinnedTodoSlots();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (globalToastTimerRef.current != null) {
+        window.clearTimeout(globalToastTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -2808,7 +2854,33 @@ function App() {
             </button>
           </div>
         )}
+        {mainView === "todos" && !showingEditor && pinnedTodoSlots.size > 0 && (
+          <div className="pinned-clear-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm pinned-clear-actions__button"
+              onClick={clearAllPinnedTodos}
+              aria-label={`取消全部固定（${pinnedTodoSlots.size} 个）`}
+              title={`取消全部固定（${pinnedTodoSlots.size} 个）`}
+            >
+              <IconPinOff size={15} />
+              <span>取消全部固定</span>
+              <em>{pinnedTodoSlots.size}</em>
+            </button>
+          </div>
+        )}
       </main>
+      {globalToast && (
+        <div
+          className={`global-toast ${
+            globalToast.kind === "error" ? "is-error" : "is-success"
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          {globalToast.message}
+        </div>
+      )}
       {deleteConfirmDialog}
       {todoDragPreview && (
         <div

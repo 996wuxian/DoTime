@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { createAppDataDocument, loadAppData, saveAppData } from "../data/appData";
+import {
+  APP_DATA_STORAGE_KEY,
+  createAppDataDocument,
+  loadAppData,
+  saveAppData,
+} from "../data/appData";
 import { emitAppDataUpdated } from "../utils/appDataEvents";
 import {
   parseMiniSubtasksGroup,
@@ -17,8 +22,19 @@ import {
   IconClock,
   IconClockHour4,
   IconClose,
+  IconFlame,
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconPlayerStop,
+  IconTrash,
 } from "./icons";
-import { toggleTodoSubtask } from "../domain/todoState";
+import {
+  pauseTodoSubtaskTiming,
+  removeTodoSubtask,
+  startTodoSubtaskTiming,
+  stopTodoSubtaskTiming,
+  toggleTodoSubtask,
+} from "../domain/todoState";
 
 async function closePinnedSubtasksWindow(slot: string) {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -45,8 +61,7 @@ function getLiveElapsed(item: MiniSubtaskItem, now: number) {
 
 function getProgress(item: MiniSubtaskItem, liveElapsed: number) {
   if (!item.countdownEnabled || item.plannedSeconds <= 0) return null;
-  const remaining = Math.max(0, item.plannedSeconds - liveElapsed);
-  return Math.max(0, Math.min(100, (remaining / item.plannedSeconds) * 100));
+  return Math.max(0, Math.min(100, (liveElapsed / item.plannedSeconds) * 100));
 }
 
 async function updatePinnedSubtaskTodo(
@@ -80,7 +95,7 @@ const ITEM_EXIT_DURATION = 0.16;
 const PINNED_SUBTASKS_COLLAPSED_WIDTH = 180;
 const PINNED_SUBTASKS_EXPANDED_WIDTH = 380;
 const PINNED_SUBTASKS_ITEM_COLLAPSED_HEIGHT = 46;
-const PINNED_SUBTASKS_ITEM_EXPANDED_HEIGHT = 64;
+const PINNED_SUBTASKS_ITEM_EXPANDED_HEIGHT = 54;
 const PINNED_SUBTASKS_LIST_GAP = 8;
 const PINNED_SUBTASKS_LIST_PADDING = 8;
 const PINNED_SUBTASKS_MAX_COLLAPSED_ITEMS = 3;
@@ -256,12 +271,17 @@ export function PinnedSubtasksWindow() {
   const collapseTimerRef = useRef<number | null>(null);
   const hoverLockUntilRef = useRef(0);
   const hoveredRef = useRef(false);
+  const collapseCooldownUntilRef = useRef(0);
+  const pendingExpandOnMoveRef = useRef(false);
   const frameTokenRef = useRef(0);
   const frameTweenRef = useRef<ReturnType<typeof gsap.to> | null>(null);
   const renderedItemsRef = useRef<RenderedPinnedSubtask[]>([]);
   const pendingItemsRef = useRef<MiniSubtaskItem[] | null>(null);
   const activeTodoIdRef = useRef<string | null>(null);
   const latestGroupUpdatedAtRef = useRef(0);
+  const readyNotifiedRef = useRef(false);
+  const enteredItemIdsRef = useRef<Set<string>>(new Set());
+  const [frameReady, setFrameReady] = useState(false);
   const slot = new URLSearchParams(window.location.search).get("slot") ?? "";
 
   useEffect(() => {
@@ -283,25 +303,41 @@ export function PinnedSubtasksWindow() {
       window.clearTimeout(collapseTimerRef.current);
       collapseTimerRef.current = null;
     }
+    // 收起后窗口移动会让鼠标“被动进入”窗口；这种进入先不展开，
+    // 等鼠标在窗口内真正移动时再展开，避免反复收起/展开。
+    if (Date.now() < collapseCooldownUntilRef.current) {
+      pendingExpandOnMoveRef.current = true;
+      return;
+    }
     setExpanded(true);
     emitPinnedSubtasksExpanded(slot, true);
   };
 
   const handleMouseLeave = () => {
     hoveredRef.current = false;
+    pendingExpandOnMoveRef.current = false;
     if (collapseTimerRef.current != null) {
       window.clearTimeout(collapseTimerRef.current);
     }
-    const delay = Math.max(120, hoverLockUntilRef.current - Date.now() + 80);
+    const delay = Math.max(400, hoverLockUntilRef.current - Date.now() + 80);
     collapseTimerRef.current = window.setTimeout(() => {
       if (shellRef.current?.matches(":hover")) {
         collapseTimerRef.current = null;
         return;
       }
+      collapseCooldownUntilRef.current = Date.now() + 700;
       setExpanded(false);
       emitPinnedSubtasksExpanded(slot, false);
       collapseTimerRef.current = null;
     }, delay);
+  };
+
+  const handleShellPointerMove = () => {
+    if (pendingExpandOnMoveRef.current && hoveredRef.current) {
+      pendingExpandOnMoveRef.current = false;
+      setExpanded(true);
+      emitPinnedSubtasksExpanded(slot, true);
+    }
   };
 
   useEffect(() => {
@@ -377,6 +413,34 @@ export function PinnedSubtasksWindow() {
     );
   };
 
+  const handleStartItem = (itemId: string) => {
+    if (group == null) return;
+    void mutateCurrentTodo((todos) =>
+      startTodoSubtaskTiming(todos, group.todoId, itemId, Date.now()),
+    );
+  };
+
+  const handlePauseItem = (itemId: string) => {
+    if (group == null) return;
+    void mutateCurrentTodo((todos) =>
+      pauseTodoSubtaskTiming(todos, group.todoId, itemId, Date.now()),
+    );
+  };
+
+  const handleStopItem = (itemId: string) => {
+    if (group == null) return;
+    void mutateCurrentTodo((todos) =>
+      stopTodoSubtaskTiming(todos, group.todoId, itemId, Date.now()),
+    );
+  };
+
+  const handleDeleteItem = (itemId: string) => {
+    if (group == null) return;
+    void mutateCurrentTodo((todos) =>
+      removeTodoSubtask(todos, group.todoId, itemId),
+    );
+  };
+
   useEffect(() => {
     document.body.classList.add("is-pinned-subtasks-window");
     const root = document.documentElement;
@@ -419,19 +483,8 @@ export function PinnedSubtasksWindow() {
         cleanup = await listen<string>(`dotime-pinned-subtasks-${slot}`, (event) => {
           const nextGroup = parseMiniSubtasksGroup(event.payload);
           setGroup(nextGroup);
+          activeTodoIdRef.current = nextGroup?.todoId ?? null;
         });
-
-        // 启动早期监听器可能晚于固定事件，延迟重取一次兜底
-        const retryTimer = window.setTimeout(() => {
-          void loadGroup();
-        }, 1200);
-
-        const timerCleanup = () => window.clearTimeout(retryTimer);
-        const previousCleanup = cleanup;
-        cleanup = () => {
-          previousCleanup();
-          timerCleanup();
-        };
       } catch (error) {
         console.error("failed to set up pinned subtasks window", error);
       }
@@ -440,6 +493,25 @@ export function PinnedSubtasksWindow() {
     return () => {
       cancelled = true;
       cleanup?.();
+    };
+  }, [slot]);
+
+  // 主应用的数据变化（开始/暂停计时、完成、编辑等）会写入 localStorage 并广播
+  // 事件；固定子待办窗口需要跟随刷新，否则倒计时进度等实时数据会一直是旧值。
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== APP_DATA_STORAGE_KEY) return;
+      refreshGroupFromStorage();
+    };
+    const handleAppDataUpdated = () => {
+      refreshGroupFromStorage();
+    };
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("dotime-app-data-updated", handleAppDataUpdated);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("dotime-app-data-updated", handleAppDataUpdated);
     };
   }, [slot]);
 
@@ -463,6 +535,7 @@ export function PinnedSubtasksWindow() {
               return;
             }
             if (shellRef.current?.matches(":hover")) return;
+            collapseCooldownUntilRef.current = Date.now() + 700;
             setExpanded(false);
           },
         ),
@@ -515,13 +588,14 @@ export function PinnedSubtasksWindow() {
   useEffect(() => {
     const nextItems = group?.items ?? [];
     const nextUpdatedAt = group?.updatedAt ?? 0;
-    if (nextUpdatedAt < latestGroupUpdatedAtRef.current) return;
+    if (nextUpdatedAt <= latestGroupUpdatedAtRef.current) return;
     latestGroupUpdatedAtRef.current = nextUpdatedAt;
 
     const nextTodoId = group?.todoId ?? null;
     if (nextTodoId !== activeTodoIdRef.current) {
       activeTodoIdRef.current = nextTodoId;
       pendingItemsRef.current = null;
+      enteredItemIdsRef.current.clear();
       setRenderedItems(
         nextItems.map((item) => ({ item, state: "entering" as const })),
       );
@@ -529,11 +603,14 @@ export function PinnedSubtasksWindow() {
     }
 
     const current = renderedItemsRef.current;
-    const currentSignature = current.map((entry) => entry.item.id).join("|");
+    const activeCurrent = current.filter((entry) => entry.state !== "exiting");
+    const currentSignature = activeCurrent
+      .map((entry) => entry.item.id)
+      .join("|");
     const nextSignature = nextItems.map((item) => item.id).join("|");
     const nextById = new Map(nextItems.map((item) => [item.id, item]));
 
-    if (currentSignature === nextSignature) {
+    if (activeCurrent.length > 0 && currentSignature === nextSignature) {
       setRenderedItems(
         current.map((entry) => ({
           item: nextById.get(entry.item.id) ?? entry.item,
@@ -543,15 +620,34 @@ export function PinnedSubtasksWindow() {
       return;
     }
 
-    if (current.length === 0) {
+    if (activeCurrent.length === 0) {
       pendingItemsRef.current = null;
+      enteredItemIdsRef.current.clear();
       setRenderedItems(nextItems.map((item) => ({ item, state: "entering" })));
       return;
     }
 
     pendingItemsRef.current = nextItems;
+    enteredItemIdsRef.current.clear();
     setRenderedItems(current.map((entry) => ({ ...entry, state: "exiting" })));
   }, [group]);
+
+  useEffect(() => {
+    if (readyNotifiedRef.current) return;
+    if (group == null) return;
+    if (renderedItems.length === 0 && group.items.length > 0) return;
+
+    readyNotifiedRef.current = true;
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("pinned_subtasks_window_ready", { slot });
+        setFrameReady(true);
+      } catch (error) {
+        console.error("failed to show pinned subtasks window", error);
+      }
+    })();
+  }, [group, renderedItems, slot]);
 
   useEffect(() => {
     if (group == null) return;
@@ -571,7 +667,7 @@ export function PinnedSubtasksWindow() {
 
   useEffect(() => {
     const shell = shellRef.current;
-    if (shell == null || group == null) return;
+    if (shell == null || group == null || !frameReady) return;
 
     const itemCount = group.items.length;
     const token = ++frameTokenRef.current;
@@ -618,48 +714,53 @@ export function PinnedSubtasksWindow() {
           }
         : { ...start, ...targetSize };
 
-      gsap.set(shell, {
-        clearProps: "width,height,right,top,marginLeft,position,y",
-      });
+      // 让窗口跟随内容：直接动画 shell 的尺寸，再把原生窗口同步到 shell 的
+      // 实际大小，避免透明窗口在快速缩放时 WebView 重绘滞后露出右侧空隙。
+      gsap.killTweensOf(shell);
+      gsap.set(shell, { width: start.width, height: start.height });
 
-      const proxy = { ...start };
-      let lastFrameAt = 0;
-      const sendFrame = () => {
-        if (disposed || token !== frameTokenRef.current) return;
-        const now = performance.now();
-        if (now - lastFrameAt < 24) return;
-        lastFrameAt = now;
+      const setNativeFrame = (
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+      ) => {
         void (async () => {
           try {
             const { invoke } = await import("@tauri-apps/api/core");
             await invoke("set_pinned_window_frame", {
-              x: proxy.x,
-              y: proxy.y,
-              width: proxy.width,
-              height: proxy.height,
+              x,
+              y,
+              width,
+              height,
             });
           } catch (error) {
-            console.error("failed to animate pinned subtasks window frame", error);
+            console.error("failed to set pinned subtasks window frame", error);
           }
         })();
       };
 
-      frameTweenRef.current = gsap.to(proxy, {
-        x: end.x,
-        y: end.y,
+      // 窗口一次性跳到目标框架（透明区域不可见），内容在固定窗口内平滑生长
+      void setNativeFrame(end.x, end.y, end.width, end.height);
+
+      frameTweenRef.current = gsap.to(shell, {
         width: end.width,
         height: end.height,
-        duration: expanded ? 0.24 : 0.18,
-        ease: expanded ? "power3.out" : "power2.inOut",
-        onUpdate: sendFrame,
+        duration: expanded ? 0.28 : 0.18,
+        ease: expanded ? "power2.out" : "power2.inOut",
         onComplete: () => {
           if (disposed || token !== frameTokenRef.current) return;
-          void snapPinnedSubtasksWindowFrame(
-            slot,
-            expanded,
-            itemCount,
-            frame ?? undefined,
-          );
+          gsap.set(shell, { clearProps: "width,height" });
+          if (!expanded) {
+            void setNativeFrame(end.x, end.y, end.width, end.height);
+          } else {
+            void snapPinnedSubtasksWindowFrame(
+              slot,
+              expanded,
+              itemCount,
+              frame ?? undefined,
+            );
+          }
         },
       });
     })();
@@ -668,10 +769,12 @@ export function PinnedSubtasksWindow() {
       disposed = true;
       frameTweenRef.current?.kill();
     };
-  }, [expanded, group?.items.length, group?.todoId, slot]);
+  }, [expanded, frameReady, group?.items.length, group?.todoId, slot]);
 
   useGSAP(
     () => {
+      if (!frameReady) return;
+
       const enteringNodes = Array.from(
         listRef.current?.querySelectorAll<HTMLElement>(
           ".mini-subtasks-window__item.is-entering",
@@ -701,9 +804,15 @@ export function PinnedSubtasksWindow() {
 
         let cursor = 0.08;
         enteringNodes.forEach((node) => {
+          const itemId = node.dataset.itemId;
+          if (itemId != null && enteredItemIdsRef.current.has(itemId)) {
+            gsap.set(node, { autoAlpha: 1, y: 0 });
+            return;
+          }
+          if (itemId != null) enteredItemIdsRef.current.add(itemId);
           timeline.fromTo(
             node,
-            { autoAlpha: 0, y: 4 },
+            { autoAlpha: 0, y: 0 },
             {
               autoAlpha: 1,
               y: 0,
@@ -753,7 +862,7 @@ export function PinnedSubtasksWindow() {
         gsap.set(visibleNodes, { autoAlpha: 1, y: 0 });
       }
     },
-    { dependencies: [renderedItems], scope: listRef },
+    { dependencies: [frameReady, renderedItems], scope: listRef },
   );
 
   return (
@@ -765,6 +874,7 @@ export function PinnedSubtasksWindow() {
       aria-label="固定子待办窗口"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onPointerMove={handleShellPointerMove}
     >
       <button
         type="button"
@@ -810,8 +920,12 @@ export function PinnedSubtasksWindow() {
                     <span className="mini-subtasks-window__title">
                       {item.title}
                     </span>
-                    <span className={`badge badge--${item.urgency}`}>
-                      {URGENCY_LABELS[item.urgency]}
+                    <span
+                      className={`urgency-icon urgency-icon--${item.urgency}`}
+                      title={`紧急程度：${URGENCY_LABELS[item.urgency]}`}
+                      aria-label={`紧急程度：${URGENCY_LABELS[item.urgency]}`}
+                    >
+                      <IconFlame size={13} />
                     </span>
                     <span
                       className={`status-badge status-badge--${
@@ -829,8 +943,7 @@ export function PinnedSubtasksWindow() {
                           : "待开始"}
                     </span>
                   </div>
-                  {expanded &&
-                    (countdownEnabled || item.recordTimeEnabled) && (
+                  {expanded && (
                     <div className="mini-subtasks-window__meta-row">
                       <div className="mini-subtasks-window__meta">
                         {countdownEnabled && (
@@ -850,10 +963,54 @@ export function PinnedSubtasksWindow() {
                           </span>
                         )}
                       </div>
+                      <div className="mini-subtasks-window__actions">
+                        {(item.countdownEnabled || item.recordTimeEnabled) &&
+                          (item.isTiming ? (
+                            <>
+                              <button
+                                type="button"
+                                className="pinned-card-action"
+                                onClick={() => handlePauseItem(item.id)}
+                                aria-label="暂停计时"
+                                title="暂停计时"
+                              >
+                                <IconPlayerPause size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                className="pinned-card-action"
+                                onClick={() => handleStopItem(item.id)}
+                                aria-label="结束计时"
+                                title="结束计时"
+                              >
+                                <IconPlayerStop size={14} />
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="pinned-card-action"
+                              onClick={() => handleStartItem(item.id)}
+                              aria-label="开始计时"
+                              title="开始计时"
+                            >
+                              <IconPlayerPlay size={14} />
+                            </button>
+                          ))}
+                        <button
+                          type="button"
+                          className="pinned-card-action is-danger"
+                          onClick={() => handleDeleteItem(item.id)}
+                          aria-label="删除子待办"
+                          title="删除子待办"
+                        >
+                          <IconTrash size={14} />
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
-                {countdownEnabled && (
+                {countdownEnabled && liveElapsed > 0 && (
                   <span className="mini-subtasks-window__progress" aria-hidden>
                     <span
                       className="mini-subtasks-window__progress-fill"

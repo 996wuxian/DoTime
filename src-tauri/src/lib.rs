@@ -43,10 +43,16 @@ const CLIPBOARD_HISTORY_LIMIT: usize = 100;
 const CLIPBOARD_HISTORY_FILE: &str = "clipboard-history.json";
 const TODO_IMAGES_DIR: &str = "todo-images";
 
+// 固定待办窗口在异步命令里创建时会派发到主线程等待；多个调用方（点击固定 +
+// “固定待办已更新”事件回调）可能同时创建同一个标签的窗口，这里串行化创建，
+// 避免并发 build 导致同标签窗口重复创建（重复窗口会白屏并拖垮主线程）。
+static PINNED_WINDOW_BUILD_LOCK: Mutex<()> = Mutex::new(());
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     utils::config::Color,
+    webview::PageLoadEvent,
     Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindowBuilder,
 };
 
@@ -58,6 +64,7 @@ struct PinnedSubtasksState(Mutex<HashMap<String, String>>);
 struct ClipboardMonitorState(Mutex<Option<mpsc::Sender<()>>>);
 struct ClipboardHistoryState {
     items: Mutex<Vec<ClipboardSnapshot>>,
+    loaded: Mutex<bool>,
     suppressed_fingerprint: Mutex<Option<String>>,
     storage_path: Mutex<Option<PathBuf>>,
 }
@@ -123,6 +130,36 @@ struct ClipboardSnapshot {
     image_dib: Option<Vec<u8>>,
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClipboardHistoryListItem {
+    id: String,
+    kind: String,
+    captured_at: i64,
+    text: Option<String>,
+    image_width: Option<usize>,
+    image_height: Option<usize>,
+    byte_size: Option<usize>,
+    pinned: bool,
+    copy_count: u32,
+}
+
+impl From<&ClipboardSnapshot> for ClipboardHistoryListItem {
+    fn from(item: &ClipboardSnapshot) -> Self {
+        Self {
+            id: item.id.clone(),
+            kind: item.kind.clone(),
+            captured_at: item.captured_at,
+            text: item.text.clone(),
+            image_width: item.image_width,
+            image_height: item.image_height,
+            byte_size: item.byte_size,
+            pinned: item.pinned,
+            copy_count: item.copy_count,
+        }
+    }
+}
+
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredClipboardSnapshot {
@@ -140,14 +177,36 @@ struct StoredClipboardSnapshot {
 }
 
 #[tauri::command]
-fn get_clipboard_history(
+async fn get_clipboard_history(
     state: State<'_, ClipboardHistoryState>,
-) -> Result<Vec<ClipboardSnapshot>, String> {
-    state
-        .items
-        .lock()
-        .map(|items| sorted_clipboard_history(items.clone()))
-        .map_err(|error| error.to_string())
+) -> Result<Vec<ClipboardHistoryListItem>, String> {
+    ensure_clipboard_history_loaded(state.inner());
+    let items = state.items.lock().map_err(|error| error.to_string())?;
+    Ok(sorted_clipboard_history(items.clone())
+        .iter()
+        .map(ClipboardHistoryListItem::from)
+        .collect())
+}
+
+#[tauri::command]
+async fn get_clipboard_history_image(
+    state: State<'_, ClipboardHistoryState>,
+    id: String,
+) -> Result<Option<ClipboardSnapshot>, String> {
+    ensure_clipboard_history_loaded(state.inner());
+    let items = state.items.lock().map_err(|error| error.to_string())?;
+    Ok(items.iter().find(|item| item.id == id).cloned())
+}
+
+#[tauri::command]
+fn get_clipboard_history_size(state: State<'_, ClipboardHistoryState>) -> Result<u64, String> {
+    let path = clipboard_storage_path(&state)?;
+    let Some(path) = path else {
+        return Ok(0);
+    };
+    Ok(fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0))
 }
 
 #[tauri::command]
@@ -157,7 +216,8 @@ fn clear_clipboard_history(state: State<'_, ClipboardHistoryState>) -> Result<()
         .lock()
         .map_err(|error| error.to_string())?
         .clear();
-    save_clipboard_history(&state)
+    save_clipboard_history_async(&state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -170,14 +230,15 @@ fn remove_clipboard_history_item(
         .lock()
         .map_err(|error| error.to_string())?
         .retain(|item| item.id != id);
-    save_clipboard_history(&state)
+    save_clipboard_history_async(&state);
+    Ok(())
 }
 
 #[tauri::command]
 fn copy_clipboard_history_item(
     state: State<'_, ClipboardHistoryState>,
     id: String,
-) -> Result<ClipboardSnapshot, String> {
+) -> Result<ClipboardHistoryListItem, String> {
     let mut items = state.items.lock().map_err(|error| error.to_string())?;
     let Some(index) = items.iter().position(|item| item.id == id) else {
         return Err("clipboard item not found".into());
@@ -194,14 +255,14 @@ fn copy_clipboard_history_item(
     let updated = items[index].clone();
     drop(items);
     save_clipboard_history_async(&state);
-    Ok(updated)
+    Ok(ClipboardHistoryListItem::from(&updated))
 }
 
 #[tauri::command]
 fn toggle_clipboard_history_pin(
     state: State<'_, ClipboardHistoryState>,
     id: String,
-) -> Result<Vec<ClipboardSnapshot>, String> {
+) -> Result<Vec<ClipboardHistoryListItem>, String> {
     let mut items = state.items.lock().map_err(|error| error.to_string())?;
     let Some(item) = items.iter_mut().find(|item| item.id == id) else {
         return Err("clipboard item not found".into());
@@ -209,8 +270,8 @@ fn toggle_clipboard_history_pin(
     item.pinned = !item.pinned;
     let sorted = sorted_clipboard_history(items.clone());
     drop(items);
-    save_clipboard_history(&state)?;
-    Ok(sorted)
+    save_clipboard_history_async(&state);
+    Ok(sorted.iter().map(ClipboardHistoryListItem::from).collect())
 }
 
 #[tauri::command]
@@ -354,6 +415,12 @@ fn set_window_opacity(window: tauri::Window, opacity: f64) -> Result<(), String>
 }
 
 #[tauri::command]
+fn debug_log(message: String) -> Result<(), String> {
+    eprintln!("[diag] {message}");
+    Ok(())
+}
+
+#[tauri::command]
 fn set_pinned_window_frame(
     window: tauri::Window,
     x: f64,
@@ -389,7 +456,9 @@ fn close_reminder_window(window: tauri::Window) -> Result<(), String> {
 #[tauri::command]
 fn close_clipboard_window(app: tauri::AppHandle, window: tauri::Window) -> Result<(), String> {
     stop_clipboard_monitor(&app);
-    window.hide().map_err(|error| error.to_string())
+    window.hide().map_err(|error| error.to_string())?;
+    let _ = app.emit("dotime-clipboard-closed", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -404,7 +473,7 @@ fn close_mini_subtasks_window(
 }
 
 #[tauri::command]
-fn show_clipboard_window(app: tauri::AppHandle) -> Result<(), String> {
+async fn show_clipboard_window(app: tauri::AppHandle) -> Result<(), String> {
     let window = match app.get_webview_window("clipboard") {
         Some(window) => window,
         None => WebviewWindowBuilder::new(
@@ -427,12 +496,11 @@ fn show_clipboard_window(app: tauri::AppHandle) -> Result<(), String> {
     let _ = window.center();
     window.show().map_err(|error| error.to_string())?;
     let _ = window.set_focus();
-    start_clipboard_monitor(&app);
     Ok(())
 }
 
 #[tauri::command]
-fn show_mini_subtasks_window(
+async fn show_mini_subtasks_window(
     app: tauri::AppHandle,
     state: State<'_, MiniSubtasksState>,
     subtasks_group: String,
@@ -442,7 +510,7 @@ fn show_mini_subtasks_window(
 }
 
 #[tauri::command]
-fn show_pinned_todo_window(
+async fn show_pinned_todo_window(
     app: tauri::AppHandle,
     state: State<'_, PinnedTodoState>,
     pinned_todo: String,
@@ -467,39 +535,61 @@ fn show_pinned_todo_window(
         .map_err(|error| error.to_string())?
         .insert(slot.to_string(), pinned_todo.clone());
 
-    let window = match app.get_webview_window(&window_label) {
+    let existing_window = app.get_webview_window(&window_label);
+    let is_new_window = existing_window.is_none();
+    let window = match existing_window {
         Some(window) => window,
         None => {
-            eprintln!("pinned todo window {window_label} was not pre-registered; building it");
-            WebviewWindowBuilder::new(
-                &app,
-                &window_label,
-                WebviewUrl::App(format!("index.html?view=pinned-todo&slot={slot}").into()),
-            )
-            .visible(false)
-            .decorations(false)
-            .transparent(true)
-            .shadow(false)
-            .background_color(Color(0, 0, 0, 0))
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .inner_size(
-                PINNED_TODO_WINDOW_COLLAPSED_WIDTH,
-                PINNED_TODO_WINDOW_COLLAPSED_HEIGHT,
-            )
-            .build()
-            .map_err(|error| error.to_string())?
+            let _guard = PINNED_WINDOW_BUILD_LOCK
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            match app.get_webview_window(&window_label) {
+                Some(window) => window,
+                None => {
+                    eprintln!(
+                        "pinned todo window {window_label} was not pre-registered; building it"
+                    );
+                    WebviewWindowBuilder::new(
+                        &app,
+                        &window_label,
+                        WebviewUrl::App(format!("index.html?view=pinned-todo&slot={slot}").into()),
+                    )
+                    .visible(false)
+                    .decorations(false)
+                    .transparent(true)
+                    .shadow(false)
+                    .background_color(Color(0, 0, 0, 0))
+                    .always_on_top(true)
+                    .skip_taskbar(true)
+                    .resizable(false)
+                    .inner_size(
+                        PINNED_TODO_WINDOW_COLLAPSED_WIDTH,
+                        PINNED_TODO_WINDOW_COLLAPSED_HEIGHT,
+                    )
+                    .on_page_load(|window, event| {
+                        if matches!(event.event(), PageLoadEvent::Finished) {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    })
+                    .build()
+                    .map_err(|error| error.to_string())?
+                }
+            }
         }
     };
 
     let _ = window.unminimize();
     let _ = window.set_always_on_top(true);
     let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-    let pinned = state.0.lock().map_err(|error| error.to_string())?;
+    // 先拷贝一份再定位窗口：定位会派发到主线程等待，若此时仍持有锁，
+    // 主线程同步命令（如 remove_pinned_todo）会等锁，形成死锁卡死整个应用。
+    let pinned = state.0.lock().map_err(|error| error.to_string())?.clone();
     position_pinned_todo_window(&window, slot, &pinned);
-    window.show().map_err(|error| error.to_string())?;
-    let _ = window.set_focus();
+    if !is_new_window {
+        window.show().map_err(|error| error.to_string())?;
+        let _ = window.set_focus();
+    }
     let _ = window.emit(format!("dotime-pinned-todo-{slot}").as_str(), pinned_todo);
     let _ = app.emit(PINNED_TODOS_UPDATED_EVENT, ());
     Ok(slot.to_string())
@@ -580,7 +670,7 @@ fn get_active_pinned_subtasks_group(
 }
 
 #[tauri::command]
-fn show_pinned_subtasks_window(
+async fn show_pinned_subtasks_window(
     app: tauri::AppHandle,
     state: State<'_, PinnedSubtasksState>,
     pinned_todo_state: State<'_, PinnedTodoState>,
@@ -599,44 +689,53 @@ fn show_pinned_subtasks_window(
         .insert(slot.clone(), subtasks_group.clone());
 
     let window_label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
-    let window = match app.get_webview_window(&window_label) {
+    let existing_window = app.get_webview_window(&window_label);
+    let is_new_window = existing_window.is_none();
+    let window = match existing_window {
         Some(window) => window,
         None => {
-            eprintln!("pinned subtasks window {window_label} was not pre-registered; building it");
-            let (sender, receiver) =
-                std::sync::mpsc::channel::<Result<tauri::WebviewWindow, String>>();
-            let app_handle = app.clone();
-            let window_label_for_build = window_label.clone();
-            let window_url =
-                WebviewUrl::App(format!("index.html?view=pinned-subtasks&slot={slot}").into());
-            let inner_height = pinned_subtasks_collapsed_height(item_count);
-            app.run_on_main_thread(move || {
-                let result =
-                    WebviewWindowBuilder::new(&app_handle, &window_label_for_build, window_url)
-                        .visible(false)
-                        .decorations(false)
-                        .transparent(true)
-                        .always_on_top(true)
-                        .skip_taskbar(true)
-                        .resizable(false)
-                        .inner_size(PINNED_SUBTASKS_WINDOW_COLLAPSED_WIDTH, inner_height)
-                        .build()
-                        .map_err(|error| error.to_string());
-                let _ = sender.send(result);
-            })
-            .map_err(|error| error.to_string())?;
-            receiver
-                .recv()
-                .map_err(|error| error.to_string())?
-                .map_err(|error| error.to_string())?
+            let _guard = PINNED_WINDOW_BUILD_LOCK
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            match app.get_webview_window(&window_label) {
+                Some(window) => window,
+                None => {
+                    eprintln!(
+                        "pinned subtasks window {window_label} was not pre-registered; building it"
+                    );
+                    WebviewWindowBuilder::new(
+                        &app,
+                        &window_label,
+                        WebviewUrl::App(
+                            format!("index.html?view=pinned-subtasks&slot={slot}").into(),
+                        ),
+                    )
+                    .visible(false)
+                    .decorations(false)
+                    .transparent(true)
+                    .shadow(false)
+                    .background_color(Color(0, 0, 0, 0))
+                    .always_on_top(true)
+                    .skip_taskbar(true)
+                    .resizable(false)
+                    .inner_size(
+                        PINNED_SUBTASKS_WINDOW_COLLAPSED_WIDTH,
+                        pinned_subtasks_collapsed_height(item_count),
+                    )
+                    .build()
+                    .map_err(|error| error.to_string())?
+                }
+            }
         }
     };
 
     let target_height = pinned_subtasks_collapsed_height(item_count);
+    // 同上：先拷贝，避免持锁等待主线程派发导致死锁。
     let pinned = pinned_todo_state
         .0
         .lock()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+        .clone();
     position_pinned_subtasks_window(
         &window,
         slot.parse::<usize>().unwrap_or(0),
@@ -646,11 +745,35 @@ fn show_pinned_subtasks_window(
     );
     let _ = window.unminimize();
     let _ = window.set_always_on_top(true);
-    window.show().map_err(|error| error.to_string())?;
+    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+    if !is_new_window {
+        window.show().map_err(|error| error.to_string())?;
+        let _ = window.set_focus();
+    }
     let _ = window.emit(
         format!("dotime-pinned-subtasks-{slot}").as_str(),
         subtasks_group,
     );
+    Ok(())
+}
+
+#[tauri::command]
+fn pinned_subtasks_window_ready(
+    app: tauri::AppHandle,
+    state: State<'_, PinnedSubtasksState>,
+    slot: String,
+) -> Result<(), String> {
+    let active = state.0.lock().map_err(|error| error.to_string())?;
+    if !active.contains_key(&slot) {
+        return Ok(());
+    }
+    drop(active);
+    let window_label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
+    if let Some(window) = app.get_webview_window(&window_label) {
+        let _ = window.unminimize();
+        window.show().map_err(|error| error.to_string())?;
+        let _ = window.set_focus();
+    }
     Ok(())
 }
 
@@ -737,7 +860,7 @@ fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn show_reminder_window(
+async fn show_reminder_window(
     app: tauri::AppHandle,
     state: State<'_, ReminderState>,
     reminder_group: String,
@@ -799,6 +922,8 @@ fn show_mini_subtasks_window_inner(
         .visible(false)
         .decorations(false)
         .transparent(true)
+        .shadow(false)
+        .background_color(Color(0, 0, 0, 0))
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
@@ -814,6 +939,7 @@ fn show_mini_subtasks_window_inner(
 
     let _ = window.unminimize();
     let _ = window.set_always_on_top(true);
+    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
     window.show().map_err(|error| error.to_string())?;
     let _ = window.set_focus();
     let _ = window.emit("dotime-mini-subtasks-group", subtasks_group);
@@ -1084,6 +1210,9 @@ fn run_clipboard_monitor(app: tauri::AppHandle, receiver: Receiver<()>) {
 }
 
 fn start_clipboard_monitor(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<ClipboardHistoryState>() {
+        ensure_clipboard_history_loaded(state.inner());
+    }
     let Some(state) = app.try_state::<ClipboardMonitorState>() else {
         return;
     };
@@ -1110,6 +1239,18 @@ fn stop_clipboard_monitor(app: &tauri::AppHandle) {
     if let Some(sender) = guard.take() {
         let _ = sender.send(());
     }
+}
+
+#[tauri::command]
+fn enable_clipboard_monitor(app: tauri::AppHandle) -> Result<(), String> {
+    start_clipboard_monitor(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn disable_clipboard_monitor(app: tauri::AppHandle) -> Result<(), String> {
+    stop_clipboard_monitor(&app);
+    Ok(())
 }
 
 fn clipboard_fingerprint(snapshot: &ClipboardSnapshot) -> String {
@@ -1167,18 +1308,26 @@ fn load_clipboard_history_from_path(path: &PathBuf) -> Vec<ClipboardSnapshot> {
     )
 }
 
-fn save_clipboard_history(state: &ClipboardHistoryState) -> Result<(), String> {
-    let path = clipboard_storage_path(state)?;
-    let Some(path) = path else {
-        return Ok(());
+fn ensure_clipboard_history_loaded(state: &ClipboardHistoryState) {
+    let Ok(mut loaded) = state.loaded.lock() else {
+        return;
     };
-
-    let items = state
-        .items
+    if *loaded {
+        return;
+    }
+    let path = state
+        .storage_path
         .lock()
-        .map_err(|error| error.to_string())?
-        .clone();
-    write_clipboard_history_to_path(path, items)
+        .ok()
+        .and_then(|guard| guard.clone());
+    let items = match path {
+        Some(path) => load_clipboard_history_from_path(&path),
+        None => Vec::new(),
+    };
+    if let Ok(mut items_guard) = state.items.lock() {
+        *items_guard = items;
+    }
+    *loaded = true;
 }
 
 fn save_clipboard_history_async(state: &ClipboardHistoryState) {
@@ -2189,6 +2338,7 @@ pub fn run() {
         .manage(ClipboardMonitorState(Mutex::new(None)))
         .manage(ClipboardHistoryState {
             items: Mutex::new(Vec::new()),
+            loaded: Mutex::new(false),
             suppressed_fingerprint: Mutex::new(None),
             storage_path: Mutex::new(None),
         })
@@ -2197,9 +2347,6 @@ pub fn run() {
                 if let Ok(path) = clipboard_history_path(app.handle()) {
                     if let Ok(mut storage_path) = state.storage_path.lock() {
                         *storage_path = Some(path.clone());
-                    }
-                    if let Ok(mut items) = state.items.lock() {
-                        *items = load_clipboard_history_from_path(&path);
                     }
                 }
             }
@@ -2246,6 +2393,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_window_opacity,
+            debug_log,
             set_pinned_window_frame,
             bring_pinned_stack_to_front,
             hide_main_window,
@@ -2253,6 +2401,8 @@ pub fn run() {
             close_clipboard_window,
             close_mini_subtasks_window,
             show_clipboard_window,
+            enable_clipboard_monitor,
+            disable_clipboard_monitor,
             show_mini_subtasks_window,
             show_pinned_todo_window,
             get_active_pinned_todo,
@@ -2260,6 +2410,7 @@ pub fn run() {
             remove_pinned_todo,
             get_active_pinned_subtasks_group,
             show_pinned_subtasks_window,
+            pinned_subtasks_window_ready,
             close_pinned_subtasks_window,
             sync_pinned_subtasks_window,
             open_external_url,
@@ -2269,6 +2420,8 @@ pub fn run() {
             clear_active_reminder_group,
             get_active_mini_subtasks_group,
             get_clipboard_history,
+            get_clipboard_history_image,
+            get_clipboard_history_size,
             clear_clipboard_history,
             remove_clipboard_history_item,
             copy_clipboard_history_item,
