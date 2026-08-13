@@ -53,6 +53,7 @@ import { useTodos } from "./hooks/useTodos";
 import { useTaskTemplates } from "./hooks/useTaskTemplates";
 import type { Todo, TodoCategoryDivider, TodoSubtask } from "./types";
 import { URGENCY_LABELS } from "./types";
+import { loadAppData } from "./data/appData";
 import { shiftDateKey } from "./utils/calendar";
 import {
   MINI_SUBTASKS_CLOSED_EVENT,
@@ -486,6 +487,22 @@ async function showPinnedTodoWindow(todo: Todo) {
   });
 }
 
+async function showPinnedSubtasksWindow(slot: string, todo: Todo) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const group = buildMiniSubtasksGroup(todo);
+  if (group == null) return;
+
+  await invoke("show_pinned_subtasks_window", {
+    slot,
+    subtasksGroup: JSON.stringify(group),
+  });
+}
+
+async function getActivePinnedSubtasksGroup(slot: string) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string | null>("get_active_pinned_subtasks_group", { slot });
+}
+
 async function removePinnedTodoWindow(slot: string) {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("remove_pinned_todo", { slot });
@@ -660,6 +677,32 @@ function App() {
       });
   };
 
+  const ensurePinnedSubtasksWindows = () => {
+    void getActivePinnedTodos()
+      .then(async (items) => {
+        const result = loadAppData(localStorage);
+        for (const item of items) {
+          const todo = result.data.todos.find(
+            (candidate) => candidate.id === item.todoId,
+          );
+          if (todo == null) continue;
+          const group = buildMiniSubtasksGroup(todo);
+          if (group == null) continue;
+
+          try {
+            const activeGroup = await getActivePinnedSubtasksGroup(item.slot);
+            if (activeGroup != null) continue;
+            await showPinnedSubtasksWindow(item.slot, todo);
+          } catch (error) {
+            console.error("failed to ensure pinned subtasks window", error);
+          }
+        }
+      })
+      .catch((error) => {
+        console.error("failed to load pinned todos for subtasks ensure", error);
+      });
+  };
+
   const togglePinnedTodoWindow = async (todo: Todo) => {
     const slot = pinnedTodoSlots.get(todo.id);
 
@@ -677,6 +720,9 @@ function App() {
           const next = new Map(current);
           next.set(todo.id, nextSlot);
           return next;
+        });
+        await showPinnedSubtasksWindow(nextSlot, todo).catch((error) => {
+          console.error("failed to show pinned subtasks window", error);
         });
       }
       refreshPinnedTodoSlots();
@@ -791,7 +837,9 @@ function App() {
     void import("@tauri-apps/api/event")
       .then(async ({ listen }) => {
         const refresh = () => {
-          if (!disposed) refreshPinnedTodoSlots();
+          if (disposed) return;
+          refreshPinnedTodoSlots();
+          ensurePinnedSubtasksWindows();
         };
         const unlistenAppData = await listen("dotime-app-data-updated", refresh);
         const unlistenPinnedTodos = await listen(

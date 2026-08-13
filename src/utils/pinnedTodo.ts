@@ -6,6 +6,10 @@ export function pinnedTodoEventForSlot(slot: string) {
   return `${PINNED_TODO_EVENT}-${slot}`;
 }
 
+export function pinnedSubtasksExpandedEventForSlot(slot: string) {
+  return `dotime-pinned-subtasks-expanded-${slot}`;
+}
+
 export type PinnedTodoPayload = {
   id: string;
   title: string;

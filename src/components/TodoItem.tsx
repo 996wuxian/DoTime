@@ -687,6 +687,7 @@ export function TodoItem({
       data-todo-id={todo.id}
       className={[
         "todo-item-shell",
+        showSubtasks && !subtasksCollapsed ? "has-open-subtasks" : "",
         batchMode ? "is-batch-mode" : "",
         dropPosition ? `is-drop-${dropPosition}` : "",
       ]

@@ -271,6 +271,206 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "shadow": false
+      },
+      {
+        "label": "pinned-subtasks-0",
+        "title": "doTime 子待办",
+        "url": "index.html?view=pinned-subtasks&slot=0",
+        "width": 180,
+        "height": 42,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-subtasks-1",
+        "title": "doTime 子待办",
+        "url": "index.html?view=pinned-subtasks&slot=1",
+        "width": 180,
+        "height": 42,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-subtasks-2",
+        "title": "doTime 子待办",
+        "url": "index.html?view=pinned-subtasks&slot=2",
+        "width": 180,
+        "height": 42,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-subtasks-3",
+        "title": "doTime 子待办",
+        "url": "index.html?view=pinned-subtasks&slot=3",
+        "width": 180,
+        "height": 42,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-subtasks-4",
+        "title": "doTime 子待办",
+        "url": "index.html?view=pinned-subtasks&slot=4",
+        "width": 180,
+        "height": 42,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-subtasks-5",
+        "title": "doTime 子待办",
+        "url": "index.html?view=pinned-subtasks&slot=5",
+        "width": 180,
+        "height": 42,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-subtasks-6",
+        "title": "doTime 子待办",
+        "url": "index.html?view=pinned-subtasks&slot=6",
+        "width": 180,
+        "height": 42,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-subtasks-7",
+        "title": "doTime 子待办",
+        "url": "index.html?view=pinned-subtasks&slot=7",
+        "width": 180,
+        "height": 42,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-subtasks-8",
+        "title": "doTime 子待办",
+        "url": "index.html?view=pinned-subtasks&slot=8",
+        "width": 180,
+        "height": 42,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
+      },
+      {
+        "label": "pinned-subtasks-9",
+        "title": "doTime 子待办",
+        "url": "index.html?view=pinned-subtasks&slot=9",
+        "width": 180,
+        "height": 42,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false
       }
     ],
     "security": {
