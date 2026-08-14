@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { createAppDataDocument, loadAppData, saveAppData } from "../data/appData";
+import {
+  APP_DATA_STORAGE_KEY,
+  createAppDataDocument,
+  loadAppData,
+  saveAppData,
+} from "../data/appData";
 import { buildMiniSubtasksGroup } from "../utils/miniSubtasks";
 import { emitAppDataUpdated } from "../utils/appDataEvents";
 import {
@@ -98,6 +103,7 @@ export function MiniSubtasksWindow() {
   const latestGroupUpdatedAtRef = useRef(0);
   const parentVisibleRef = useRef(true);
   const hoverHeartbeatRef = useRef<number | null>(null);
+  const readyNotifiedRef = useRef(false);
   const activeTodoId = group?.todoId ?? null;
 
   useEffect(() => {
@@ -293,6 +299,7 @@ export function MiniSubtasksWindow() {
       cleanup = await listen(MINI_SUBTASKS_CLOSED_EVENT, () => {
         if (cancelled) return;
         activeTodoIdRef.current = null;
+        setGroup(null);
         latestGroupUpdatedAtRef.current = 0;
         pendingItemsRef.current = null;
         updateHoverState(false);
@@ -306,6 +313,43 @@ export function MiniSubtasksWindow() {
       cleanup?.();
     };
   }, []);
+
+  // 主应用数据变化（计时、编辑等）会写入 localStorage 并广播事件；
+  // 迷你子待办窗口跟随刷新，避免依赖主窗口反复 show 窗口来同步数据。
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== APP_DATA_STORAGE_KEY) return;
+      refreshGroupFromStorage();
+    };
+    const handleAppDataUpdated = () => {
+      refreshGroupFromStorage();
+    };
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("dotime-app-data-updated", handleAppDataUpdated);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("dotime-app-data-updated", handleAppDataUpdated);
+    };
+  }, [activeTodoId]);
+
+  // 首次创建的窗口在 Rust 侧保持隐藏，内容渲染完成后通知后端显示，
+  // 避免首次打开时先显示空壳再出现内容造成高度/内容闪烁。
+  useEffect(() => {
+    if (readyNotifiedRef.current) return;
+    if (group == null) return;
+    if (renderedItems.length === 0 && group.items.length > 0) return;
+
+    readyNotifiedRef.current = true;
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("mini_subtasks_window_ready");
+      } catch (error) {
+        console.error("failed to show mini subtasks window", error);
+      }
+    })();
+  }, [group, renderedItems]);
 
   useEffect(() => {
     const nextItems = group?.items ?? [];

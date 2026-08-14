@@ -778,6 +778,16 @@ fn pinned_subtasks_window_ready(
 }
 
 #[tauri::command]
+fn mini_subtasks_window_ready(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("mini-subtasks") {
+        let _ = window.unminimize();
+        window.show().map_err(|error| error.to_string())?;
+        let _ = window.set_focus();
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn close_pinned_subtasks_window(
     app: tauri::AppHandle,
     state: State<'_, PinnedSubtasksState>,
@@ -911,7 +921,9 @@ fn show_mini_subtasks_window_inner(
         return Ok(());
     }
 
-    let window = match app.get_webview_window("mini-subtasks") {
+    let existing_window = app.get_webview_window("mini-subtasks");
+    let is_new_window = existing_window.is_none();
+    let window = match existing_window {
         Some(window) => window,
         None => WebviewWindowBuilder::new(
             app,
@@ -940,8 +952,13 @@ fn show_mini_subtasks_window_inner(
     let _ = window.unminimize();
     let _ = window.set_always_on_top(true);
     let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-    window.show().map_err(|error| error.to_string())?;
-    let _ = window.set_focus();
+    // 首次创建的窗口先保持隐藏，等前端渲染完内容后由
+    // mini_subtasks_window_ready 再显示，避免首次打开时先显示空壳再
+    // 出现内容造成高度/内容闪烁（与固定子待办窗口的处理一致）。
+    if !is_new_window {
+        window.show().map_err(|error| error.to_string())?;
+        let _ = window.set_focus();
+    }
     let _ = window.emit("dotime-mini-subtasks-group", subtasks_group);
 
     hide_extra_mini_subtasks_windows(app, 1);
@@ -2404,6 +2421,7 @@ pub fn run() {
             enable_clipboard_monitor,
             disable_clipboard_monitor,
             show_mini_subtasks_window,
+            mini_subtasks_window_ready,
             show_pinned_todo_window,
             get_active_pinned_todo,
             get_active_pinned_todos,

@@ -560,6 +560,7 @@ function App() {
   const [miniSubtasksOpen, setMiniSubtasksOpen] = useState(false);
   const [miniSubtasksHovered, setMiniSubtasksHovered] = useState(false);
   const miniSubtasksHoverLastAtRef = useRef(0);
+  const lastShownMiniSubtasksTodoIdRef = useRef<string | null>(null);
   const [pinnedTodoSlots, setPinnedTodoSlots] = useState<Map<string, string>>(
     () => new Map(),
   );
@@ -1027,6 +1028,10 @@ function App() {
       void closeMiniSubtasksWindow();
       return;
     }
+    // 只在新待办切换时重新展示，避免每次渲染/计时刷新都重新 show 窗口，
+    // 否则退出迷你模式时可能和关闭操作竞态，留下残留窗口。
+    if (lastShownMiniSubtasksTodoIdRef.current === miniTodo.id) return;
+    lastShownMiniSubtasksTodoIdRef.current = miniTodo.id;
     void showMiniSubtasksWindow(miniTodo);
   }, [miniMode, miniSubtasksOpen, miniTodo]);
 
@@ -1264,6 +1269,9 @@ function App() {
     setMiniAutoHideRevealed(true);
     await setWindowOpacity(1);
     await exitMiniWindowMode();
+    // 最后再关一次子待办窗口，兜底处理退出瞬间仍在途的 show 请求，
+    // 避免迷你子待办窗口残留在桌面上。
+    await closeMiniSubtasksWindow();
   };
 
   const handleToggleMiniAutoHide = async () => {
@@ -1293,15 +1301,28 @@ function App() {
 
   const handleToggleMiniSubtasks = () => {
     if (miniTodo == null || (miniTodo.subtasks ?? []).length === 0) return;
-    setMiniSubtasksOpen((open) => {
-      const nextOpen = !open;
-      if (!nextOpen) {
-        void closeMiniSubtasksWindow();
-      } else {
-        void showMiniSubtasksWindow(miniTodo);
+    void (async () => {
+      let isOpen = miniSubtasksOpen;
+      try {
+        const { getAllWindows } = await import("@tauri-apps/api/window");
+        const windows = await getAllWindows();
+        const target = windows.find((w) => w.label === "mini-subtasks");
+        isOpen = target != null ? await target.isVisible() : false;
+      } catch {
+        // 窗口尚未创建过，视为关闭状态
+        isOpen = false;
       }
-      return nextOpen;
-    });
+
+      if (isOpen) {
+        lastShownMiniSubtasksTodoIdRef.current = null;
+        setMiniSubtasksOpen(false);
+        await closeMiniSubtasksWindow();
+      } else {
+        lastShownMiniSubtasksTodoIdRef.current = miniTodo.id;
+        setMiniSubtasksOpen(true);
+        await showMiniSubtasksWindow(miniTodo);
+      }
+    })();
   };
 
   const handleRemoveTodo = (id: string) => {
