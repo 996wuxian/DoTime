@@ -1,7 +1,7 @@
 {
   "name": "dotime",
   "private": true,
-  "version": "1.6.0",
+  "version": "1.6.1",
   "type": "module",
   "scripts": {
     "tauri": "tauri dev",
@@ -12,7 +12,9 @@
     "preview": "vite preview",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "tauri:cli": "tauri"
+    "tauri:cli": "tauri",
+    "sync:version": "node scripts/sync-version.mjs",
+    "version": "node scripts/sync-version.mjs"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

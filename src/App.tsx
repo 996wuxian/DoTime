@@ -88,7 +88,8 @@ const MINI_OPACITY_STEP = 0.05;
 const TODO_HIGHLIGHT_MS = 2000;
 const TODO_DRAG_LONG_PRESS_MS = 180;
 const TODO_DRAG_CANCEL_DISTANCE = 8;
-const APP_VERSION = "1.1.1";
+// 版本号由 vite.config.ts 在构建时从 package.json 注入
+const APP_VERSION = __APP_VERSION__;
 const APP_DEVELOPMENT_DATE = "2026-07-24";
 
 type ActivePinnedTodo = {
