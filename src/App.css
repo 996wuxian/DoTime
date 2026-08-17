@@ -5050,7 +5050,7 @@ a,
   max-width: 100%;
   margin: 0;
   font-size: 1.05rem;
-  font-weight: 600;
+  font-weight: 400;
   overflow: hidden;
 }
 
@@ -5224,7 +5224,7 @@ a,
 
 .status-badge {
   font-size: 0.7rem;
-  font-weight: 700;
+  font-weight: 400;
   padding: 3px 8px;
   border-radius: 999px;
   letter-spacing: 0.02em;
@@ -6034,7 +6034,7 @@ body.is-todo-dragging {
   margin: 0;
   color: var(--text);
   font-size: 0.86rem;
-  font-weight: 700;
+  font-weight: 400;
   line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6691,7 +6691,7 @@ body.is-pinned-subtasks-window #root {
   color: var(--text);
   font-size: 0.78rem;
   line-height: 1.2;
-  font-weight: 700;
+  font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

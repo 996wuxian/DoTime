@@ -40,6 +40,7 @@ import {
   stopTodoTimingWithRecurrence,
   syncTodoSubtaskTiming,
   syncTodoSubtaskElapsedFromParent,
+  setSelectedTodoFavorites,
   toggleTodoSubtask,
   toggleTodoCompletionWithRecurrence,
   toggleTodoFavorite,
@@ -789,6 +790,10 @@ export function useTodos(selectedDate: string) {
     setTodos((prev) => clearSelectedTodoFavorites(prev, ids));
   }, []);
 
+  const setSelectedFavorites = useCallback((ids: Iterable<string>) => {
+    setTodos((prev) => setSelectedTodoFavorites(prev, ids));
+  }, []);
+
   const addSubtask = useCallback(
     (
       todoId: string,
@@ -959,6 +964,7 @@ export function useTodos(selectedDate: string) {
     moveTodos,
     removeSelectedTodos,
     clearSelectedFavorites,
+    setSelectedFavorites,
     addSubtask,
     renameSubtask,
     updateSubtask,

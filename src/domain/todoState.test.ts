@@ -14,6 +14,8 @@ import {
   stopTodoTimingWithRecurrence,
   syncTodoSubtaskElapsedFromParent,
   syncTodoSubtaskTiming,
+  clearSelectedTodoFavorites,
+  setSelectedTodoFavorites,
   toggleTodoSubtask,
   toggleTodoCompletion,
   toggleTodoCompletionWithRecurrence,
@@ -481,6 +483,36 @@ describe("todo timing state", () => {
 
     expect(result[0].reminderLastFiredAt).toEqual(1000);
     expect(result[0].reminderSnoozedUntil).toEqual(null);
+  });
+
+  it("sets selected todos as favorites without clearing existing favorites", () => {
+    const first = createTodo({ id: "todo-1", favorite: false });
+    const second = createTodo({ id: "todo-2", favorite: true });
+    const third = createTodo({ id: "todo-3", favorite: false });
+
+    const result = setSelectedTodoFavorites([first, second, third], [
+      "todo-1",
+      "todo-2",
+    ]);
+
+    expect(result[0].favorite).toEqual(true);
+    expect(result[1].favorite).toEqual(true);
+    expect(result[2].favorite).toEqual(false);
+  });
+
+  it("clears selected favorites without affecting unselected todos", () => {
+    const first = createTodo({ id: "todo-1", favorite: true });
+    const second = createTodo({ id: "todo-2", favorite: true });
+    const third = createTodo({ id: "todo-3", favorite: false });
+
+    const result = clearSelectedTodoFavorites([first, second, third], [
+      "todo-1",
+      "todo-2",
+    ]);
+
+    expect(result[0].favorite).toEqual(false);
+    expect(result[1].favorite).toEqual(false);
+    expect(result[2].favorite).toEqual(false);
   });
 
   it("moves an edited todo to another date and resets its reminder state", () => {

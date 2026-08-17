@@ -644,6 +644,7 @@ function App() {
     moveTodos,
     removeSelectedTodos,
     clearSelectedFavorites,
+    setSelectedFavorites,
     addSubtask,
     updateSubtask,
     syncSubtaskElapsedFromParent,
@@ -711,27 +712,43 @@ function App() {
       });
   };
 
+  const openPinnedTodoWindow = async (todo: Todo) => {
+    const slot = pinnedTodoSlots.get(todo.id);
+    if (slot != null) return slot;
+
+    const nextSlot = await showPinnedTodoWindow(todo);
+    setPinnedTodoSlots((current) => {
+      const next = new Map(current);
+      next.set(todo.id, nextSlot);
+      return next;
+    });
+    await showPinnedSubtasksWindow(nextSlot, todo).catch((error) => {
+      console.error("failed to show pinned subtasks window", error);
+    });
+    return nextSlot;
+  };
+
+  const closePinnedTodoWindow = async (todoId: string) => {
+    const slot = pinnedTodoSlots.get(todoId);
+    if (slot == null) return false;
+
+    await removePinnedTodoWindow(slot);
+    setPinnedTodoSlots((current) => {
+      const next = new Map(current);
+      next.delete(todoId);
+      return next;
+    });
+    return true;
+  };
+
   const togglePinnedTodoWindow = async (todo: Todo) => {
     const slot = pinnedTodoSlots.get(todo.id);
 
     try {
       if (slot != null) {
-        await removePinnedTodoWindow(slot);
-        setPinnedTodoSlots((current) => {
-          const next = new Map(current);
-          next.delete(todo.id);
-          return next;
-        });
+        await closePinnedTodoWindow(todo.id);
       } else {
-        const nextSlot = await showPinnedTodoWindow(todo);
-        setPinnedTodoSlots((current) => {
-          const next = new Map(current);
-          next.set(todo.id, nextSlot);
-          return next;
-        });
-        await showPinnedSubtasksWindow(nextSlot, todo).catch((error) => {
-          console.error("failed to show pinned subtasks window", error);
-        });
+        await openPinnedTodoWindow(todo);
       }
       refreshPinnedTodoSlots();
     } catch (error) {
@@ -772,10 +789,6 @@ function App() {
       }
     })();
   };
-
-  useEffect(() => {
-    saveTheme(theme);
-  }, [theme]);
 
   useEffect(() => {
     refreshPinnedTodoSlots();
@@ -952,6 +965,12 @@ function App() {
   const selectedFavoriteCount = dayTodos.filter(
     (todo) => selectedTodoIds.has(todo.id) && todo.favorite,
   ).length;
+  const selectedPinnedCount = dayTodos.filter(
+    (todo) => selectedTodoIds.has(todo.id) && pinnedTodoSlots.has(todo.id),
+  ).length;
+  const selectedAllFavorite = selectedCount > 0 && selectedFavoriteCount === selectedCount;
+  const selectedAllPinned = selectedCount > 0 && selectedPinnedCount === selectedCount;
+  const selectedUnfavoriteCount = selectedCount - selectedFavoriteCount;
   const pendingDeleteTodo = pendingDeleteTodoId
     ? dayTodos.find((todo) => todo.id === pendingDeleteTodoId) ?? null
     : null;
@@ -1608,9 +1627,65 @@ function App() {
     handleExitBatchMode();
   };
 
-  const handleBatchClearFavorites = () => {
+  const handleBatchFavorite = () => {
     if (selectedCount === 0) return;
-    clearSelectedFavorites(selectedTodoIds);
+    if (selectedAllFavorite) {
+      clearSelectedFavorites(selectedTodoIds);
+      showGlobalToast(`已批量取消收藏 ${selectedFavoriteCount} 个待办`, "success");
+      return;
+    }
+
+    setSelectedFavorites(selectedTodoIds);
+    showGlobalToast(`已批量收藏 ${selectedUnfavoriteCount} 个待办`, "success");
+  };
+
+  const handleBatchPin = () => {
+    if (selectedCount === 0) return;
+
+    if (selectedAllPinned) {
+      void (async () => {
+        const targets = dayTodos.filter(
+          (todo) => selectedTodoIds.has(todo.id) && pinnedTodoSlots.has(todo.id),
+        );
+        if (targets.length === 0) return;
+
+        const results = await Promise.allSettled(
+          targets.map((todo) => closePinnedTodoWindow(todo.id)),
+        );
+        const failed = results.filter((result) => result.status === "rejected");
+        refreshPinnedTodoSlots();
+        if (failed.length > 0) {
+          showGlobalToast(
+            `批量取消固定完成：${targets.length - failed.length} 个成功，${failed.length} 个失败`,
+            "error",
+          );
+        } else {
+          showGlobalToast(`已批量取消固定 ${targets.length} 个待办`, "success");
+        }
+      })();
+      return;
+    }
+
+    void (async () => {
+      const targets = dayTodos.filter(
+        (todo) => selectedTodoIds.has(todo.id) && !pinnedTodoSlots.has(todo.id),
+      );
+      if (targets.length === 0) return;
+
+      const results = await Promise.allSettled(
+        targets.map((todo) => openPinnedTodoWindow(todo)),
+      );
+      const failed = results.filter((result) => result.status === "rejected");
+      refreshPinnedTodoSlots();
+      if (failed.length > 0) {
+        showGlobalToast(
+          `批量固定完成：${targets.length - failed.length} 个成功，${failed.length} 个失败`,
+          "error",
+        );
+      } else {
+        showGlobalToast(`已批量固定 ${targets.length} 个待办`, "success");
+      }
+    })();
   };
 
   const handleConfirmBatchDelete = () => {
@@ -2359,7 +2434,13 @@ function App() {
           <button
             type="button"
             className="btn btn-ghost btn-icon-only theme-toggle"
-            onClick={() => setTheme((currentTheme) => toggleTheme(currentTheme))}
+            onClick={() =>
+              setTheme((currentTheme) => {
+                const nextTheme = toggleTheme(currentTheme);
+                saveTheme(nextTheme);
+                return nextTheme;
+              })
+            }
             aria-label={theme === "dark" ? "切换亮色" : "切换暗色"}
             title={theme === "dark" ? "切换亮色" : "切换暗色"}
           >
@@ -2845,11 +2926,20 @@ function App() {
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
-                    onClick={handleBatchClearFavorites}
-                    disabled={selectedFavoriteCount === 0}
+                    onClick={handleBatchFavorite}
+                    disabled={selectedCount === 0}
                   >
                     <IconBookmark size={14} />
-                    取消收藏
+                    {selectedAllFavorite ? "批量取消收藏" : "批量收藏"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleBatchPin}
+                    disabled={selectedCount === 0}
+                  >
+                    {selectedAllPinned ? <IconPinOff size={14} /> : <IconDockTop size={14} />}
+                    {selectedAllPinned ? "批量取消固定" : "批量固定"}
                   </button>
                   <button
                     type="button"

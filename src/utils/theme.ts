@@ -9,7 +9,7 @@ export function loadTheme(): ThemeMode {
   } catch {
     /* ignore storage errors */
   }
-  return "dark";
+  return "light";
 }
 
 export function applyTheme(theme: ThemeMode) {

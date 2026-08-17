@@ -514,6 +514,17 @@ export function clearSelectedTodoFavorites(
   );
 }
 
+export function setSelectedTodoFavorites(
+  todos: Todo[],
+  ids: Iterable<string>,
+): Todo[] {
+  const idSet = new Set(ids);
+  if (idSet.size === 0) return todos;
+  return todos.map((todo) =>
+    idSet.has(todo.id) && !todo.favorite ? { ...todo, favorite: true } : todo,
+  );
+}
+
 export function moveTodosToDate(
   todos: Todo[],
   ids: Iterable<string>,
