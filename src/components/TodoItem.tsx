@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+  type WheelEvent,
+} from "react";
 import type { Todo, TodoImage, TodoSubtask } from "../types";
 import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
 import {
@@ -33,6 +40,7 @@ import {
   IconTrash,
 } from "./icons";
 import { useTodoImageSrc } from "../hooks/useTodoImageSrc";
+import { MAX_TODO_IMAGES } from "../utils/todoImages";
 
 interface TodoItemProps {
   todo: Todo;
@@ -620,6 +628,27 @@ export function TodoItem({
     setCommentEditorOpen(false);
   };
 
+  const handleImageWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const container = event.currentTarget;
+    const maxScrollLeft = container.scrollWidth - container.clientWidth;
+    if (maxScrollLeft <= 0) return;
+
+    const delta =
+      Math.abs(event.deltaY) >= Math.abs(event.deltaX)
+        ? event.deltaY
+        : event.deltaX;
+    if (delta === 0) return;
+
+    const nextScrollLeft = Math.max(
+      0,
+      Math.min(maxScrollLeft, container.scrollLeft + delta),
+    );
+    if (nextScrollLeft === container.scrollLeft) return;
+
+    event.preventDefault();
+    container.scrollLeft = nextScrollLeft;
+  };
+
   const activeImage =
     activeImageIndex == null ? null : todoImages[activeImageIndex] ?? null;
 
@@ -633,7 +662,7 @@ export function TodoItem({
 
   const removeActiveImage = () => {
     if (activeImageIndex == null) return;
-    const visibleImages = todoImages.slice(0, 3);
+    const visibleImages = todoImages.slice(0, MAX_TODO_IMAGES);
     const nextImages = visibleImages.filter((_, index) => index !== activeImageIndex);
     onUpdateImages(nextImages);
     if (nextImages.length === 0) {
@@ -1000,8 +1029,14 @@ export function TodoItem({
       </div>
 
       {todoImages.length > 0 && (
-        <div className="todo-item__images">
-          {todoImages.slice(0, 3).map((image, index) => (
+        <div
+          className="todo-item__images"
+          onWheel={handleImageWheel}
+          aria-label="待办图片"
+          role="region"
+          tabIndex={0}
+        >
+          {todoImages.slice(0, MAX_TODO_IMAGES).map((image, index) => (
             <TodoImageThumb
               key={image.id}
               todoId={todo.id}
@@ -1112,7 +1147,7 @@ export function TodoItem({
       {activeImage && (
         <TodoImageLightbox
           todoId={todo.id}
-          images={todoImages.slice(0, 3)}
+          images={todoImages.slice(0, MAX_TODO_IMAGES)}
           activeIndex={activeImageIndex ?? 0}
           onNavigate={navigateActiveImage}
           onRemoveCurrent={removeActiveImage}

@@ -88,6 +88,14 @@ struct StoredTodoImage {
     file_name: String,
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DroppedTodoImage {
+    name: String,
+    mime_type: String,
+    data_url: String,
+}
+
 #[derive(Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TodoImageReference {
@@ -333,6 +341,35 @@ fn persist_todo_images(
     }
 
     Ok(stored)
+}
+
+#[tauri::command]
+fn read_todo_image_file(path: String) -> Result<DroppedTodoImage, String> {
+    let path = PathBuf::from(&path);
+    let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("拖入的路径不是文件".into());
+    }
+    if metadata.len() > 32 * 1024 * 1024 {
+        return Err("图片文件不能超过 32 MB".into());
+    }
+
+    let bytes = fs::read(&path).map_err(|error| error.to_string())?;
+    let Some(mime_type) = image_mime_type(&path, &bytes) else {
+        return Err("拖入的文件不是受支持的图片".into());
+    };
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("图片")
+        .to_string();
+
+    Ok(DroppedTodoImage {
+        name,
+        mime_type: mime_type.to_string(),
+        data_url: format!("data:{};base64,{}", mime_type, encode_base64(&bytes)),
+    })
 }
 
 #[tauri::command]
@@ -1036,6 +1073,38 @@ fn mime_type_to_extension(mime_type: Option<&str>) -> &str {
         Some("image/bmp") => "bmp",
         Some("image/svg+xml") => "svg",
         _ => "png",
+    }
+}
+
+fn image_mime_type(path: &std::path::Path, bytes: &[u8]) -> Option<&'static str> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
+    match extension.as_deref() {
+        Some("jpg") | Some("jpeg") => return Some("image/jpeg"),
+        Some("png") => return Some("image/png"),
+        Some("webp") => return Some("image/webp"),
+        Some("gif") => return Some("image/gif"),
+        Some("bmp") => return Some("image/bmp"),
+        Some("avif") => return Some("image/avif"),
+        Some("heic") => return Some("image/heic"),
+        Some("heif") => return Some("image/heif"),
+        _ => {}
+    }
+
+    if bytes.starts_with(b"\xFF\xD8\xFF") {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1A\n") {
+        Some("image/png")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.starts_with(b"BM") {
+        Some("image/bmp")
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
     }
 }
 
@@ -2445,6 +2514,7 @@ pub fn run() {
             copy_clipboard_history_item,
             toggle_clipboard_history_pin,
             persist_todo_images,
+            read_todo_image_file,
             remove_todo_images,
             cleanup_todo_images
         ])

@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type {
+  ClipboardEvent,
   CSSProperties,
   ChangeEvent,
   DragEvent,
@@ -21,10 +22,7 @@ import {
   formatDisplayDate,
   PRESET_MINUTES,
 } from "../utils/time";
-import {
-  createTodoImageFromFile,
-  MAX_TODO_IMAGES,
-} from "../utils/todoImages";
+import { createTodoImageFromFile, MAX_TODO_IMAGES } from "../utils/todoImages";
 import { useTodoImageSrc } from "../hooks/useTodoImageSrc";
 import {
   getDefaultReminderTime,
@@ -46,6 +44,7 @@ import {
   IconPhoto,
   IconRepeat,
   IconTrash,
+  IconUpload,
 } from "./icons";
 
 export interface TodoDraft {
@@ -115,9 +114,140 @@ const TIME_PICKER_POPOVER_HEIGHT = 250;
 const TIME_PICKER_POPOVER_GAP = 8;
 const TIME_PICKER_VIEWPORT_PADDING = 8;
 const MAX_IMAGE_SELECTION = MAX_TODO_IMAGES;
+const IMAGE_FILE_EXTENSIONS = new Set([
+  "avif",
+  "bmp",
+  "gif",
+  "heic",
+  "heif",
+  "jpeg",
+  "jpg",
+  "png",
+  "webp",
+]);
 type TaskMode = "normal" | "record" | "countdown";
 
 type ActiveTimePicker = "task" | "reminder" | null;
+type NativeImagePath = {
+  kind: "native-path";
+  path: string;
+};
+type ImageDropSource = File | string | NativeImagePath;
+type AddImageSources = (sources: readonly ImageDropSource[]) => Promise<void>;
+
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith("image/")) return true;
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  return extension != null && IMAGE_FILE_EXTENSIONS.has(extension);
+}
+
+function isHttpImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function resolveDroppedUrl(value: string, baseUrl?: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith("#")) return null;
+  try {
+    const url = new URL(trimmed, baseUrl);
+    return isHttpImageUrl(url.toString()) ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function getDroppedImageUrls(dataTransfer: DataTransfer | null): string[] {
+  if (!dataTransfer) return [];
+
+  const uriList = dataTransfer
+    .getData("text/uri-list")
+    .split(/\r?\n/)
+    .map((value) => resolveDroppedUrl(value))
+    .filter((value): value is string => value != null);
+  const baseUrl = uriList[0];
+  const textUrl = resolveDroppedUrl(dataTransfer.getData("text/plain"));
+  const html = dataTransfer.getData("text/html");
+  const htmlUrls: string[] = [];
+
+  if (html) {
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    for (const image of Array.from(parsed.querySelectorAll("img"))) {
+      const src =
+        image.getAttribute("src") ??
+        image.getAttribute("data-src") ??
+        image.getAttribute("srcset")?.split(",")[0]?.trim().split(/\s+/)[0];
+      const url = src ? resolveDroppedUrl(src, baseUrl) : null;
+      if (url) htmlUrls.push(url);
+    }
+  }
+
+  return [...uriList, ...(textUrl ? [textUrl] : []), ...htmlUrls].filter(
+    (url, index, urls) => urls.indexOf(url) === index,
+  );
+}
+
+function getImageFiles(dataTransfer: DataTransfer | null): File[] {
+  if (!dataTransfer) return [];
+
+  const files = Array.from(dataTransfer.files).filter((file) =>
+    isImageFile(file),
+  );
+  if (files.length > 0) return files;
+
+  return Array.from(dataTransfer.items)
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file != null && isImageFile(file));
+}
+
+function getImageDropSources(
+  dataTransfer: DataTransfer | null,
+): ImageDropSource[] {
+  return [...getImageFiles(dataTransfer), ...getDroppedImageUrls(dataTransfer)];
+}
+
+function getFileNameFromUrl(url: string, mimeType: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    const name = decodeURIComponent(pathname.split("/").pop() ?? "").trim();
+    if (name && name.includes(".")) return name;
+  } catch {
+    // Use the MIME type fallback below.
+  }
+
+  const extension = mimeType.split("/")[1]?.split("+")[0] || "png";
+  return `dropped-image.${extension}`;
+}
+
+async function createImageFileFromUrl(url: string): Promise<File> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`无法下载图片（${response.status}）。`);
+  }
+
+  const blob = await response.blob();
+  const mimeType = blob.type.startsWith("image/") ? blob.type : "image/png";
+  return new File([blob], getFileNameFromUrl(url, mimeType), {
+    type: mimeType,
+  });
+}
+
+async function createImageFileFromNativePath(path: string): Promise<File> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const image = await invoke<{
+    name: string;
+    mimeType: string;
+    dataUrl: string;
+  }>("read_todo_image_file", { path });
+  const response = await fetch(image.dataUrl);
+  const blob = await response.blob();
+  return new File([blob], image.name, { type: image.mimeType });
+}
 
 function formatReminderDateHint(dateKey: string, time: string) {
   const today = formatDateKey();
@@ -156,7 +286,11 @@ function TodoFormImagePreview({
       onError={() => setFailed(true)}
     />
   ) : (
-    <div className="todo-form__image-placeholder" role="img" aria-label="图片加载失败">
+    <div
+      className="todo-form__image-placeholder"
+      role="img"
+      aria-label="图片加载失败"
+    >
       <IconPhoto size={20} />
     </div>
   );
@@ -204,11 +338,21 @@ export function TodoEditorForm({
   const [timePickerPosition, setTimePickerPosition] =
     useState<CSSProperties | null>(null);
   const [draggingImageId, setDraggingImageId] = useState<string | null>(null);
+  const [isImageDropActive, setIsImageDropActive] = useState(false);
+  const [isImagePasteTarget, setIsImagePasteTarget] = useState(false);
+  const [imageImportNotice, setImageImportNotice] = useState<string | null>(
+    null,
+  );
   const taskTimeRef = useRef<HTMLDivElement | null>(null);
   const taskTimeButtonRef = useRef<HTMLButtonElement | null>(null);
   const reminderTimeRef = useRef<HTMLDivElement | null>(null);
   const reminderTimeButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const imageDropDepthRef = useRef(0);
+  const imageDropzoneRef = useRef<HTMLButtonElement | null>(null);
+  const imageDropzoneHoveredRef = useRef(false);
+  const imageDropzoneFocusedRef = useRef(false);
+  const addImageSourcesRef = useRef<AddImageSources | null>(null);
   const hourListRef = useRef<HTMLDivElement | null>(null);
   const minuteListRef = useRef<HTMLDivElement | null>(null);
   const trimmedTitle = draft.title.trim();
@@ -235,33 +379,193 @@ export function TodoEditorForm({
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
-  const handleImageInputChange = async (
-    event: ChangeEvent<HTMLInputElement>,
-  ) => {
-    const files = Array.from(event.currentTarget.files ?? []).filter((file) =>
-      file.type.startsWith("image/"),
-    );
-    event.currentTarget.value = "";
-    if (files.length === 0) return;
-
+  const addImageSources = async (sources: readonly ImageDropSource[]) => {
+    if (sources.length === 0) return;
     const remaining = MAX_IMAGE_SELECTION - draft.images.length;
     if (remaining <= 0) return;
 
     const nextImages = (
       await Promise.allSettled(
-        files
+        sources
           .slice(0, remaining)
-          .map(async (file) => createTodoImageFromFile(file)),
+          .map(async (source) =>
+            createTodoImageFromFile(
+              typeof source === "string"
+                ? await createImageFileFromUrl(source)
+                : "kind" in source
+                  ? await createImageFileFromNativePath(source.path)
+                  : source,
+            ),
+          ),
       )
     )
-      .filter((result): result is PromiseFulfilledResult<TodoImage> =>
-        result.status === "fulfilled",
+      .filter(
+        (result): result is PromiseFulfilledResult<TodoImage> =>
+          result.status === "fulfilled",
       )
       .map((result) => result.value);
+    const failedCount = sources.length - nextImages.length;
+    if (failedCount > 0) {
+      setImageImportNotice(
+        nextImages.length > 0
+          ? `已添加 ${nextImages.length} 张图片，另有 ${failedCount} 张无法读取`
+          : "无法读取拖入的图片，请尝试先复制图片后粘贴",
+      );
+    } else {
+      setImageImportNotice(null);
+    }
     setDraft((current) => ({
       ...current,
       images: [...current.images, ...nextImages].slice(0, MAX_IMAGE_SELECTION),
     }));
+  };
+  addImageSourcesRef.current = addImageSources;
+
+  const handleImageInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    void addImageSources(files.filter(isImageFile));
+  };
+
+  const handleImagePaste = (event: ClipboardEvent<HTMLButtonElement>) => {
+    const sources = getImageDropSources(event.clipboardData);
+    if (sources.length === 0 || draft.images.length >= MAX_IMAGE_SELECTION) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    void addImageSources(sources);
+  };
+
+  const handleImageDropzoneDragEnter = (
+    event: DragEvent<HTMLButtonElement>,
+  ) => {
+    if (draft.images.length >= MAX_IMAGE_SELECTION) {
+      return;
+    }
+    event.preventDefault();
+    imageDropDepthRef.current += 1;
+    setIsImageDropActive(true);
+  };
+
+  const handleImageDropzoneDragOver = (event: DragEvent<HTMLButtonElement>) => {
+    if (draft.images.length >= MAX_IMAGE_SELECTION) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setIsImageDropActive(true);
+  };
+
+  const handleImageDropzoneDragLeave = (
+    event: DragEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    imageDropDepthRef.current = Math.max(0, imageDropDepthRef.current - 1);
+    if (imageDropDepthRef.current === 0) setIsImageDropActive(false);
+  };
+
+  const handleImageDropzoneDrop = (event: DragEvent<HTMLButtonElement>) => {
+    if (draft.images.length >= MAX_IMAGE_SELECTION) return;
+    event.preventDefault();
+    event.stopPropagation();
+    imageDropDepthRef.current = 0;
+    setIsImageDropActive(false);
+    const sources = getImageDropSources(event.dataTransfer);
+    if (sources.length > 0) {
+      void addImageSources(sources);
+    } else {
+      setImageImportNotice("无法识别拖入内容，请拖入图片文件或网页中的图片");
+    }
+  };
+
+  const isNativeDropInsideZone = (position: { x: number; y: number }) => {
+    const rect = imageDropzoneRef.current?.getBoundingClientRect();
+    if (!rect) return false;
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const candidates = [
+      { x: position.x, y: position.y },
+      {
+        x: position.x / devicePixelRatio,
+        y: position.y / devicePixelRatio,
+      },
+    ];
+    return candidates.some(
+      ({ x, y }) =>
+        x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom,
+    );
+  };
+
+  useEffect(() => {
+    if (!showImages) return;
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      try {
+        const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+        const removeListener = await getCurrentWebview().onDragDropEvent(
+          (event) => {
+            const payload = event.payload;
+            if (payload.type === "enter" || payload.type === "over") {
+              setIsImageDropActive(isNativeDropInsideZone(payload.position));
+              return;
+            }
+            if (payload.type === "leave") {
+              setIsImageDropActive(false);
+              return;
+            }
+
+            const isInside = isNativeDropInsideZone(payload.position);
+            setIsImageDropActive(false);
+            if (!isInside || payload.paths.length === 0) return;
+
+            const sources: NativeImagePath[] = payload.paths.map((path) => ({
+              kind: "native-path",
+              path,
+            }));
+            void addImageSourcesRef.current?.(sources);
+          },
+        );
+        if (disposed) {
+          removeListener();
+        } else {
+          unlisten = removeListener;
+        }
+      } catch {
+        // Browser dev mode does not expose Tauri's native drag-drop API.
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+      setIsImageDropActive(false);
+    };
+  }, [showImages]);
+
+  useEffect(() => {
+    if (!isImagePasteTarget) return;
+
+    const handleDocumentPaste = (event: globalThis.ClipboardEvent) => {
+      if (event.defaultPrevented) return;
+      const sources = getImageDropSources(event.clipboardData);
+      if (sources.length === 0 || draft.images.length >= MAX_IMAGE_SELECTION) {
+        return;
+      }
+      event.preventDefault();
+      void addImageSources(sources);
+    };
+
+    document.addEventListener("paste", handleDocumentPaste);
+    return () => document.removeEventListener("paste", handleDocumentPaste);
+  }, [draft.images.length, isImagePasteTarget]);
+
+  const updateImagePasteTarget = () => {
+    setIsImagePasteTarget(
+      imageDropzoneHoveredRef.current || imageDropzoneFocusedRef.current,
+    );
   };
 
   const removeDraftImage = (id: string) => {
@@ -298,7 +602,8 @@ export function TodoEditorForm({
   const handleImageDrop =
     (targetId: string) => (event: DragEvent<HTMLElement>) => {
       event.preventDefault();
-      const draggedId = event.dataTransfer.getData("text/plain") || draggingImageId;
+      const draggedId =
+        event.dataTransfer.getData("text/plain") || draggingImageId;
       if (draggedId) reorderDraftImage(draggedId, targetId);
       setDraggingImageId(null);
     };
@@ -308,7 +613,8 @@ export function TodoEditorForm({
       ...current,
       reminderEnabled: enabled,
       reminderTime: enabled
-        ? normalizeReminderTime(current.reminderTime) ?? getDefaultReminderTime()
+        ? (normalizeReminderTime(current.reminderTime) ??
+          getDefaultReminderTime())
         : current.reminderTime,
     }));
   };
@@ -400,7 +706,9 @@ export function TodoEditorForm({
       Math.max(TIME_PICKER_VIEWPORT_PADDING, rect.left),
       Math.max(
         TIME_PICKER_VIEWPORT_PADDING,
-        viewportWidth - TIME_PICKER_POPOVER_WIDTH - TIME_PICKER_VIEWPORT_PADDING,
+        viewportWidth -
+          TIME_PICKER_POPOVER_WIDTH -
+          TIME_PICKER_VIEWPORT_PADDING,
       ),
     );
     const hasRoomBelow =
@@ -427,7 +735,10 @@ export function TodoEditorForm({
       part === "hour"
         ? `${value}:${selectedMinute}`
         : `${selectedHour}:${value}`;
-    updateDraft(activeTimePicker === "task" ? "taskTime" : "reminderTime", nextTime);
+    updateDraft(
+      activeTimePicker === "task" ? "taskTime" : "reminderTime",
+      nextTime,
+    );
   };
 
   useEffect(() => {
@@ -437,10 +748,7 @@ export function TodoEditorForm({
       const target = event.target;
       const activeRef =
         activeTimePicker === "task" ? taskTimeRef : reminderTimeRef;
-      if (
-        target instanceof Node &&
-        activeRef.current?.contains(target)
-      ) {
+      if (target instanceof Node && activeRef.current?.contains(target)) {
         return;
       }
       setActiveTimePicker(null);
@@ -454,10 +762,7 @@ export function TodoEditorForm({
       const target = event?.target;
       const activeRef =
         activeTimePicker === "task" ? taskTimeRef : reminderTimeRef;
-      if (
-        target instanceof Node &&
-        activeRef.current?.contains(target)
-      ) {
+      if (target instanceof Node && activeRef.current?.contains(target)) {
         return;
       }
       updateTimePickerPosition(activeTimePicker);
@@ -521,9 +826,7 @@ export function TodoEditorForm({
     list.scrollTop = Math.max(0, targetTop);
   };
 
-  const handleTimePickerListWheel = (
-    event: WheelEvent<HTMLDivElement>,
-  ) => {
+  const handleTimePickerListWheel = (event: WheelEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
     const verticalDelta =
@@ -567,7 +870,9 @@ export function TodoEditorForm({
       title: template.title,
       taskTime: template.taskTime ?? current.taskTime,
       comment: template.comment,
-      subtaskTitles: template.subtasks.map((subtask) => subtask.title).join("\n"),
+      subtaskTitles: template.subtasks
+        .map((subtask) => subtask.title)
+        .join("\n"),
       urgency: template.urgency,
       plannedSeconds: template.plannedSeconds,
       countdownEnabled: template.countdownEnabled,
@@ -658,7 +963,9 @@ export function TodoEditorForm({
                 aria-expanded={activeTimePicker === "task"}
               >
                 <IconClock size={14} />
-                <span className="todo-reminder-time__value">{taskTimeValue}</span>
+                <span className="todo-reminder-time__value">
+                  {taskTimeValue}
+                </span>
               </button>
             </div>
           </div>
@@ -855,7 +1162,9 @@ export function TodoEditorForm({
           <label className="switch-control">
             <input
               type="checkbox"
-              aria-label={draft.recurrence == null ? "开启重复任务" : "关闭重复任务"}
+              aria-label={
+                draft.recurrence == null ? "开启重复任务" : "关闭重复任务"
+              }
               checked={draft.recurrence != null}
               onChange={(event) =>
                 handleRecurrenceToggle(event.currentTarget.checked)
@@ -877,9 +1186,7 @@ export function TodoEditorForm({
                   key={frequency}
                   type="button"
                   className={`recurrence-frequency__option ${
-                    draft.recurrence?.frequency === frequency
-                      ? "is-active"
-                      : ""
+                    draft.recurrence?.frequency === frequency ? "is-active" : ""
                   }`}
                   onClick={() => updateRecurrence("frequency", frequency)}
                 >
@@ -899,9 +1206,10 @@ export function TodoEditorForm({
                         ? "is-active"
                         : ""
                     }
-                    aria-pressed={draft.recurrence?.weekdays.includes(
-                      weekday.value,
-                    ) ?? false}
+                    aria-pressed={
+                      draft.recurrence?.weekdays.includes(weekday.value) ??
+                      false
+                    }
                     onClick={() => toggleRecurrenceWeekday(weekday.value)}
                   >
                     {weekday.label}
@@ -930,7 +1238,6 @@ export function TodoEditorForm({
                 onChange={(date) => updateRecurrence("endDate", date)}
               />
             </div>
-
           </div>
         )}
 
@@ -963,65 +1270,104 @@ export function TodoEditorForm({
       </section>
 
       {showImages && (
-      <section className="todo-form__images" aria-label="待办图片">
-        <div className="field__label-row">
-          <span className="field__label">
-            <IconPhoto size={14} />
-            图片
-          </span>
-          <div className="todo-form__images-meta">
-            <span>{draft.images.length}/{MAX_IMAGE_SELECTION}</span>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm todo-form__images-add"
-              onClick={() => imageInputRef.current?.click()}
-              disabled={draft.images.length >= MAX_IMAGE_SELECTION}
-            >
+        <section className="todo-form__images" aria-label="待办图片">
+          <div className="field__label-row">
+            <span className="field__label">
               <IconPhoto size={14} />
-              添加
-            </button>
+              图片
+            </span>
+            <div className="todo-form__images-meta">
+              <span>
+                {draft.images.length}/{MAX_IMAGE_SELECTION}
+              </span>
+            </div>
           </div>
-        </div>
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={handleImageInputChange}
-        />
-        {draft.images.length > 0 ? (
-          <div className="todo-form__image-list">
-            {draft.images.map((image) => (
-              <figure
-                key={image.id}
-                className={`todo-form__image-item ${
-                  draggingImageId === image.id ? "is-dragging" : ""
-                }`}
-                draggable
-                onDragStart={handleImageDragStart(image.id)}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={handleImageDrop(image.id)}
-                onDragEnd={() => setDraggingImageId(null)}
-                title="拖拽调整顺序"
-              >
-                <TodoFormImagePreview todoId={todoId} image={image} />
-                <button
-                  type="button"
-                  className="todo-form__image-remove"
-                  onClick={() => removeDraftImage(image.id)}
-                  aria-label={`移除图片 ${image.name}`}
-                  title="移除图片"
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={handleImageInputChange}
+          />
+          {draft.images.length > 0 ? (
+            <div className="todo-form__image-list">
+              {draft.images.map((image) => (
+                <figure
+                  key={image.id}
+                  className={`todo-form__image-item ${
+                    draggingImageId === image.id ? "is-dragging" : ""
+                  }`}
+                  draggable
+                  onDragStart={handleImageDragStart(image.id)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={handleImageDrop(image.id)}
+                  onDragEnd={() => setDraggingImageId(null)}
+                  title="拖拽调整顺序"
                 >
-                  <IconTrash size={12} />
-                </button>
-              </figure>
-            ))}
-          </div>
-        ) : (
-          <div className="todo-form__images-empty">最多添加 3 张图片</div>
-        )}
-      </section>
+                  <TodoFormImagePreview todoId={todoId} image={image} />
+                  <button
+                    type="button"
+                    className="todo-form__image-remove"
+                    onClick={() => removeDraftImage(image.id)}
+                    aria-label={`移除图片 ${image.name}`}
+                    title="移除图片"
+                  >
+                    <IconTrash size={12} />
+                  </button>
+                </figure>
+              ))}
+            </div>
+          ) : (
+            <div className="todo-form__images-empty"></div>
+          )}
+          <button
+            type="button"
+            ref={imageDropzoneRef}
+            className={`todo-form__image-dropzone ${
+              isImageDropActive ? "is-drag-active" : ""
+            }`}
+            onClick={() => imageInputRef.current?.click()}
+            onPaste={handleImagePaste}
+            onMouseEnter={() => {
+              imageDropzoneHoveredRef.current = true;
+              updateImagePasteTarget();
+            }}
+            onMouseLeave={() => {
+              imageDropzoneHoveredRef.current = false;
+              updateImagePasteTarget();
+            }}
+            onFocus={() => {
+              imageDropzoneFocusedRef.current = true;
+              updateImagePasteTarget();
+            }}
+            onBlur={() => {
+              imageDropzoneFocusedRef.current = false;
+              updateImagePasteTarget();
+            }}
+            onDragEnter={handleImageDropzoneDragEnter}
+            onDragOver={handleImageDropzoneDragOver}
+            onDragLeave={handleImageDropzoneDragLeave}
+            onDrop={handleImageDropzoneDrop}
+            disabled={draft.images.length >= MAX_IMAGE_SELECTION}
+            aria-label="粘贴、选择或拖拽图片"
+          >
+            <IconUpload size={20} />
+            <strong>
+              {draft.images.length >= MAX_IMAGE_SELECTION
+                ? `已达到 ${MAX_IMAGE_SELECTION} 张图片上限`
+                : "粘贴图片、选择文件或拖拽到此处"}
+            </strong>
+            {draft.images.length < MAX_IMAGE_SELECTION && (
+              <span>支持同时添加多张图片</span>
+            )}
+          </button>
+          {imageImportNotice && (
+            <p className="todo-form__images-notice" role="status">
+              {imageImportNotice}
+            </p>
+          )}
+        </section>
       )}
 
       {activeTimePicker != null && (

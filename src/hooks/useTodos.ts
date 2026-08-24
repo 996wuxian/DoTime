@@ -71,6 +71,7 @@ import {
 } from "../utils/reminders";
 import {
   getTodoImagesSignature,
+  MAX_TODO_IMAGES,
   persistTodoImages,
   removeTodoImages as removeStoredTodoImages,
 } from "../utils/todoImages";
@@ -551,7 +552,7 @@ export function useTodos(selectedDate: string) {
             },
             now,
           ),
-          images: [...images].slice(0, 3),
+          images: [...images].slice(0, MAX_TODO_IMAGES),
         };
         todo.recurrenceTemplate =
           normalizedRecurrence == null ? null : createRecurrenceTemplate(todo);
@@ -750,7 +751,9 @@ export function useTodos(selectedDate: string) {
   const updateTodoImages = useCallback((id: string, images: readonly TodoImage[]) => {
     setTodos((prev) =>
       prev.map((todo) =>
-        todo.id === id ? { ...todo, images: [...images].slice(0, 3) } : todo,
+        todo.id === id
+          ? { ...todo, images: [...images].slice(0, MAX_TODO_IMAGES) }
+          : todo,
       ),
     );
   }, []);

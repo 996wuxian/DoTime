@@ -14,6 +14,7 @@ import {
 } from "../types";
 import { normalizeRecurrenceRule } from "../domain/recurrence";
 import { normalizeReminderTime } from "../utils/reminders";
+import { MAX_TODO_IMAGES } from "../utils/todoImages";
 import { formatDisplayDate, formatDurationHuman } from "../utils/time";
 
 export const APP_DATA_VERSION = 2 as const;
@@ -336,7 +337,7 @@ function parseTodoImages(value: unknown): TodoImage[] {
   return value
     .map(parseTodoImage)
     .filter((item): item is TodoImage => item != null)
-    .slice(0, 3);
+    .slice(0, MAX_TODO_IMAGES);
 }
 
 function parseTodoCategoryDivider(value: unknown): TodoCategoryDivider | null {
