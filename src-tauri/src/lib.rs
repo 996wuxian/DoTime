@@ -43,6 +43,7 @@ const CLIPBOARD_HISTORY_LIMIT: usize = 100;
 const CLIPBOARD_HISTORY_FILE: &str = "clipboard-history.json";
 const TODO_IMAGES_DIR: &str = "todo-images";
 const DATA_DIRECTORY_CONFIG_FILE: &str = "data-directory.json";
+const DATA_DIRECTORY_MARKER_FILE: &str = "data-directory.txt";
 const DEFAULT_DATA_DIRECTORY_NAME: &str = "data";
 const DATA_FILE_NAMES: &[&str] = &[
     "app-data.json",
@@ -402,6 +403,9 @@ fn migrate_data_directory(
     }
     if !target.is_absolute() {
         return Err("数据目录必须使用绝对路径".into());
+    }
+    if target.parent().is_none() {
+        return Err("数据目录不能是磁盘根目录".into());
     }
 
     fs::create_dir_all(&target).map_err(|error| error.to_string())?;
@@ -1169,6 +1173,11 @@ fn write_data_directory_config(app: &tauri::AppHandle, directory: &Path) -> Resu
     let config_path = data_directory_config_path(app)?;
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        fs::write(
+            parent.join(DATA_DIRECTORY_MARKER_FILE),
+            directory.to_string_lossy().as_ref(),
+        )
+        .map_err(|error| error.to_string())?;
     }
     let content = serde_json::json!({ "path": directory.to_string_lossy() });
     fs::write(config_path, content.to_string()).map_err(|error| error.to_string())
@@ -1210,6 +1219,9 @@ fn data_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let has_configured_directory = configured.is_some();
     let directory = configured.unwrap_or(default_directory.clone());
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    if has_configured_directory {
+        write_data_directory_config(app, &directory)?;
+    }
 
     // Preserve data created by older versions before the file-backed store existed.
     if !has_configured_directory {
