@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{
     mpsc::{self, Receiver, RecvTimeoutError, Sender},
@@ -1165,7 +1165,7 @@ fn data_directory_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String>
         .join(DATA_DIRECTORY_CONFIG_FILE))
 }
 
-fn write_data_directory_config(app: &tauri::AppHandle, directory: &PathBuf) -> Result<(), String> {
+fn write_data_directory_config(app: &tauri::AppHandle, directory: &Path) -> Result<(), String> {
     let config_path = data_directory_config_path(app)?;
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -1174,7 +1174,7 @@ fn write_data_directory_config(app: &tauri::AppHandle, directory: &PathBuf) -> R
     fs::write(config_path, content.to_string()).map_err(|error| error.to_string())
 }
 
-fn copy_directory_recursive(source: &PathBuf, target: &PathBuf) -> Result<(), String> {
+fn copy_directory_recursive(source: &Path, target: &Path) -> Result<(), String> {
     fs::create_dir_all(target).map_err(|error| error.to_string())?;
     for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
         let entry = entry.map_err(|error| error.to_string())?;
@@ -1576,7 +1576,7 @@ fn clipboard_history_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(data_directory(app)?.join(CLIPBOARD_HISTORY_FILE))
 }
 
-fn load_clipboard_history_from_path(path: &PathBuf) -> Vec<ClipboardSnapshot> {
+fn load_clipboard_history_from_path(path: &Path) -> Vec<ClipboardSnapshot> {
     let Ok(content) = fs::read_to_string(path) else {
         return Vec::new();
     };
