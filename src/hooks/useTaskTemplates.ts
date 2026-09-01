@@ -7,6 +7,10 @@ import {
   saveTaskTemplates,
   type TaskTemplateInput,
 } from "../data/taskTemplates";
+import {
+  FILE_STORAGE_RELOADED_EVENT,
+  mirrorTaskTemplateStorage,
+} from "../data/fileStorage";
 
 type TemplateMoveDirection = -1 | 1;
 
@@ -35,6 +39,7 @@ export function useTaskTemplates() {
         setNotice(`模板保存失败：${result.error}`);
         return false;
       }
+      mirrorTaskTemplateStorage();
       templatesRef.current = normalized;
       setTemplates(normalized);
       setNotice(successMessage);
@@ -44,15 +49,22 @@ export function useTaskTemplates() {
   );
 
   useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== TASK_TEMPLATE_STORAGE_KEY) return;
+    const refresh = () => {
       const loaded = loadTaskTemplates(localStorage);
       templatesRef.current = loaded.templates;
       setTemplates(loaded.templates);
       if (loaded.notice) setNotice(loaded.notice);
     };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== TASK_TEMPLATE_STORAGE_KEY) return;
+      refresh();
+    };
     window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    window.addEventListener(FILE_STORAGE_RELOADED_EVENT, refresh);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(FILE_STORAGE_RELOADED_EVENT, refresh);
+    };
   }, []);
 
   const addTemplate = useCallback(

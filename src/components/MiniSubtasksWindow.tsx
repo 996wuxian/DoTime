@@ -9,6 +9,7 @@ import {
 } from "../data/appData";
 import { buildMiniSubtasksGroup } from "../utils/miniSubtasks";
 import { emitAppDataUpdated } from "../utils/appDataEvents";
+import { mirrorAppDataStorage } from "../data/fileStorage";
 import {
   MINI_SUBTASKS_GROUP_EVENT,
   MINI_SUBTASKS_CLOSED_EVENT,
@@ -75,6 +76,7 @@ async function updateMiniSubtaskTodo(
   if (!saveResult.ok) {
     throw new Error(saveResult.error);
   }
+  mirrorAppDataStorage();
   void emitAppDataUpdated().catch((error) => {
     console.error("failed to emit app data update", error);
   });

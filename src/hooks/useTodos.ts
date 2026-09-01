@@ -75,6 +75,10 @@ import {
   persistTodoImages,
   removeTodoImages as removeStoredTodoImages,
 } from "../utils/todoImages";
+import {
+  FILE_STORAGE_RELOADED_EVENT,
+  mirrorAppDataStorage,
+} from "../data/fileStorage";
 
 const REMINDER_RETRY_DELAY_MS = 30 * 1000;
 const MAX_REMINDER_TIMER_DELAY_MS = 60 * 1000;
@@ -259,24 +263,35 @@ export function useTodos(selectedDate: string) {
       createAppDataDocument(todos, manualSortDates, categoryDividers),
       localStorage,
     );
-    if (!result.ok) setStorageNotice(`保存失败：${result.error}`);
+    if (!result.ok) {
+      setStorageNotice(`保存失败：${result.error}`);
+    } else {
+      mirrorAppDataStorage();
+    }
     void emitAppDataUpdated().catch((error) => {
       console.error("failed to emit app data update", error);
     });
   }, [categoryDividers, manualSortDates, todos]);
 
   useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== APP_DATA_STORAGE_KEY) return;
+    const refresh = () => {
       const loaded = loadAppData(localStorage);
       setTodos(loaded.data.todos);
       setCategoryDividers(loaded.data.categoryDividers);
       setManualSortDates(new Set(loaded.data.manualSortDates));
       if (loaded.notice) setStorageNotice(loaded.notice);
     };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== APP_DATA_STORAGE_KEY) return;
+      refresh();
+    };
 
     window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    window.addEventListener(FILE_STORAGE_RELOADED_EVENT, refresh);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(FILE_STORAGE_RELOADED_EVENT, refresh);
+    };
   }, []);
 
   useEffect(() => {

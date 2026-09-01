@@ -6,9 +6,11 @@ import { MiniSubtasksWindow } from "./components/MiniSubtasksWindow";
 import { PinnedTodoWindow } from "./components/PinnedTodoWindow";
 import { PinnedSubtasksWindow } from "./components/PinnedSubtasksWindow";
 import { ReminderPopup } from "./components/ReminderPopup";
+import { initializeFileBackedDataStore } from "./data/fileStorage";
 import { applyTheme, loadTheme } from "./utils/theme";
 
 applyTheme(loadTheme());
+await initializeFileBackedDataStore();
 
 const params = new URLSearchParams(window.location.search);
 const isMainView = !params.get("view");

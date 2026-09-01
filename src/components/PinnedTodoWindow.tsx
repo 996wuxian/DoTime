@@ -20,6 +20,7 @@ import {
   toggleTodoCompletionWithRecurrence,
 } from "../domain/todoState";
 import { emitAppDataUpdated } from "../utils/appDataEvents";
+import { mirrorAppDataStorage } from "../data/fileStorage";
 import { URGENCY_LABELS, type Todo } from "../types";
 import {
   buildPinnedTodoPayload,
@@ -199,6 +200,7 @@ function togglePinnedTodoCompletion(todoId: string) {
   if (!saveResult.ok) {
     throw new Error(saveResult.error);
   }
+  mirrorAppDataStorage();
 
   void emitAppDataUpdated().catch((error) => {
     console.error("failed to emit app data update", error);
@@ -229,6 +231,7 @@ function updatePinnedTodoData(
   if (!saveResult.ok) {
     throw new Error(saveResult.error);
   }
+  mirrorAppDataStorage();
   void emitAppDataUpdated().catch((error) => {
     console.error("failed to emit app data update", error);
   });
@@ -249,6 +252,7 @@ function deletePinnedTodoData(todoId: string) {
   if (!saveResult.ok) {
     throw new Error(saveResult.error);
   }
+  mirrorAppDataStorage();
   void emitAppDataUpdated().catch((error) => {
     console.error("failed to emit app data update", error);
   });

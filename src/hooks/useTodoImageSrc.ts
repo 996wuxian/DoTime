@@ -29,17 +29,12 @@ export function useTodoImageSrc(
     setSrc(null);
     void (async () => {
       try {
-        const [{ convertFileSrc }, { appDataDir, join }] = await Promise.all([
-          import("@tauri-apps/api/core"),
-          import("@tauri-apps/api/path"),
-        ]);
-        const imagePath = await join(
-          await appDataDir(),
-          "todo-images",
-          currentTodoId,
+        const { invoke } = await import("@tauri-apps/api/core");
+        const dataUrl = await invoke<string>("read_todo_image", {
+          todoId: currentTodoId,
           fileName,
-        );
-        if (!cancelled) setSrc(convertFileSrc(imagePath));
+        });
+        if (!cancelled) setSrc(dataUrl);
       } catch {
         if (!cancelled) setSrc(null);
       }

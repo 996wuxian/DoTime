@@ -42,6 +42,17 @@ const CLIPBOARD_MAX_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 const CLIPBOARD_HISTORY_LIMIT: usize = 100;
 const CLIPBOARD_HISTORY_FILE: &str = "clipboard-history.json";
 const TODO_IMAGES_DIR: &str = "todo-images";
+const DATA_DIRECTORY_CONFIG_FILE: &str = "data-directory.json";
+const DEFAULT_DATA_DIRECTORY_NAME: &str = "data";
+const DATA_FILE_NAMES: &[&str] = &[
+    "app-data.json",
+    "app-data-backup-1.json",
+    "app-data-backup-2.json",
+    "app-data-backup-3.json",
+    "task-templates.json",
+    "task-templates-backup.json",
+    CLIPBOARD_HISTORY_FILE,
+];
 
 // 固定待办窗口在异步命令里创建时会派发到主线程等待；多个调用方（点击固定 +
 // “固定待办已更新”事件回调）可能同时创建同一个标签的窗口，这里串行化创建，
@@ -341,6 +352,121 @@ fn persist_todo_images(
     }
 
     Ok(stored)
+}
+
+#[tauri::command]
+fn get_data_directory(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(data_directory(&app)?.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn read_data_file(app: tauri::AppHandle, file_name: String) -> Result<Option<String>, String> {
+    let path = data_file_path(&app, &file_name)?;
+    match fs::read_to_string(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
+fn write_data_file(
+    app: tauri::AppHandle,
+    file_name: String,
+    content: String,
+) -> Result<(), String> {
+    let path = data_file_path(&app, &file_name)?;
+    fs::write(path, content).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn remove_data_file(app: tauri::AppHandle, file_name: String) -> Result<(), String> {
+    let path = data_file_path(&app, &file_name)?;
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
+fn migrate_data_directory(
+    app: tauri::AppHandle,
+    state: State<'_, ClipboardHistoryState>,
+    new_directory: String,
+) -> Result<String, String> {
+    let source = data_directory(&app)?;
+    let target = PathBuf::from(new_directory.trim());
+    if target.as_os_str().is_empty() {
+        return Err("数据目录不能为空".into());
+    }
+    if !target.is_absolute() {
+        return Err("数据目录必须使用绝对路径".into());
+    }
+
+    fs::create_dir_all(&target).map_err(|error| error.to_string())?;
+    let source_absolute = fs::canonicalize(&source).map_err(|error| error.to_string())?;
+    let target_absolute = fs::canonicalize(&target).map_err(|error| error.to_string())?;
+    if source_absolute == target_absolute {
+        return Ok(source.to_string_lossy().into_owned());
+    }
+    if target_absolute.starts_with(&source_absolute)
+        || source_absolute.starts_with(&target_absolute)
+    {
+        return Err("新数据目录不能位于当前数据目录内部，也不能包含当前数据目录".into());
+    }
+
+    for file_name in DATA_FILE_NAMES {
+        let source_file = source.join(file_name);
+        let target_file = target.join(file_name);
+        if source_file.is_file() && !target_file.exists() {
+            fs::copy(&source_file, target_file).map_err(|error| error.to_string())?;
+        }
+    }
+    let source_images = source.join(TODO_IMAGES_DIR);
+    if source_images.is_dir() {
+        copy_directory_recursive(&source_images, &target.join(TODO_IMAGES_DIR))?;
+    }
+
+    write_data_directory_config(&app, &target)?;
+    if let Ok(mut storage_path) = state.storage_path.lock() {
+        *storage_path = Some(target.join(CLIPBOARD_HISTORY_FILE));
+    }
+    Ok(target.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn open_data_directory(app: tauri::AppHandle) -> Result<(), String> {
+    let directory = data_directory(&app)?;
+
+    #[cfg(windows)]
+    let result = Command::new("explorer").arg(&directory).spawn();
+
+    #[cfg(target_os = "macos")]
+    let result = Command::new("open").arg(&directory).spawn();
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = Command::new("xdg-open").arg(&directory).spawn();
+
+    result.map(|_| ()).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn read_todo_image(
+    app: tauri::AppHandle,
+    todo_id: String,
+    file_name: String,
+) -> Result<String, String> {
+    let dir = todo_image_dir(&app, &todo_id)?;
+    let safe_file_name = sanitize_path_segment(&file_name, "image");
+    let path = dir.join(safe_file_name);
+    let bytes = fs::read(&path).map_err(|error| error.to_string())?;
+    let mime_type = image_mime_type(&path, &bytes).unwrap_or("image/png");
+    Ok(format!(
+        "data:{};base64,{}",
+        mime_type,
+        encode_base64(&bytes)
+    ))
 }
 
 #[tauri::command]
@@ -1003,11 +1129,7 @@ fn show_mini_subtasks_window_inner(
 }
 
 fn todo_images_base_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?
-        .join(TODO_IMAGES_DIR);
+    let dir = data_directory(app)?.join(TODO_IMAGES_DIR);
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     Ok(dir)
 }
@@ -1033,6 +1155,88 @@ fn sanitize_path_segment(value: &str, fallback: &str) -> String {
     } else {
         trimmed.into()
     }
+}
+
+fn data_directory_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|error| error.to_string())?
+        .join(DATA_DIRECTORY_CONFIG_FILE))
+}
+
+fn write_data_directory_config(app: &tauri::AppHandle, directory: &PathBuf) -> Result<(), String> {
+    let config_path = data_directory_config_path(app)?;
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let content = serde_json::json!({ "path": directory.to_string_lossy() });
+    fs::write(config_path, content.to_string()).map_err(|error| error.to_string())
+}
+
+fn copy_directory_recursive(source: &PathBuf, target: &PathBuf) -> Result<(), String> {
+    fs::create_dir_all(target).map_err(|error| error.to_string())?;
+    for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_directory_recursive(&source_path, &target_path)?;
+        } else if source_path.is_file() && !target_path.exists() {
+            fs::copy(source_path, target_path).map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn data_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let config_path = data_directory_config_path(app)?;
+    let configured = fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+        .and_then(|value| {
+            value
+                .get("path")
+                .and_then(|path| path.as_str())
+                .map(PathBuf::from)
+        })
+        .filter(|path| path.is_absolute());
+
+    let default_directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join(DEFAULT_DATA_DIRECTORY_NAME);
+    let has_configured_directory = configured.is_some();
+    let directory = configured.unwrap_or(default_directory.clone());
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+
+    // Preserve data created by older versions before the file-backed store existed.
+    if !has_configured_directory {
+        let legacy_root = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())?;
+        let legacy_images = legacy_root.join(TODO_IMAGES_DIR);
+        let target_images = directory.join(TODO_IMAGES_DIR);
+        if legacy_images.is_dir() && !target_images.exists() {
+            copy_directory_recursive(&legacy_images, &target_images)?;
+        }
+        let legacy_clipboard = legacy_root.join(CLIPBOARD_HISTORY_FILE);
+        let target_clipboard = directory.join(CLIPBOARD_HISTORY_FILE);
+        if legacy_clipboard.is_file() && !target_clipboard.exists() {
+            fs::copy(legacy_clipboard, target_clipboard).map_err(|error| error.to_string())?;
+        }
+    }
+
+    Ok(directory)
+}
+
+fn data_file_path(app: &tauri::AppHandle, file_name: &str) -> Result<PathBuf, String> {
+    if !DATA_FILE_NAMES.contains(&file_name) {
+        return Err("不支持的数据文件".into());
+    }
+    Ok(data_directory(app)?.join(file_name))
 }
 
 fn decode_data_url(value: &str) -> Result<Vec<u8>, String> {
@@ -1369,12 +1573,7 @@ fn sorted_clipboard_history(mut items: Vec<ClipboardSnapshot>) -> Vec<ClipboardS
 }
 
 fn clipboard_history_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    Ok(dir.join(CLIPBOARD_HISTORY_FILE))
+    Ok(data_directory(app)?.join(CLIPBOARD_HISTORY_FILE))
 }
 
 fn load_clipboard_history_from_path(path: &PathBuf) -> Vec<ClipboardSnapshot> {
@@ -2514,6 +2713,13 @@ pub fn run() {
             copy_clipboard_history_item,
             toggle_clipboard_history_pin,
             persist_todo_images,
+            get_data_directory,
+            read_data_file,
+            write_data_file,
+            remove_data_file,
+            migrate_data_directory,
+            open_data_directory,
+            read_todo_image,
             read_todo_image_file,
             remove_todo_images,
             cleanup_todo_images

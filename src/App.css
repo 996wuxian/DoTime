@@ -1117,7 +1117,7 @@ a,
   top: calc(100% + 8px);
   right: 0;
   z-index: 120;
-  width: 272px;
+  width: 336px;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1162,6 +1162,60 @@ a,
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+.data-actions__directory {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+}
+
+.data-actions__directory label {
+  display: grid;
+  gap: 5px;
+}
+
+.data-actions__directory label > span,
+.data-actions__directory small {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.data-actions__directory input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.24);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  outline: none;
+}
+
+.data-actions__directory input:focus {
+  border-color: rgba(45, 212, 191, 0.55);
+}
+
+:root[data-theme="light"] .data-actions__directory input {
+  background: #f8fafc;
+  color: #334155;
+}
+
+.data-actions__directory-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.data-actions__directory-actions .btn {
+  min-width: 0;
+  justify-content: center;
 }
 
 .data-actions__status {
@@ -2497,6 +2551,11 @@ a,
   border-radius: 12px;
   color: var(--danger);
   background: var(--danger-soft);
+}
+
+.confirm-dialog.is-primary .confirm-dialog__icon {
+  color: var(--primary);
+  background: var(--primary-soft);
 }
 
 .confirm-dialog__content {

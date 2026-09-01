@@ -8,6 +8,7 @@ import {
   saveAppData,
 } from "../data/appData";
 import { emitAppDataUpdated } from "../utils/appDataEvents";
+import { mirrorAppDataStorage } from "../data/fileStorage";
 import {
   parseMiniSubtasksGroup,
   type MiniSubtaskItem,
@@ -76,6 +77,7 @@ async function updatePinnedSubtaskTodo(
   if (!saveResult.ok) {
     throw new Error(saveResult.error);
   }
+  mirrorAppDataStorage();
   void emitAppDataUpdated().catch((error) => {
     console.error("failed to emit app data update", error);
   });
