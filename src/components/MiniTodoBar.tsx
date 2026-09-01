@@ -263,6 +263,9 @@ export function MiniTodoBar({
   const countdownEnabled = Boolean(
     todo?.countdownEnabled && todo.plannedSeconds > 0,
   );
+  const countdownOnlyEnabled = Boolean(
+    todo?.countdownOnlyEnabled && countdownEnabled,
+  );
   const countdownProgress = todo && countdownEnabled
     ? Math.max(0, Math.min(100, (remaining / todo.plannedSeconds) * 100))
     : 0;
@@ -351,9 +354,17 @@ export function MiniTodoBar({
               </div>
               <div className="mini-todo__meta">
                 {countdownEnabled && (
-                  <span className="mini-todo__meta-item">
+                  <span
+                    className={`mini-todo__meta-item ${
+                      countdownOnlyEnabled
+                        ? "mini-todo__meta-item--remaining"
+                        : ""
+                    }`}
+                  >
                     <IconClock size={13} />
-                    计划 {formatDuration(todo.plannedSeconds)}
+                    {countdownOnlyEnabled
+                      ? `剩余 ${formatDuration(remaining)}`
+                      : `计划 ${formatDuration(todo.plannedSeconds)}`}
                   </span>
                 )}
                 {todo.recordTimeEnabled && (
@@ -401,7 +412,7 @@ export function MiniTodoBar({
                 >
                   <IconPlayerPause size={14} />
                 </button>
-              ) : todo.recordTimeEnabled ? (
+              ) : todo.recordTimeEnabled && !countdownOnlyEnabled ? (
                 <button
                   type="button"
                   className="mini-action-btn mini-action-btn--primary"

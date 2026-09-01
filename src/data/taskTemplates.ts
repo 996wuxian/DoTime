@@ -19,6 +19,7 @@ export interface TaskTemplateInput {
   taskTime?: string | null;
   plannedSeconds: number;
   countdownEnabled: boolean;
+  countdownOnlyEnabled?: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   recordTimeEnabled: boolean;
@@ -134,6 +135,7 @@ function parseTemplate(value: unknown): TaskTemplate | null {
     return null;
   }
   const countdownEnabled = Boolean(value.countdownEnabled);
+  const countdownOnlyEnabled = countdownEnabled && Boolean(value.countdownOnlyEnabled);
   const plannedSeconds =
     typeof value.plannedSeconds === "number" && Number.isFinite(value.plannedSeconds)
       ? Math.max(60, value.plannedSeconds)
@@ -157,6 +159,7 @@ function parseTemplate(value: unknown): TaskTemplate | null {
     taskTime,
     plannedSeconds,
     countdownEnabled,
+    countdownOnlyEnabled,
     reminderEnabled,
     reminderTime: reminderEnabled ? reminderTime : null,
     recordTimeEnabled:
@@ -238,6 +241,9 @@ export function createTaskTemplate(
     taskTime: normalizeReminderTime(input.taskTime),
     plannedSeconds: Math.max(60, input.plannedSeconds),
     countdownEnabled: input.countdownEnabled,
+    countdownOnlyEnabled: Boolean(
+      input.countdownEnabled && input.countdownOnlyEnabled,
+    ),
     reminderEnabled: input.reminderEnabled && reminderTime != null,
     reminderTime: input.reminderEnabled ? reminderTime : null,
     recordTimeEnabled: input.recordTimeEnabled,

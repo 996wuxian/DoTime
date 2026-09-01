@@ -130,6 +130,9 @@ export function createNextOccurrence(
   const minSortOrder = Math.min(...targetOrders);
   const template = completedTodo.recurrenceTemplate ??
     createRecurrenceTemplate(completedTodo);
+  const shouldStartCountdownOnly = Boolean(
+    template.countdownOnlyEnabled && nextDate <= formatDateKey(new Date(now)),
+  );
 
   return {
     ...completedTodo,
@@ -140,8 +143,8 @@ export function createNextOccurrence(
     reminderSnoozedUntil: null,
     reminderLastFiredAt: null,
     completed: false,
-    isTiming: false,
-    timingStartedAt: null,
+    isTiming: shouldStartCountdownOnly,
+    timingStartedAt: shouldStartCountdownOnly ? now : null,
     elapsedSeconds: 0,
     actualDurationSeconds: null,
     createdAt: now,
@@ -166,6 +169,7 @@ export function createRecurrenceTemplate(
     | "urgency"
     | "plannedSeconds"
     | "countdownEnabled"
+    | "countdownOnlyEnabled"
     | "reminderEnabled"
     | "reminderTime"
     | "recordTimeEnabled"
@@ -176,6 +180,7 @@ export function createRecurrenceTemplate(
     urgency: todo.urgency,
     plannedSeconds: todo.plannedSeconds,
     countdownEnabled: todo.countdownEnabled,
+    countdownOnlyEnabled: todo.countdownOnlyEnabled,
     reminderEnabled: todo.reminderEnabled,
     reminderTime: todo.reminderTime,
     recordTimeEnabled: todo.recordTimeEnabled,

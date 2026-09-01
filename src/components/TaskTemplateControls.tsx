@@ -28,6 +28,9 @@ function getTemplateDetails(template: TaskTemplate) {
     template.countdownEnabled
       ? { label: "计时", value: formatDurationHuman(template.plannedSeconds) }
       : { label: "计时", value: "关闭" },
+    template.countdownEnabled && template.countdownOnlyEnabled
+      ? { label: "模式", value: "仅倒计时" }
+      : null,
     template.reminderEnabled && template.reminderTime
       ? { label: "提醒", value: template.reminderTime }
       : { label: "提醒", value: "关闭" },

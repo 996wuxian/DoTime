@@ -17,6 +17,7 @@ export interface RecurrenceTemplate {
   urgency: Urgency;
   plannedSeconds: number;
   countdownEnabled: boolean;
+  countdownOnlyEnabled?: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   recordTimeEnabled: boolean;
@@ -30,6 +31,7 @@ export interface TaskTemplate {
   taskTime: string | null;
   plannedSeconds: number;
   countdownEnabled: boolean;
+  countdownOnlyEnabled?: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   recordTimeEnabled: boolean;
@@ -86,6 +88,8 @@ export interface Todo {
   plannedSeconds: number;
   /** 是否启用倒计时 */
   countdownEnabled: boolean;
+  /** 是否仅倒计时：创建后自动开始，结束后自动完成 */
+  countdownOnlyEnabled?: boolean;
   /** 是否启用提醒 */
   reminderEnabled: boolean;
   /** 提醒时间 HH:mm */

@@ -13,6 +13,7 @@ import {
   getDefaultReminderTime,
   normalizeReminderTime,
 } from "../utils/reminders";
+import { formatDateKey } from "../utils/time";
 import type { Urgency } from "../types";
 import {
   appendNextOccurrence,
@@ -27,6 +28,7 @@ export type TodoDetailsUpdate = {
   urgency: Urgency;
   plannedSeconds: number;
   countdownEnabled: boolean;
+  countdownOnlyEnabled?: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   recordTimeEnabled: boolean;
@@ -352,6 +354,22 @@ function areAllSubtasksCompleted(subtasks: readonly TodoSubtask[] = []): boolean
 function completeTodoAfterSubtasks(todo: Todo, now: number): Todo {
   if (todo.completed || !areAllSubtasksCompleted(todo.subtasks)) return todo;
   return toggleTodoCompletion(todo, now);
+}
+
+function completeCountdownOnlyTodo(todo: Todo, now: number): Todo {
+  const plannedSeconds = Math.max(60, todo.plannedSeconds);
+  return {
+    ...todo,
+    completed: true,
+    completedAt: now,
+    isTiming: false,
+    timingStartedAt: null,
+    elapsedSeconds: plannedSeconds,
+    actualDurationSeconds: plannedSeconds,
+    subtasks: updateSubtasks(todo.subtasks, (subtask) =>
+      completeSubtask(subtask, now),
+    ),
+  };
 }
 
 function uncompleteTodoAfterSubtasks(todo: Todo): Todo {
@@ -762,6 +780,9 @@ export function updateTodoDetails(
             plannedSeconds: updates.countdownEnabled
               ? Math.max(60, updates.plannedSeconds)
               : 0,
+            countdownOnlyEnabled: Boolean(
+              updates.countdownEnabled && updates.countdownOnlyEnabled,
+            ),
             reminderTime: updates.reminderEnabled
               ? normalizeReminderTime(updates.reminderTime) ??
                 getDefaultReminderTime()
@@ -776,6 +797,7 @@ export function updateTodoDetails(
   const movedSortOrder = Number.isFinite(targetMinSortOrder)
     ? targetMinSortOrder - 1000
     : 1000;
+  const now = Date.now();
 
   const retainedTodos = updateSeries && currentTodo.recurrenceSeriesId != null
     ? todos.filter(
@@ -792,6 +814,17 @@ export function updateTodoDetails(
 
     const keepTimeData = updates.countdownEnabled || updates.recordTimeEnabled;
     const keepTimingState = keepTimeData || !todo.isTiming;
+    const nextPlannedSeconds = updates.countdownEnabled
+      ? Math.max(60, updates.plannedSeconds)
+      : 0;
+    const countdownOnlyEnabled =
+      Boolean(updates.countdownEnabled && updates.countdownOnlyEnabled);
+    const resetCountdownOnlyTiming =
+      countdownOnlyEnabled &&
+      (!todo.countdownOnlyEnabled ||
+        !todo.countdownEnabled ||
+        todo.plannedSeconds !== nextPlannedSeconds);
+    const autoStartCountdownOnly = countdownOnlyEnabled && !todo.completed;
     const nextReminderTime = updates.reminderEnabled
       ? normalizeReminderTime(updates.reminderTime) ?? getDefaultReminderTime()
       : null;
@@ -811,22 +844,39 @@ export function updateTodoDetails(
       sortOrder: dateChanged ? movedSortOrder : todo.sortOrder,
       urgency: updates.urgency,
       countdownEnabled: updates.countdownEnabled,
-      plannedSeconds: updates.countdownEnabled
-        ? Math.max(60, updates.plannedSeconds)
-        : 0,
+      countdownOnlyEnabled,
+      plannedSeconds: nextPlannedSeconds,
       reminderEnabled: updates.reminderEnabled,
       reminderTime: nextReminderTime,
-      recordTimeEnabled: updates.recordTimeEnabled,
+      recordTimeEnabled: countdownOnlyEnabled ? true : updates.recordTimeEnabled,
       reminderSnoozedUntil: updates.reminderEnabled && !reminderChanged
         ? todo.reminderSnoozedUntil
         : null,
       reminderLastFiredAt: updates.reminderEnabled && !reminderChanged
         ? todo.reminderLastFiredAt
         : null,
-      isTiming: keepTimingState ? todo.isTiming : false,
-      timingStartedAt: keepTimingState ? todo.timingStartedAt : null,
-      elapsedSeconds: keepTimeData ? todo.elapsedSeconds : 0,
-      actualDurationSeconds: keepTimeData ? todo.actualDurationSeconds : null,
+      isTiming: autoStartCountdownOnly
+        ? true
+        : keepTimingState
+          ? todo.isTiming
+          : false,
+      timingStartedAt: autoStartCountdownOnly
+        ? resetCountdownOnlyTiming || !todo.isTiming
+          ? now
+          : todo.timingStartedAt
+        : keepTimingState
+          ? todo.timingStartedAt
+          : null,
+      elapsedSeconds: resetCountdownOnlyTiming
+        ? 0
+        : keepTimeData
+          ? todo.elapsedSeconds
+          : 0,
+      actualDurationSeconds: resetCountdownOnlyTiming
+        ? null
+        : keepTimeData
+          ? todo.actualDurationSeconds
+          : null,
       recurrenceSeriesId: nextSeriesId,
       recurrence: occurrenceRecurrence,
       recurrenceTemplate: nextTemplate,
@@ -836,8 +886,53 @@ export function updateTodoDetails(
 
   const updatedCurrent = updatedTodos.find((todo) => todo.id === id);
   return updatedCurrent?.completed && updateSeries
-    ? appendNextOccurrence(updatedTodos, updatedCurrent, Date.now())
+    ? appendNextOccurrence(updatedTodos, updatedCurrent, now)
     : updatedTodos;
+}
+
+export function completeDueCountdownOnlyTodos(
+  todos: Todo[],
+  now: number,
+): Todo[] {
+  let nextTodos = todos;
+  const today = formatDateKey(new Date(now));
+  for (const todo of todos) {
+    if (
+      !todo.countdownOnlyEnabled ||
+      !todo.countdownEnabled ||
+      todo.completed ||
+      todo.plannedSeconds <= 0
+    ) {
+      continue;
+    }
+
+    let activeTodo = nextTodos.find((item) => item.id === todo.id) ?? todo;
+    if (!activeTodo.isTiming && activeTodo.date <= today) {
+      activeTodo = {
+        ...activeTodo,
+        isTiming: true,
+        timingStartedAt: now,
+        actualDurationSeconds: null,
+      };
+      nextTodos = nextTodos.map((item) =>
+        item.id === activeTodo.id ? activeTodo : item,
+      );
+    }
+
+    if (
+      !activeTodo.isTiming ||
+      getTodoLiveElapsedSeconds(activeTodo, now) < activeTodo.plannedSeconds
+    ) {
+      continue;
+    }
+
+    const completedTodo = completeCountdownOnlyTodo(activeTodo, now);
+    nextTodos = nextTodos.map((item) =>
+      item.id === activeTodo.id ? completedTodo : item,
+    );
+    nextTodos = appendNextOccurrence(nextTodos, completedTodo, now);
+  }
+  return nextTodos;
 }
 
 export function toggleTodoCompletionWithRecurrence(

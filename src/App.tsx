@@ -199,6 +199,7 @@ function getSubtaskEditorDraft(
           )
         : draft.plannedSeconds,
       countdownEnabled,
+      countdownOnlyEnabled: false,
       recordTimeEnabled: countdownEnabled ? true : parent.recordTimeEnabled,
     };
   }
@@ -214,6 +215,7 @@ function getSubtaskEditorDraft(
     plannedSeconds:
       subtask.plannedSeconds > 0 ? subtask.plannedSeconds : 25 * 60,
     countdownEnabled: subtask.countdownEnabled,
+    countdownOnlyEnabled: false,
     recordTimeEnabled: subtask.recordTimeEnabled,
     images: [],
   };
@@ -231,6 +233,9 @@ function FavoriteTodoCard({
   onRemoveFavorite: () => void;
 }) {
   const timeTrackingEnabled = todo.countdownEnabled || todo.recordTimeEnabled;
+  const countdownOnlyEnabled =
+    todo.countdownEnabled && Boolean(todo.countdownOnlyEnabled);
+  const countdownRemaining = Math.max(0, todo.plannedSeconds - liveElapsed);
   const comment = todo.comment?.trim() ?? "";
 
   return (
@@ -293,9 +298,17 @@ function FavoriteTodoCard({
             {formatDisplayDate(todo.date)} {formatClockTime(todo.createdAt)}
           </span>
           {todo.countdownEnabled && (
-            <span className="meta-item">
+            <span
+              className={`meta-item ${
+                countdownOnlyEnabled && !todo.completed
+                  ? "meta-countdown-remaining"
+                  : ""
+              }`}
+            >
               <IconClock size={13} />
-              计划 {formatDuration(todo.plannedSeconds)}
+              {countdownOnlyEnabled && !todo.completed
+                ? `剩余 ${formatDuration(countdownRemaining)}`
+                : `计划 ${formatDuration(todo.plannedSeconds)}`}
             </span>
           )}
           {timeTrackingEnabled && (liveElapsed > 0 || todo.isTiming) && (
@@ -2581,6 +2594,7 @@ function App() {
                     ? editingTodo.plannedSeconds
                     : 25 * 60,
                 countdownEnabled: editingTodo.countdownEnabled,
+                countdownOnlyEnabled: Boolean(editingTodo.countdownOnlyEnabled),
                 reminderEnabled: editingTodo.reminderEnabled,
                 reminderTime: editingTodo.reminderTime,
                 recordTimeEnabled: editingTodo.recordTimeEnabled,

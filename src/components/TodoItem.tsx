@@ -580,6 +580,9 @@ export function TodoItem({
   const [commentEditorOpen, setCommentEditorOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState(todo.comment ?? "");
   const countdownEnabled = todo.countdownEnabled;
+  const countdownOnlyEnabled = Boolean(
+    countdownEnabled && todo.countdownOnlyEnabled,
+  );
   const timeTrackingEnabled = countdownEnabled || todo.recordTimeEnabled;
   const countdownSyncEnabled = countdownEnabled && todo.plannedSeconds > 0;
   const reminderEnabled = todo.reminderEnabled && Boolean(todo.reminderTime);
@@ -856,9 +859,17 @@ export function TodoItem({
 
           <div className="todo-item__meta">
             {countdownEnabled && (
-              <span className="meta-item">
+              <span
+                className={`meta-item ${
+                  countdownOnlyEnabled && !todo.completed
+                    ? "meta-countdown-remaining"
+                    : ""
+                }`}
+              >
                 <IconClock size={13} />
-                计划 {formatDuration(todo.plannedSeconds)}
+                {countdownOnlyEnabled && !todo.completed
+                  ? `剩余 ${formatDuration(remaining)}`
+                  : `计划 ${formatDuration(todo.plannedSeconds)}`}
               </span>
             )}
             {todo.reminderEnabled && todo.reminderTime && (
@@ -974,7 +985,10 @@ export function TodoItem({
               <IconRepeat size={16} />
             </button>
           )}
-          {todo.recordTimeEnabled && !todo.completed && !todo.isTiming && (
+          {todo.recordTimeEnabled &&
+            !todo.completed &&
+            !todo.isTiming &&
+            !countdownOnlyEnabled && (
             <button
               type="button"
               className="todo-item__timer-action"

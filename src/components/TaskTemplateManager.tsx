@@ -23,6 +23,9 @@ function getTemplateTags(template: TaskTemplate): string[] {
   const parts = [`紧急 ${URGENCY_LABELS[template.urgency]}`];
   if (template.taskTime) parts.push(`时间 ${template.taskTime}`);
   parts.push(template.countdownEnabled ? "计时开启" : "计时关闭");
+  if (template.countdownEnabled && template.countdownOnlyEnabled) {
+    parts.push("仅倒计时");
+  }
   parts.push(
     template.reminderEnabled && template.reminderTime
       ? `提醒 ${template.reminderTime}`

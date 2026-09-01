@@ -182,6 +182,10 @@ function parseTodo(value: unknown): Todo | null {
   const recurrenceTemplate = recurrence != null
     ? parseRecurrenceTemplate(value.recurrenceTemplate, value)
     : null;
+  const countdownEnabled =
+    typeof value.countdownEnabled === "boolean"
+      ? value.countdownEnabled
+      : plannedSeconds > 0;
 
   return {
     id: value.id,
@@ -190,10 +194,8 @@ function parseTodo(value: unknown): Todo | null {
     date: value.date,
     sortOrder: isFiniteNumber(value.sortOrder) ? value.sortOrder : Number.NaN,
     plannedSeconds,
-    countdownEnabled:
-      typeof value.countdownEnabled === "boolean"
-        ? value.countdownEnabled
-        : plannedSeconds > 0,
+    countdownEnabled,
+    countdownOnlyEnabled: countdownEnabled && Boolean(value.countdownOnlyEnabled),
     reminderEnabled: Boolean(value.reminderEnabled) && reminderTime != null,
     reminderTime,
     recordTimeEnabled:
@@ -239,6 +241,10 @@ function parseRecurrenceTemplate(
     ? Math.max(0, template.plannedSeconds)
     : 0;
   const reminderTime = normalizeReminderTime(template.reminderTime);
+  const countdownEnabled =
+    typeof template.countdownEnabled === "boolean"
+      ? template.countdownEnabled
+      : plannedSeconds > 0;
 
   return {
     title:
@@ -247,10 +253,9 @@ function parseRecurrenceTemplate(
         : String(fallback.title),
     urgency: isUrgency(template.urgency) ? template.urgency : "medium",
     plannedSeconds,
-    countdownEnabled:
-      typeof template.countdownEnabled === "boolean"
-        ? template.countdownEnabled
-        : plannedSeconds > 0,
+    countdownEnabled,
+    countdownOnlyEnabled:
+      countdownEnabled && Boolean(template.countdownOnlyEnabled),
     reminderEnabled: Boolean(template.reminderEnabled) && reminderTime != null,
     reminderTime,
     recordTimeEnabled:
@@ -617,6 +622,7 @@ function formatTodoTextBlock(todo: Todo, index: number): string {
         ? formatDurationHuman(todo.plannedSeconds)
         : "未开启"
     }`,
+    `仅倒计时：${todo.countdownOnlyEnabled ? "已开启" : "未开启"}`,
     `提醒：${
       todo.reminderEnabled && todo.reminderTime
         ? todo.reminderTime

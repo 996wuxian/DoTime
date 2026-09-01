@@ -639,7 +639,14 @@ export function PinnedTodoWindow() {
   }, [slot]);
 
   const liveElapsed = todo == null ? 0 : getLiveElapsed(todo, now);
-  const countdownEnabled = Boolean(todo?.countdownEnabled && todo.plannedSeconds > 0);
+  const countdownEnabled = Boolean(
+    todo?.countdownEnabled && todo.plannedSeconds > 0,
+  );
+  const countdownOnlyEnabled = Boolean(
+    todo?.countdownOnlyEnabled && countdownEnabled,
+  );
+  const remaining =
+    todo == null ? 0 : Math.max(0, todo.plannedSeconds - liveElapsed);
   const progress = useMemo(() => {
     if (todo == null || !countdownEnabled) return 0;
     return Math.max(0, Math.min(100, (liveElapsed / todo.plannedSeconds) * 100));
@@ -786,9 +793,15 @@ export function PinnedTodoWindow() {
 
                 <div className="pinned-todo-card__meta">
                   {countdownEnabled && (
-                    <span className="meta-item pinned-todo-card__meta-item">
+                    <span
+                      className={`meta-item pinned-todo-card__meta-item ${
+                        countdownOnlyEnabled ? "meta-countdown-remaining" : ""
+                      }`}
+                    >
                       <IconClock size={13} />
-                      计划 {formatDuration(todo.plannedSeconds)}
+                      {countdownOnlyEnabled
+                        ? `剩余 ${formatDuration(remaining)}`
+                        : `计划 ${formatDuration(todo.plannedSeconds)}`}
                     </span>
                   )}
                   {todo.recordTimeEnabled && (
@@ -851,7 +864,7 @@ export function PinnedTodoWindow() {
                               <IconPlayerStop size={13} />
                             </button>
                           </>
-                        ) : (
+                        ) : !countdownOnlyEnabled ? (
                           <button
                             type="button"
                             className="pinned-card-action pinned-card-action--sm"
@@ -863,7 +876,7 @@ export function PinnedTodoWindow() {
                           >
                             <IconPlayerPlay size={13} />
                           </button>
-                        ))}
+                        ) : null)}
                       <button
                         type="button"
                         className="pinned-card-action pinned-card-action--sm is-danger"

@@ -17,6 +17,7 @@ export type PinnedTodoPayload = {
   date: string;
   plannedSeconds: number;
   countdownEnabled: boolean;
+  countdownOnlyEnabled?: boolean;
   recordTimeEnabled: boolean;
   completed: boolean;
   isTiming: boolean;
@@ -55,6 +56,7 @@ export function buildPinnedTodoPayload(todo: Todo): PinnedTodoPayload {
     date: todo.date,
     plannedSeconds: todo.plannedSeconds,
     countdownEnabled: todo.countdownEnabled,
+    countdownOnlyEnabled: todo.countdownOnlyEnabled,
     recordTimeEnabled: todo.recordTimeEnabled,
     completed: todo.completed,
     isTiming: todo.isTiming,

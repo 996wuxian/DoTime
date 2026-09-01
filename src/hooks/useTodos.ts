@@ -25,6 +25,7 @@ import {
   addTodoSubtask,
   clearTodoFavorites,
   clearSelectedTodoFavorites,
+  completeDueCountdownOnlyTodos,
   createInitialTodoSubtasks,
   moveTodosToDate,
   pauseTodoTiming,
@@ -332,7 +333,12 @@ export function useTodos(selectedDate: string) {
 
   // 计时中每秒刷新 UI
   useEffect(() => {
-    const hasTiming = todos.some((t) => t.isTiming || hasTimingSubtask(t));
+    const hasTiming = todos.some(
+      (t) =>
+        t.isTiming ||
+        hasTimingSubtask(t) ||
+        (Boolean(t.countdownOnlyEnabled) && !t.completed),
+    );
     if (!hasTiming) return;
     const id = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(id);
@@ -342,12 +348,13 @@ export function useTodos(selectedDate: string) {
     const now = Date.now();
     setTodos((current) => {
       let changed = false;
-      const nextTodos = current.map((todo) => {
+      const syncedTodos = current.map((todo) => {
         const synced = syncTodoSubtaskTiming(todo, now);
         if (synced !== todo) changed = true;
         return synced;
       });
-      return changed ? nextTodos : current;
+      const completedTodos = completeDueCountdownOnlyTodos(syncedTodos, now);
+      return changed || completedTodos !== syncedTodos ? completedTodos : current;
     });
   }, [tick]);
 
@@ -500,6 +507,7 @@ export function useTodos(selectedDate: string) {
       urgency: Urgency,
       plannedSeconds: number,
       countdownEnabled: boolean,
+      countdownOnlyEnabled: boolean,
       reminderEnabled: boolean,
       reminderTime: string | null,
       recordTimeEnabled: boolean,
@@ -524,6 +532,8 @@ export function useTodos(selectedDate: string) {
         const createdDate = new Date(`${todoDate}T00:00:00`);
         createdDate.setHours(Number(hour), Number(minute), 0, 0);
         const createdAt = createdDate.getTime();
+        const normalizedCountdownOnly =
+          countdownEnabled && countdownOnlyEnabled;
         const normalizedRecurrence = normalizeRecurrenceRule(
           recurrence ?? null,
           todoDate,
@@ -536,16 +546,17 @@ export function useTodos(selectedDate: string) {
           sortOrder: Number.isFinite(minSortOrder) ? minSortOrder - 1000 : 1000,
           plannedSeconds: countdownEnabled ? Math.max(60, plannedSeconds) : 0,
           countdownEnabled,
+          countdownOnlyEnabled: normalizedCountdownOnly,
           reminderEnabled,
           reminderTime: reminderEnabled
             ? normalizeReminderTime(reminderTime) ?? getDefaultReminderTime()
             : null,
-          recordTimeEnabled,
+          recordTimeEnabled: normalizedCountdownOnly ? true : recordTimeEnabled,
           reminderSnoozedUntil: null,
           reminderLastFiredAt: null,
           completed: false,
-          isTiming: false,
-          timingStartedAt: null,
+          isTiming: normalizedCountdownOnly,
+          timingStartedAt: normalizedCountdownOnly ? now : null,
           elapsedSeconds: 0,
           actualDurationSeconds: null,
           comment: comment.trim(),

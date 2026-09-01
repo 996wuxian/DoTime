@@ -3387,10 +3387,6 @@ a,
   min-width: 0;
 }
 
-.field--timer {
-  align-items: stretch;
-}
-
 .field--timer.is-hidden,
 .preset-row.is-disabled {
   display: none;
@@ -3675,6 +3671,10 @@ a,
   user-select: none;
 }
 
+.switch-control__label {
+  white-space: nowrap;
+}
+
 .switch-control input {
   position: absolute;
   opacity: 0;
@@ -3733,6 +3733,9 @@ a,
   overflow-x: auto;
   padding-bottom: 2px;
   scrollbar-width: thin;
+}
+.countdown-only-toggle {
+  flex: 0 0 auto;
 }
 
 .recurrence-panel {
@@ -3947,6 +3950,38 @@ a,
 .todo-reminder-time__value {
   line-height: 1;
   width: 46px;
+}
+
+.preset-row .countdown-time {
+  flex: 0 0 auto;
+  width: auto;
+  z-index: 31;
+}
+
+.preset-row .countdown-time .todo-reminder-time__control {
+  width: auto;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+}
+
+.preset-row .countdown-time .todo-reminder-time__value {
+  width: 42px;
+}
+
+.countdown-time__duration {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.meta-countdown-remaining,
+.mini-todo__meta-item--remaining {
+  color: var(--success);
 }
 
 .todo-reminder-time:focus-within .todo-reminder-time__control {

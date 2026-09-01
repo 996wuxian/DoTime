@@ -20,6 +20,7 @@ import {
   formatClockTime,
   formatDateKey,
   formatDisplayDate,
+  formatDuration,
   PRESET_MINUTES,
 } from "../utils/time";
 import { createTodoImageFromFile, MAX_TODO_IMAGES } from "../utils/todoImages";
@@ -28,7 +29,6 @@ import {
   getDefaultReminderTime,
   normalizeReminderTime,
 } from "../utils/reminders";
-import { CountdownDial } from "./CountdownDial";
 import { DatePickerField } from "./DatePickerField";
 import { MonthDaySelect } from "./MonthDaySelect";
 import { TaskTemplateControls } from "./TaskTemplateControls";
@@ -57,6 +57,7 @@ export interface TodoDraft {
   urgency: Urgency;
   plannedSeconds: number;
   countdownEnabled: boolean;
+  countdownOnlyEnabled: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   recordTimeEnabled: boolean;
@@ -127,7 +128,7 @@ const IMAGE_FILE_EXTENSIONS = new Set([
 ]);
 type TaskMode = "normal" | "record" | "countdown";
 
-type ActiveTimePicker = "task" | "reminder" | null;
+type ActiveTimePicker = "task" | "reminder" | "countdown" | null;
 type NativeImagePath = {
   kind: "native-path";
   path: string;
@@ -264,6 +265,51 @@ function formatReminderDateHint(dateKey: string, time: string) {
   return `${dateLabel} ${time}`;
 }
 
+function getCountdownTargetTime(plannedSeconds: number) {
+  return formatClockTime(Date.now() + Math.max(60, plannedSeconds) * 1000);
+}
+
+function getCountdownSecondsUntil(time: string, nowMs = Date.now()) {
+  const normalized = normalizeReminderTime(time);
+  if (normalized == null) return 60;
+
+  const [hour, minute] = normalized.split(":").map(Number);
+  const target = new Date(nowMs);
+  target.setHours(hour, minute, 0, 0);
+  if (target.getTime() <= nowMs) {
+    target.setDate(target.getDate() + 1);
+  }
+
+  return Math.max(60, Math.ceil((target.getTime() - nowMs) / 1000));
+}
+
+function formatCountdownTargetHint(time: string) {
+  const normalized = normalizeReminderTime(time);
+  if (normalized == null) return null;
+
+  const nowMs = Date.now();
+  const [hour, minute] = normalized.split(":").map(Number);
+  const target = new Date(nowMs);
+  target.setHours(hour, minute, 0, 0);
+  if (target.getTime() <= nowMs) {
+    target.setDate(target.getDate() + 1);
+  }
+
+  const today = formatDateKey(new Date(nowMs));
+  const tomorrowDate = new Date(nowMs);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrow = formatDateKey(tomorrowDate);
+  const targetDate = formatDateKey(target);
+  const dateLabel =
+    targetDate === today
+      ? "今天"
+      : targetDate === tomorrow
+        ? "明天"
+        : formatDisplayDate(targetDate);
+
+  return `${dateLabel} ${normalized}`;
+}
+
 function TodoFormImagePreview({
   todoId,
   image,
@@ -307,6 +353,7 @@ export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
     urgency: "medium",
     plannedSeconds: 25 * 60,
     countdownEnabled: false,
+    countdownOnlyEnabled: false,
     reminderEnabled: false,
     reminderTime: getDefaultReminderTime(),
     recordTimeEnabled: false,
@@ -337,6 +384,10 @@ export function TodoEditorForm({
     useState<ActiveTimePicker>(null);
   const [timePickerPosition, setTimePickerPosition] =
     useState<CSSProperties | null>(null);
+  const [countdownTargetTime, setCountdownTargetTime] = useState(() =>
+    getCountdownTargetTime(initialDraft.plannedSeconds),
+  );
+  const [countdownTimeTouched, setCountdownTimeTouched] = useState(false);
   const [draggingImageId, setDraggingImageId] = useState<string | null>(null);
   const [isImageDropActive, setIsImageDropActive] = useState(false);
   const [isImagePasteTarget, setIsImagePasteTarget] = useState(false);
@@ -347,6 +398,8 @@ export function TodoEditorForm({
   const taskTimeButtonRef = useRef<HTMLButtonElement | null>(null);
   const reminderTimeRef = useRef<HTMLDivElement | null>(null);
   const reminderTimeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const countdownTimeRef = useRef<HTMLDivElement | null>(null);
+  const countdownTimeButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const imageDropDepthRef = useRef(0);
   const imageDropzoneRef = useRef<HTMLButtonElement | null>(null);
@@ -360,17 +413,28 @@ export function TodoEditorForm({
     normalizeReminderTime(draft.taskTime) ?? formatClockTime(Date.now());
   const reminderTimeValue =
     normalizeReminderTime(draft.reminderTime) ?? getDefaultReminderTime();
+  const countdownTimeValue =
+    normalizeReminderTime(countdownTargetTime) ??
+    getCountdownTargetTime(draft.plannedSeconds);
   const reminderDateTimeHint = draft.reminderEnabled
     ? formatReminderDateHint(draft.date, reminderTimeValue)
     : null;
+  const countdownTargetHint = draft.countdownEnabled
+    ? formatCountdownTargetHint(countdownTimeValue)
+    : null;
   const activeTimeValue =
-    activeTimePicker === "task" ? taskTimeValue : reminderTimeValue;
+    activeTimePicker === "task"
+      ? taskTimeValue
+      : activeTimePicker === "countdown"
+        ? countdownTimeValue
+        : reminderTimeValue;
   const [selectedHour, selectedMinute] = activeTimeValue.split(":");
   const taskMode: TaskMode = draft.countdownEnabled
     ? "countdown"
     : draft.recordTimeEnabled
       ? "record"
       : "normal";
+  const countdownOnlyEnabled = draft.countdownEnabled && draft.countdownOnlyEnabled;
 
   const updateDraft = <K extends keyof TodoDraft>(
     key: K,
@@ -620,9 +684,17 @@ export function TodoEditorForm({
   };
 
   const handleTaskModeChange = (mode: TaskMode) => {
+    if (mode === "countdown") {
+      setCountdownTargetTime(getCountdownTargetTime(draft.plannedSeconds));
+      setCountdownTimeTouched(false);
+    } else if (activeTimePicker === "countdown") {
+      setActiveTimePicker(null);
+    }
     setDraft((current) => ({
       ...current,
       countdownEnabled: mode === "countdown",
+      countdownOnlyEnabled:
+        mode === "countdown" ? current.countdownOnlyEnabled : false,
       recordTimeEnabled: mode === "record" || mode === "countdown",
       plannedSeconds:
         mode === "countdown"
@@ -681,6 +753,7 @@ export function TodoEditorForm({
 
   const toggleTimePicker = (target: Exclude<ActiveTimePicker, null>) => {
     if (target === "reminder" && !draft.reminderEnabled) return;
+    if (target === "countdown" && !draft.countdownEnabled) return;
     if (activeTimePicker === target) {
       setActiveTimePicker(null);
       return;
@@ -696,7 +769,9 @@ export function TodoEditorForm({
     const button =
       target === "task"
         ? taskTimeButtonRef.current
-        : reminderTimeButtonRef.current;
+        : target === "countdown"
+          ? countdownTimeButtonRef.current
+          : reminderTimeButtonRef.current;
     if (!button) return;
 
     const rect = button.getBoundingClientRect();
@@ -735,6 +810,12 @@ export function TodoEditorForm({
       part === "hour"
         ? `${value}:${selectedMinute}`
         : `${selectedHour}:${value}`;
+    if (activeTimePicker === "countdown") {
+      setCountdownTargetTime(nextTime);
+      setCountdownTimeTouched(true);
+      updateDraft("plannedSeconds", getCountdownSecondsUntil(nextTime));
+      return;
+    }
     updateDraft(
       activeTimePicker === "task" ? "taskTime" : "reminderTime",
       nextTime,
@@ -747,7 +828,11 @@ export function TodoEditorForm({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       const activeRef =
-        activeTimePicker === "task" ? taskTimeRef : reminderTimeRef;
+        activeTimePicker === "task"
+          ? taskTimeRef
+          : activeTimePicker === "countdown"
+            ? countdownTimeRef
+            : reminderTimeRef;
       if (target instanceof Node && activeRef.current?.contains(target)) {
         return;
       }
@@ -761,7 +846,11 @@ export function TodoEditorForm({
     const handleViewportChange = (event?: Event) => {
       const target = event?.target;
       const activeRef =
-        activeTimePicker === "task" ? taskTimeRef : reminderTimeRef;
+        activeTimePicker === "task"
+          ? taskTimeRef
+          : activeTimePicker === "countdown"
+            ? countdownTimeRef
+            : reminderTimeRef;
       if (target instanceof Node && activeRef.current?.contains(target)) {
         return;
       }
@@ -850,9 +939,15 @@ export function TodoEditorForm({
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
     if (!trimmedTitle) return;
+    const plannedSeconds =
+      draft.countdownEnabled && countdownTimeTouched
+        ? getCountdownSecondsUntil(countdownTimeValue)
+        : draft.plannedSeconds;
     onSubmit({
       ...draft,
       title: trimmedTitle,
+      countdownOnlyEnabled: draft.countdownEnabled && draft.countdownOnlyEnabled,
+      plannedSeconds,
       taskTime: normalizeReminderTime(draft.taskTime) ?? taskTimeValue,
       recordTimeEnabled: draft.countdownEnabled
         ? true
@@ -865,6 +960,8 @@ export function TodoEditorForm({
   };
 
   const applyTemplate = (template: TaskTemplate) => {
+    setCountdownTargetTime(getCountdownTargetTime(template.plannedSeconds));
+    setCountdownTimeTouched(false);
     setDraft((current) => ({
       ...current,
       title: template.title,
@@ -876,6 +973,7 @@ export function TodoEditorForm({
       urgency: template.urgency,
       plannedSeconds: template.plannedSeconds,
       countdownEnabled: template.countdownEnabled,
+      countdownOnlyEnabled: Boolean(template.countdownOnlyEnabled),
       reminderEnabled: template.reminderEnabled,
       reminderTime: template.reminderTime,
       recordTimeEnabled: template.countdownEnabled
@@ -1121,18 +1219,6 @@ export function TodoEditorForm({
       </div>
 
       <div
-        className={`field field--timer ${
-          draft.countdownEnabled ? "" : "is-hidden"
-        }`}
-      >
-        <CountdownDial
-          value={draft.plannedSeconds}
-          disabled={!draft.countdownEnabled}
-          onChange={(seconds) => updateDraft("plannedSeconds", seconds)}
-        />
-      </div>
-
-      <div
         className={`preset-row ${draft.countdownEnabled ? "" : "is-disabled"}`}
         aria-label="预设时长"
       >
@@ -1146,11 +1232,60 @@ export function TodoEditorForm({
                 : ""
             }`}
             disabled={!draft.countdownEnabled}
-            onClick={() => updateDraft("plannedSeconds", minutes * 60)}
+            onClick={() => {
+              updateDraft("plannedSeconds", minutes * 60);
+              setCountdownTargetTime(getCountdownTargetTime(minutes * 60));
+              setCountdownTimeTouched(false);
+            }}
           >
             {minutes < 60 ? `${minutes}分` : `${minutes / 60}小时`}
           </button>
         ))}
+        <div
+          ref={countdownTimeRef}
+          className={`todo-reminder-time countdown-time ${
+            draft.countdownEnabled ? "" : "is-disabled"
+          }`}
+        >
+          <button
+            ref={countdownTimeButtonRef}
+            type="button"
+            className="todo-reminder-time__control"
+            disabled={!draft.countdownEnabled}
+            onClick={() => toggleTimePicker("countdown")}
+            aria-label={`选择倒计时结束时间，当前 ${countdownTimeValue}`}
+            aria-haspopup="listbox"
+            aria-expanded={activeTimePicker === "countdown"}
+            title={
+              countdownTargetHint ? `预计结束：${countdownTargetHint}` : undefined
+            }
+          >
+            <IconClock size={14} />
+            <span className="todo-reminder-time__value">
+              {countdownTimeValue}
+            </span>
+            <span className="countdown-time__duration">
+              {formatDuration(draft.plannedSeconds)}
+            </span>
+          </button>
+        </div>
+        <label className="switch-control countdown-only-toggle">
+          <input
+            type="checkbox"
+            aria-label={countdownOnlyEnabled ? "关闭仅倒计时" : "开启仅倒计时"}
+            checked={countdownOnlyEnabled}
+            onChange={(event) => {
+              const checked = event.currentTarget.checked;
+              setDraft((current) => ({
+                ...current,
+                countdownOnlyEnabled: current.countdownEnabled && checked,
+              }));
+            }}
+            disabled={!draft.countdownEnabled}
+          />
+          <span className="switch-control__track" aria-hidden />
+          <span className="switch-control__label">仅倒计时</span>
+        </label>
       </div>
 
       <section className="recurrence-panel" aria-label="重复任务设置">
