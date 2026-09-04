@@ -588,6 +588,7 @@ function App() {
     "todos" | "plan" | "statistics" | "review"
   >("todos");
   const [planPeriod, setPlanPeriod] = useState<PlanPeriod>("week");
+  const [planAllTodosOpen, setPlanAllTodosOpen] = useState(false);
   const [statisticsPeriod, setStatisticsPeriod] =
     useState<StatisticsPeriod>("week");
   const [favoritesOpen, setFavoritesOpen] = useState(false);
@@ -1243,7 +1244,7 @@ function App() {
       resizeObserver.disconnect();
       window.removeEventListener("resize", updateBodyOverflow);
     };
-  }, [dayTodos.length, mainView, showingEditor]);
+  }, [dayTodos.length, mainView, planAllTodosOpen, showingEditor]);
 
   const handleOpenNewTodo = (open: boolean) => {
     setTodoFormOpen(open);
@@ -2270,7 +2271,9 @@ function App() {
             <IconClipboardText size={17} />
           </button>
           <section
-            className="stats-row"
+            className={`stats-row ${
+              stats.totalActual > 0 ? "stats-row--has-duration" : ""
+            }`}
             aria-label="日期统计"
             data-tauri-drag-region
           >
@@ -2346,6 +2349,7 @@ function App() {
             }`}
             onClick={() => {
               setMainView((view) => (view === "plan" ? "todos" : "plan"));
+              setPlanAllTodosOpen(false);
               setTodoFormOpen(false);
               setEditingTodoId(null);
               setSubtaskEditorTarget(null);
@@ -2495,7 +2499,14 @@ function App() {
         </div>
       </header>
 
-      <main ref={appBodyRef} className="app-body">
+      <main
+        ref={appBodyRef}
+        className={`app-body ${
+          mainView === "plan" && planAllTodosOpen
+            ? "is-plan-all-todos-view"
+            : ""
+        }`}
+      >
         <div
           className={`app-content ${
             mainView === "statistics"
@@ -2505,6 +2516,10 @@ function App() {
                 : mainView === "review"
                   ? "is-review-view"
                   : ""
+          } ${
+            mainView === "plan" && planAllTodosOpen
+              ? "is-plan-all-todos-view"
+              : ""
           }`}
         >
           {mainView === "statistics" ? (
@@ -2527,6 +2542,17 @@ function App() {
               period={planPeriod}
               onPeriodChange={setPlanPeriod}
               onAnchorDateChange={setSelectedDate}
+              onAllTodosOpenChange={setPlanAllTodosOpen}
+              onSelectTodo={(todo) => {
+                setPlanAllTodosOpen(false);
+                setSelectedDate(todo.date);
+                setMainView("todos");
+                setTodoFormOpen(false);
+                setEditingTodoId(null);
+                setSubtaskEditorTarget(null);
+                scrollTodoIntoView(todo.id);
+                flashTodo(todo.id);
+              }}
               onSelectDate={(date) => {
                 setSelectedDate(date);
                 setMainView("todos");

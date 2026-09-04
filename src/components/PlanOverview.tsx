@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Todo } from "../types";
 import {
   getCalendarDays,
@@ -16,6 +16,7 @@ import {
   IconClockHour4,
   IconListCheck,
 } from "./icons";
+import { AllTodosTimeline } from "./AllTodosTimeline";
 
 export type PlanPeriod = "week" | "month";
 
@@ -26,6 +27,8 @@ interface PlanOverviewProps {
   onPeriodChange: (period: PlanPeriod) => void;
   onAnchorDateChange: (date: string) => void;
   onSelectDate: (date: string) => void;
+  onSelectTodo: (todo: Todo) => void;
+  onAllTodosOpenChange?: (open: boolean) => void;
 }
 
 type PlanDay = {
@@ -87,7 +90,7 @@ function buildPlanDays(
       pending: dayTodos.filter((todo) => !todo.completed).length,
       completed: dayTodos.filter((todo) => todo.completed).length,
       timing: dayTodos.filter((todo) => todo.isTiming).length,
-      topTitles: dayTodos.slice(0, 3).map((todo) => todo.title),
+      topTitles: dayTodos.slice(0, 4).map((todo) => todo.title),
     };
   });
 
@@ -105,7 +108,13 @@ export function PlanOverview({
   onPeriodChange,
   onAnchorDateChange,
   onSelectDate,
+  onSelectTodo,
+  onAllTodosOpenChange,
 }: PlanOverviewProps) {
+  const [allTodosOpen, setAllTodosOpen] = useState(false);
+  useEffect(() => {
+    onAllTodosOpenChange?.(allTodosOpen);
+  }, [allTodosOpen, onAllTodosOpenChange]);
   const today = formatDateKey();
   const plan = useMemo(
     () => buildPlanDays(todos, anchorDate, period),
@@ -116,6 +125,9 @@ export function PlanOverview({
   const pending = plan.days.reduce((sum, day) => sum + day.pending, 0);
   const completed = plan.days.reduce((sum, day) => sum + day.completed, 0);
   const timing = plan.days.reduce((sum, day) => sum + day.timing, 0);
+  const allPending = todos.filter((todo) => !todo.completed).length;
+  const allCompleted = todos.filter((todo) => todo.completed).length;
+  const allTiming = todos.filter((todo) => todo.isTiming).length;
 
   const shiftPeriod = (delta: -1 | 1) => {
     if (period === "week") {
@@ -126,12 +138,22 @@ export function PlanOverview({
   };
 
   const rangeLabel =
-    period === "week"
+    allTodosOpen
+      ? `全部日期 · ${todos.length} 个待办`
+      : period === "week"
       ? `${formatDisplayDate(plan.startDate)} - ${formatDisplayDate(plan.endDate)}`
       : MONTH_FORMATTER.format(currentMonth);
 
+  const handlePeriodChange = (nextPeriod: PlanPeriod) => {
+    setAllTodosOpen(false);
+    onPeriodChange(nextPeriod);
+  };
+
   return (
-    <section className="plan-overview" aria-labelledby="plan-overview-title">
+    <section
+      className={`plan-overview ${allTodosOpen ? "is-all-todos" : ""}`}
+      aria-labelledby="plan-overview-title"
+    >
       <header className="plan-overview__header">
         <div>
           <h2 id="plan-overview-title">计划视图</h2>
@@ -141,48 +163,58 @@ export function PlanOverview({
           <div className="plan-period" role="group" aria-label="计划周期">
             <button
               type="button"
-              className={period === "week" ? "is-active" : ""}
-              onClick={() => onPeriodChange("week")}
-              aria-pressed={period === "week"}
+              className={allTodosOpen ? "is-active" : ""}
+              onClick={() => setAllTodosOpen(true)}
+              aria-pressed={allTodosOpen}
+            >
+              全部待办
+            </button>
+            <button
+              type="button"
+              className={!allTodosOpen && period === "week" ? "is-active" : ""}
+              onClick={() => handlePeriodChange("week")}
+              aria-pressed={!allTodosOpen && period === "week"}
             >
               周视图
             </button>
             <button
               type="button"
-              className={period === "month" ? "is-active" : ""}
-              onClick={() => onPeriodChange("month")}
-              aria-pressed={period === "month"}
+              className={!allTodosOpen && period === "month" ? "is-active" : ""}
+              onClick={() => handlePeriodChange("month")}
+              aria-pressed={!allTodosOpen && period === "month"}
             >
               月视图
             </button>
           </div>
-          <div className="plan-navigation">
-            <button
-              type="button"
-              className="btn btn-ghost btn-icon-only"
-              onClick={() => shiftPeriod(-1)}
-              aria-label={period === "week" ? "上一周" : "上个月"}
-              title={period === "week" ? "上一周" : "上个月"}
-            >
-              <IconChevronLeft size={17} />
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost plan-navigation__current"
-              onClick={() => onAnchorDateChange(today)}
-            >
-              本期
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-icon-only"
-              onClick={() => shiftPeriod(1)}
-              aria-label={period === "week" ? "下一周" : "下个月"}
-              title={period === "week" ? "下一周" : "下个月"}
-            >
-              <IconChevronRight size={17} />
-            </button>
-          </div>
+          {!allTodosOpen && (
+            <div className="plan-navigation">
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon-only"
+                onClick={() => shiftPeriod(-1)}
+                aria-label={period === "week" ? "上一周" : "上个月"}
+                title={period === "week" ? "上一周" : "上个月"}
+              >
+                <IconChevronLeft size={17} />
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost plan-navigation__current"
+                onClick={() => onAnchorDateChange(today)}
+              >
+                本期
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon-only"
+                onClick={() => shiftPeriod(1)}
+                aria-label={period === "week" ? "下一周" : "下个月"}
+                title={period === "week" ? "下一周" : "下个月"}
+              >
+                <IconChevronRight size={17} />
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -190,84 +222,105 @@ export function PlanOverview({
         <article className="plan-metric">
           <IconListCheck size={17} />
           <span>待办</span>
-          <strong>{total}</strong>
+          <strong>{allTodosOpen ? todos.length : total}</strong>
         </article>
         <article className="plan-metric is-warning">
           <IconCalendarEvent size={17} />
           <span>未完成</span>
-          <strong>{pending}</strong>
+          <strong>{allTodosOpen ? allPending : pending}</strong>
         </article>
         <article className="plan-metric is-success">
           <IconCircleCheck size={17} />
           <span>已完成</span>
-          <strong>{completed}</strong>
+          <strong>{allTodosOpen ? allCompleted : completed}</strong>
         </article>
         <article className="plan-metric is-primary">
           <IconClockHour4 size={17} />
           <span>计时中</span>
-          <strong>{timing}</strong>
+          <strong>{allTodosOpen ? allTiming : timing}</strong>
         </article>
       </div>
 
-      {period === "month" && (
-        <div className="plan-weekdays" aria-hidden>
-          {WEEKDAYS.map((weekday) => (
-            <span key={weekday}>{weekday}</span>
-          ))}
-        </div>
-      )}
+      <div className="plan-overview__content">
+        <div className="plan-overview__main">
+          {allTodosOpen ? (
+            <AllTodosTimeline
+              todos={todos}
+              activeDate={anchorDate}
+              onSelectTodo={onSelectTodo}
+            />
+          ) : (
+            <>
+              {period === "month" && (
+                <div className="plan-weekdays" aria-hidden>
+                  {WEEKDAYS.map((weekday) => (
+                    <span key={weekday}>{weekday}</span>
+                  ))}
+                </div>
+              )}
 
-      <div
-        className={`plan-grid plan-grid--${period}`}
-        role="list"
-        aria-label={period === "week" ? "周计划" : "月计划"}
-      >
-        {plan.days.map((day, index) => (
-          <button
-            key={`${day.date}-${index}`}
-            type="button"
-            className={[
-              "plan-day",
-              day.date === anchorDate ? "is-selected" : "",
-              day.date === today ? "is-today" : "",
-              day.isCurrentMonth ? "" : "is-outside",
-              day.total > 0 ? "has-todos" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={() => onSelectDate(day.date)}
-            role="listitem"
-          >
-            <span className="plan-day__date">
-              {period === "week" ? WEEKDAYS[index] : day.day}
-            </span>
-            {period === "week" && (
-              <span className="plan-day__full-date">
-                {formatDisplayDate(day.date)}
-              </span>
-            )}
-            <span className="plan-day__counts">
-              <b>{day.total}</b>
-              <small>待办</small>
-              {day.pending > 0 && <i>{day.pending} 未完成</i>}
-            </span>
-            {day.timing > 0 && (
-              <span className="plan-day__timing">
-                <IconClockHour4 size={12} />
-                {day.timing}
-              </span>
-            )}
-            {day.topTitles.length > 0 ? (
-              <span className="plan-day__tasks">
-                {day.topTitles.map((title) => (
-                  <em key={title}>{title}</em>
+              <div
+                className={`plan-grid plan-grid--${period}`}
+                role="list"
+                aria-label={period === "week" ? "周计划" : "月计划"}
+              >
+                {plan.days.map((day, index) => (
+                  <button
+                    key={`${day.date}-${index}`}
+                    type="button"
+                    className={[
+                      "plan-day",
+                      day.date === anchorDate ? "is-selected" : "",
+                      day.date === today ? "is-today" : "",
+                      day.isCurrentMonth ? "" : "is-outside",
+                      day.total > 0 ? "has-todos" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => onSelectDate(day.date)}
+                    role="listitem"
+                  >
+                    <span className="plan-day__header">
+                      <span className="plan-day__date">
+                        {period === "week" ? WEEKDAYS[index] : day.day}
+                      </span>
+                      <span className="plan-day__counts">
+                        <b>{day.total}</b>
+                        <small>待办</small>
+                        {day.pending > 0 && <i>{day.pending} 未完成</i>}
+                      </span>
+                    </span>
+                    {period === "week" && (
+                      <span className="plan-day__full-date">
+                        {formatDisplayDate(day.date)}
+                      </span>
+                    )}
+                    {day.timing > 0 && (
+                      <span className="plan-day__timing">
+                        <IconClockHour4 size={12} />
+                        {day.timing}
+                      </span>
+                    )}
+                    {day.topTitles.length > 0 ? (
+                      <span className="plan-day__tasks">
+                        {day.topTitles.map((title) => (
+                          <em key={title}>{title}</em>
+                        ))}
+                        {day.total > day.topTitles.length && (
+                          <span className="plan-day__more" aria-hidden="true">
+                            ...
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="plan-day__empty">暂无待办</span>
+                    )}
+                  </button>
                 ))}
-              </span>
-            ) : (
-              <span className="plan-day__empty">暂无待办</span>
-            )}
-          </button>
-        ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </section>
   );
