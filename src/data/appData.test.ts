@@ -80,6 +80,14 @@ function createCategoryDivider(
 }
 
 describe("app data storage", () => {
+  it("preserves daily pinned todos across save and reload", () => {
+    const storage = new MemoryStorage();
+    const pinned = createTodo({ dailyPinned: true });
+
+    expect(saveAppData(createAppDataDocument([pinned], []), storage).ok).toBe(true);
+    expect(loadAppData(storage).data.todos[0].dailyPinned).toBe(true);
+  });
+
   it("migrates the legacy todo array into the v2 document", () => {
     const storage = new MemoryStorage();
     storage.setItem(

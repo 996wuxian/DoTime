@@ -219,6 +219,7 @@ function parseTodo(value: unknown): Todo | null {
       : null,
     comment: typeof value.comment === "string" ? value.comment : "",
     favorite: Boolean(value.favorite),
+    dailyPinned: Boolean(value.dailyPinned),
     createdAt: isFiniteNumber(value.createdAt) ? value.createdAt : Date.now(),
     completedAt: isFiniteNumber(value.completedAt) ? value.completedAt : null,
     recurrenceSeriesId:
@@ -615,6 +616,7 @@ function formatTodoTextBlock(todo: Todo, index: number): string {
     `待办 ${index + 1}`,
     `标题：${todo.title}`,
     `状态：${formatTodoStatus(todo)}`,
+    `每日固定：${todo.dailyPinned ? "是" : "否"}`,
     `紧急程度：${URGENCY_LABELS[todo.urgency]}`,
     `创建时间：${formatTimestamp(todo.createdAt)}`,
     `倒计时：${

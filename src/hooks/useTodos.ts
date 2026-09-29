@@ -788,6 +788,16 @@ export function useTodos(selectedDate: string) {
     setTodos((prev) => toggleTodoFavorite(prev, id));
   }, []);
 
+  const setDailyPinned = useCallback((id: string, pinned: boolean) => {
+    setTodos((prev) =>
+      prev.map((todo) =>
+        todo.id === id && Boolean(todo.dailyPinned) !== pinned
+          ? { ...todo, dailyPinned: pinned }
+          : todo,
+      ),
+    );
+  }, []);
+
   const clearFavorites = useCallback(() => {
     setTodos((prev) => clearTodoFavorites(prev));
   }, []);
@@ -988,6 +998,7 @@ export function useTodos(selectedDate: string) {
     updateComment,
     updateTodoImages,
     toggleFavorite,
+    setDailyPinned,
     clearFavorites,
     completeTodos,
     moveTodos,

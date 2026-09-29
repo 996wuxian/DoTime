@@ -112,6 +112,8 @@ export interface Todo {
   actualDurationSeconds: number | null;
   comment?: string;
   favorite?: boolean;
+  /** 是否在首页的每日固定待办区域显示 */
+  dailyPinned?: boolean;
   images?: TodoImage[];
   createdAt: number;
   completedAt: number | null;

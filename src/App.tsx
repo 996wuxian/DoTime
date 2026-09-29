@@ -42,6 +42,7 @@ import {
   IconListCheck,
   IconDockTop,
   IconPencil,
+  IconPin,
   IconPinOff,
   IconPlus,
   IconRepeat,
@@ -629,12 +630,14 @@ function App() {
   const highlightTimerRef = useRef<number | null>(null);
   const dragStateRef = useRef<TodoDragState | null>(null);
   const todoDropTargetRef = useRef<TodoDropTarget | null>(null);
+  const dailyPinDropTargetRef = useRef(false);
   const [draggingTodoId, setDraggingTodoId] = useState<string | null>(null);
   const [todoDragPreview, setTodoDragPreview] =
     useState<TodoDragPreview | null>(null);
   const [todoDropTarget, setTodoDropTarget] = useState<TodoDropTarget | null>(
     null,
   );
+  const [dailyPinDropTarget, setDailyPinDropTarget] = useState(false);
   const {
     allTodos,
     dayTodos,
@@ -653,6 +656,7 @@ function App() {
     updateComment,
     updateTodoImages,
     toggleFavorite,
+    setDailyPinned,
     clearFavorites,
     completeTodos,
     moveTodos,
@@ -975,6 +979,7 @@ function App() {
         a.sortOrder - b.sortOrder ||
         b.createdAt - a.createdAt,
     );
+  const dailyPinnedTodos = allTodos.filter((todo) => todo.dailyPinned);
   const selectedCount = selectedTodoIds.size;
   const selectedFavoriteCount = dayTodos.filter(
     (todo) => selectedTodoIds.has(todo.id) && todo.favorite,
@@ -1429,9 +1434,11 @@ function App() {
     window.removeEventListener("pointercancel", handleTodoDragEnd);
     dragStateRef.current = null;
     todoDropTargetRef.current = null;
+    dailyPinDropTargetRef.current = false;
     setDraggingTodoId(null);
     setTodoDragPreview(null);
     setTodoDropTarget(null);
+    setDailyPinDropTarget(false);
   };
 
   const handleTodoDragMove = (event: globalThis.PointerEvent) => {
@@ -1460,6 +1467,14 @@ function App() {
     );
 
     const target = document.elementFromPoint(event.clientX, event.clientY);
+    const overDailyPinZone = target?.closest("[data-daily-pin-zone]") != null;
+    dailyPinDropTargetRef.current = overDailyPinZone;
+    setDailyPinDropTarget(overDailyPinZone);
+    if (overDailyPinZone) {
+      todoDropTargetRef.current = null;
+      setTodoDropTarget(null);
+      return;
+    }
     const targetItem = target?.closest<HTMLElement>(
       "[data-todo-id], [data-category-id]",
     );
@@ -1495,7 +1510,9 @@ function App() {
     const dragState = dragStateRef.current;
     if (!dragState || event.pointerId !== dragState.pointerId) return;
     const dropTarget = todoDropTargetRef.current;
-    if (dragState.active && dropTarget != null) {
+    if (dragState.active && dailyPinDropTargetRef.current) {
+      setDailyPinned(dragState.draggedId, true);
+    } else if (dragState.active && dropTarget != null) {
       reorderTodo(
         dragState.draggedId,
         dropTarget.targetId,
@@ -2502,11 +2519,61 @@ function App() {
       <main
         ref={appBodyRef}
         className={`app-body ${
+          mainView === "todos" && !showingEditor
+            ? "is-daily-todos-view"
+            : ""
+        } ${
           mainView === "plan" && planAllTodosOpen
             ? "is-plan-all-todos-view"
             : ""
         }`}
       >
+        {mainView === "todos" && !showingEditor && (
+          <aside
+            className={`daily-pinned ${dailyPinDropTarget ? "is-drop-target" : ""}`}
+            data-daily-pin-zone
+            aria-label="每日固定待办"
+          >
+            <div className="daily-pinned__heading">
+              <span className="daily-pinned__icon" aria-hidden="true"><IconPin size={17} /></span>
+              <h2>每日固定</h2>
+              <span className="daily-pinned__count">{dailyPinnedTodos.length}</span>
+            </div>
+            <p className="daily-pinned__hint">将待办拖到这里，每天都能看到</p>
+            {dailyPinnedTodos.length === 0 ? (
+              <div className="daily-pinned__empty">按住待办右侧的拖拽手柄，拖入此处</div>
+            ) : (
+              <ul className="daily-pinned__list">
+                {dailyPinnedTodos.map((todo) => (
+                  <li key={todo.id} className={`daily-pinned__item ${todo.completed ? "is-completed" : ""}`}>
+                    <button
+                      type="button"
+                      className="daily-pinned__task"
+                      onClick={() => {
+                        setSelectedDate(todo.date);
+                        flashTodo(todo.id);
+                        window.setTimeout(() => scrollTodoIntoView(todo.id), 0);
+                      }}
+                      title={`查看 ${todo.date} 的待办`}
+                    >
+                      <span className="daily-pinned__task-title">{todo.title}</span>
+                      <span className="daily-pinned__task-date">{formatDisplayDate(todo.date)} · {todo.completed ? "已完成" : todo.isTiming ? "计时中" : "待办"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="daily-pinned__remove"
+                      onClick={() => setDailyPinned(todo.id, false)}
+                      aria-label={`取消每日固定：${todo.title}`}
+                      title="取消每日固定"
+                    >
+                      <IconPinOff size={15} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+        )}
         <div
           className={`app-content ${
             mainView === "statistics"
