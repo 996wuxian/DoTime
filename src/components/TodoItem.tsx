@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   type PointerEvent,
-  type WheelEvent,
 } from "react";
 import type { Todo, TodoImage, TodoSubtask } from "../types";
 import { RECURRENCE_LABELS, URGENCY_LABELS } from "../types";
@@ -608,6 +607,7 @@ export function TodoItem({
   const completedAt = todo.completedAt;
   const completedTime = todo.completedAt != null ? formatClockTime(todo.completedAt) : null;
   const todoImages = todo.images ?? [];
+  const imageListRef = useRef<HTMLDivElement | null>(null);
   const [activeImageIndex, setActiveImageIndex] = useState<number | null>(null);
   const reminderDueAt = getReminderDueAt(todo);
   const reminderFired =
@@ -631,26 +631,33 @@ export function TodoItem({
     setCommentEditorOpen(false);
   };
 
-  const handleImageWheel = (event: WheelEvent<HTMLDivElement>) => {
-    const container = event.currentTarget;
-    const maxScrollLeft = container.scrollWidth - container.clientWidth;
-    if (maxScrollLeft <= 0) return;
+  useEffect(() => {
+    const container = imageListRef.current;
+    if (container == null) return;
 
-    const delta =
-      Math.abs(event.deltaY) >= Math.abs(event.deltaX)
-        ? event.deltaY
-        : event.deltaX;
-    if (delta === 0) return;
+    const handleImageWheel = (event: globalThis.WheelEvent) => {
+      // 使用非 passive 原生监听，确保首页主滚动容器不会接收到这个滚轮事件。
+      event.preventDefault();
+      event.stopPropagation();
 
-    const nextScrollLeft = Math.max(
-      0,
-      Math.min(maxScrollLeft, container.scrollLeft + delta),
-    );
-    if (nextScrollLeft === container.scrollLeft) return;
+      const maxScrollLeft = container.scrollWidth - container.clientWidth;
+      if (maxScrollLeft <= 0) return;
 
-    event.preventDefault();
-    container.scrollLeft = nextScrollLeft;
-  };
+      const delta =
+        Math.abs(event.deltaY) >= Math.abs(event.deltaX)
+          ? event.deltaY
+          : event.deltaX;
+      if (delta === 0) return;
+
+      container.scrollLeft = Math.max(
+        0,
+        Math.min(maxScrollLeft, container.scrollLeft + delta),
+      );
+    };
+
+    container.addEventListener("wheel", handleImageWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleImageWheel);
+  }, [todoImages.length]);
 
   const activeImage =
     activeImageIndex == null ? null : todoImages[activeImageIndex] ?? null;
@@ -1045,7 +1052,7 @@ export function TodoItem({
       {todoImages.length > 0 && (
         <div
           className="todo-item__images"
-          onWheel={handleImageWheel}
+          ref={imageListRef}
           aria-label="待办图片"
           role="region"
           tabIndex={0}

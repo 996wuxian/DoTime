@@ -17,6 +17,8 @@
   --success: #3dd68c;
   --success-soft: rgba(61, 214, 140, 0.14);
   --warning: #ffb020;
+  --scrollbar-thumb: rgba(148, 163, 184, 0.48);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, 0.7);
   --statistics-time: #6ea8ff;
   --statistics-done: #ffb020;
   --radius: 16px;
@@ -55,6 +57,8 @@
   --success: #059669;
   --success-soft: rgba(5, 150, 105, 0.12);
   --warning: #d97706;
+  --scrollbar-thumb: rgba(71, 85, 105, 0.42);
+  --scrollbar-thumb-hover: rgba(71, 85, 105, 0.62);
   --statistics-time: #2563eb;
   --statistics-done: #d97706;
   --shadow: 0 16px 36px rgba(15, 23, 42, 0.1);
@@ -88,6 +92,53 @@ body {
   overflow: hidden;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+/*
+ * Keep scrollbars compact and consistent across the Chromium WebView and
+ * Firefox. WebKit exposes native arrow buttons unless they are explicitly
+ * hidden, which makes the main page and the daily pinned rail look oversized
+ * on Windows.
+ */
+html,
+body,
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-button:single-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+::-webkit-scrollbar-corner,
+::-webkit-resizer {
+  background: transparent;
 }
 
 body.is-mini-mode {
@@ -144,6 +195,8 @@ button {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(0, 850px) minmax(0, 1fr);
   align-content: start;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .app-body.is-daily-todos-view .app-content {
@@ -155,14 +208,18 @@ button {
   grid-column: 1;
   grid-row: 1;
   align-self: start;
-  position: sticky;
-  top: 18px;
-  width: min(280px, calc(100% - 40px));
+  position: fixed;
+  top: calc(var(--titlebar-height) + 18px);
+  left: 20px;
+  width: min(180px, calc(100% - 40px));
   height: calc(100vh - var(--titlebar-height) - 54px);
   max-height: calc(100vh - var(--titlebar-height) - 54px);
-  margin: 0 20px;
-  padding: 16px;
-  overflow-y: auto;
+  margin: 0;
+  padding: 16px 10px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px dashed var(--border-strong, var(--border));
   border-radius: var(--radius);
   background: var(--bg-elevated);
@@ -218,11 +275,16 @@ button {
 }
 
 .daily-pinned__list {
+  min-height: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin: 0;
   padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   list-style: none;
 }
 
@@ -255,9 +317,11 @@ button {
 
 .daily-pinned__task-title {
   width: 100%;
-  overflow-wrap: anywhere;
+  overflow: hidden;
   font-size: 13px;
   line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .daily-pinned__item.is-completed .daily-pinned__task-title {
@@ -5086,11 +5150,12 @@ a,
   z-index: 1;
   width: 138px;
   max-width: calc(100vw - 24px);
-  height: 42px;
-  min-height: 42px;
+  height: 48px;
+  min-height: 48px;
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 3px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -8181,10 +8246,13 @@ body.is-reminder-window #root {
   .app-body.is-daily-todos-view {
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .daily-pinned {
     position: static;
+    left: auto;
     width: calc(100% - 40px);
     height: auto;
     max-height: 240px;

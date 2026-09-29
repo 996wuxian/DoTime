@@ -9,6 +9,21 @@ import { ReminderPopup } from "./components/ReminderPopup";
 import { initializeFileBackedDataStore } from "./data/fileStorage";
 import { applyTheme, loadTheme } from "./utils/theme";
 
+function disableGlobalBrowserShortcuts() {
+  const preventContextMenu = (event: MouseEvent) => {
+    event.preventDefault();
+  };
+  const preventDevToolsShortcut = (event: KeyboardEvent) => {
+    if (event.key !== "F12" && event.code !== "F12") return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+
+  document.addEventListener("contextmenu", preventContextMenu, true);
+  window.addEventListener("keydown", preventDevToolsShortcut, true);
+}
+
+disableGlobalBrowserShortcuts();
 applyTheme(loadTheme());
 await initializeFileBackedDataStore();
 
