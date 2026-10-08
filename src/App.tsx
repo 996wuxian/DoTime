@@ -7,6 +7,7 @@ import {
 } from "react";
 import { MiniTodoBar } from "./components/MiniTodoBar";
 import { DailyReview } from "./components/DailyReview";
+import { DailyPinnedTodos } from "./components/DailyPinnedTodos";
 import { GlobalSearch } from "./components/GlobalSearch";
 import { PlanOverview, type PlanPeriod } from "./components/PlanOverview";
 import { StatisticsCenter } from "./components/StatisticsCenter";
@@ -42,7 +43,6 @@ import {
   IconListCheck,
   IconDockTop,
   IconPencil,
-  IconPin,
   IconPinOff,
   IconPlus,
   IconRepeat,
@@ -52,6 +52,7 @@ import {
 } from "./components/icons";
 import type { StatisticsPeriod } from "./domain/statistics";
 import { useTodos } from "./hooks/useTodos";
+import type { DailyPinnedDayDropState } from "./hooks/useDailyPinnedDrag";
 import { useTaskTemplates } from "./hooks/useTaskTemplates";
 import type { Todo, TodoCategoryDivider, TodoSubtask } from "./types";
 import { URGENCY_LABELS } from "./types";
@@ -638,8 +639,14 @@ function App() {
     null,
   );
   const [dailyPinDropTarget, setDailyPinDropTarget] = useState(false);
+  const [dailyPinnedDayDropTarget, setDailyPinnedDayDropTarget] =
+    useState<DailyPinnedDayDropState | null>(null);
+  const activeTodoDropTarget = dailyPinnedDayDropTarget?.target ?? todoDropTarget;
   const {
     allTodos,
+    dailyPinnedTodos,
+    dailyPinnedAddResult,
+    addDailyPinnedToDay,
     dayTodos,
     dayCategoryDividers,
     stats,
@@ -657,6 +664,7 @@ function App() {
     updateTodoImages,
     toggleFavorite,
     setDailyPinned,
+    reorderDailyPinnedTodo,
     clearFavorites,
     completeTodos,
     moveTodos,
@@ -979,7 +987,6 @@ function App() {
         a.sortOrder - b.sortOrder ||
         b.createdAt - a.createdAt,
     );
-  const dailyPinnedTodos = allTodos.filter((todo) => todo.dailyPinned);
   const selectedCount = selectedTodoIds.size;
   const selectedFavoriteCount = dayTodos.filter(
     (todo) => selectedTodoIds.has(todo.id) && todo.favorite,
@@ -1594,6 +1601,21 @@ function App() {
       setHighlightedTodoId(null);
     }, TODO_HIGHLIGHT_MS);
   };
+
+  useEffect(() => {
+    if (!dailyPinnedAddResult) return;
+    if (dailyPinnedAddResult.status === "missing") {
+      showGlobalToast("该固定待办已不存在", "error");
+      return;
+    }
+    setSelectedDate(dailyPinnedAddResult.date);
+    showGlobalToast(
+      dailyPinnedAddResult.status === "duplicate" ? "已有重复项" : "已添加到待办列表",
+      dailyPinnedAddResult.status === "duplicate" ? "error" : "success",
+    );
+    flashTodo(dailyPinnedAddResult.todoId);
+    scrollTodoIntoView(dailyPinnedAddResult.todoId);
+  }, [dailyPinnedAddResult]);
 
   const handleScrollToTop = () => {
     appBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
@@ -2529,50 +2551,23 @@ function App() {
         }`}
       >
         {mainView === "todos" && !showingEditor && (
-          <aside
-            className={`daily-pinned ${dailyPinDropTarget ? "is-drop-target" : ""}`}
-            data-daily-pin-zone
-            aria-label="每日固定待办"
-          >
-            <div className="daily-pinned__heading">
-              <span className="daily-pinned__icon" aria-hidden="true"><IconPin size={17} /></span>
-              <h2>每日固定</h2>
-              <span className="daily-pinned__count">{dailyPinnedTodos.length}</span>
-            </div>
-            <p className="daily-pinned__hint">将待办拖到这里，每天都能看到</p>
-            {dailyPinnedTodos.length === 0 ? (
-              <div className="daily-pinned__empty">按住待办右侧的拖拽手柄，拖入此处</div>
-            ) : (
-              <ul className="daily-pinned__list">
-                {dailyPinnedTodos.map((todo) => (
-                  <li key={todo.id} className={`daily-pinned__item ${todo.completed ? "is-completed" : ""}`}>
-                    <button
-                      type="button"
-                      className="daily-pinned__task"
-                      onClick={() => {
-                        setSelectedDate(todo.date);
-                        flashTodo(todo.id);
-                        window.setTimeout(() => scrollTodoIntoView(todo.id), 0);
-                      }}
-                      title={`查看 ${todo.date} 的待办`}
-                    >
-                      <span className="daily-pinned__task-title">{todo.title}</span>
-                      <span className="daily-pinned__task-date">{formatDisplayDate(todo.date)} · {todo.completed ? "已完成" : todo.isTiming ? "计时中" : "待办"}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="daily-pinned__remove"
-                      onClick={() => setDailyPinned(todo.id, false)}
-                      aria-label={`取消每日固定：${todo.title}`}
-                      title="取消每日固定"
-                    >
-                      <IconPinOff size={15} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </aside>
+          <DailyPinnedTodos
+            todos={dailyPinnedTodos}
+            isDropTarget={dailyPinDropTarget}
+            onOpen={(todo) => {
+              setSelectedDate(todo.date);
+              flashTodo(todo.id);
+              window.setTimeout(() => scrollTodoIntoView(todo.id), 0);
+            }}
+            onUnpin={(id) => setDailyPinned(id, false)}
+            onReorder={reorderDailyPinnedTodo}
+            onDayDropTargetChange={setDailyPinnedDayDropTarget}
+            onDropToDay={(id, target) => {
+              void addDailyPinnedToDay(id, target).catch((error: unknown) => {
+                showGlobalToast(`添加待办失败：${String(error)}`, "error");
+              });
+            }}
+          />
         )}
         <div
           className={`app-content ${
@@ -2725,7 +2720,9 @@ function App() {
               <section
                 className={`todo-list ${
                   draggingTodoId != null ? "is-dragging" : ""
-                }`}
+                } ${dailyPinnedDayDropTarget ? "is-pinned-drop-target" : ""}`}
+                data-daily-todo-list
+                aria-label="当前日期待办列表"
               >
                 {dayTodos.length === 0 ? (
                   <div className="empty-state card">
@@ -2737,7 +2734,9 @@ function App() {
                     />
                     <h2>这一天还没有待办</h2>
                     <p>
-                      点击上方「新建待办」，设置紧急程度，按需开启倒计时。
+                      {dailyPinnedDayDropTarget
+                        ? "松手即可添加固定待办"
+                        : "点击上方「新建待办」，设置紧急程度，按需开启倒计时。"}
                     </p>
                   </div>
                 ) : (
@@ -2749,9 +2748,9 @@ function App() {
                           key={item.divider.id}
                           divider={item.divider}
                           dropPosition={
-                            todoDropTarget?.targetType === "category" &&
-                            todoDropTarget.targetId === item.divider.id
-                              ? todoDropTarget.position
+                            activeTodoDropTarget?.targetType === "category" &&
+                            activeTodoDropTarget.targetId === item.divider.id
+                              ? activeTodoDropTarget.position
                               : null
                           }
                           onRename={(title) =>
@@ -2787,9 +2786,9 @@ function App() {
                           isHighlighted={highlightedTodoId === todo.id}
                           isDragging={draggingTodoId === todo.id}
                           dropPosition={
-                            todoDropTarget?.targetType === "todo" &&
-                            todoDropTarget.targetId === todo.id
-                              ? todoDropTarget.position
+                            activeTodoDropTarget?.targetType === "todo" &&
+                            activeTodoDropTarget.targetId === todo.id
+                              ? activeTodoDropTarget.position
                               : null
                           }
                           batchMode={batchMode}

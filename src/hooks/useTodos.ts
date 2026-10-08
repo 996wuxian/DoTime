@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type SetStateAction } from "react";
 import type {
   Todo,
   TodoCategoryDivider,
@@ -56,6 +56,16 @@ import {
   normalizeRecurrenceRule,
 } from "../domain/recurrence";
 import {
+  getDailyPinnedTodos,
+  addDailyPinnedTodoToDate,
+  findDailyPinnedDuplicate,
+  reorderDailyPinnedTodos,
+  setTodoDailyPinned,
+  type DailyPinnedDropPosition,
+  type DailyPinnedDayDropTarget,
+  type DailyPinnedAddResult,
+} from "../domain/dailyPinnedTodos";
+import {
   REMINDER_ACTION_EVENT,
   REMINDER_FIRED_EVENT,
   type ActiveReminderGroup,
@@ -72,6 +82,7 @@ import {
 } from "../utils/reminders";
 import {
   getTodoImagesSignature,
+  copyTodoImages,
   MAX_TODO_IMAGES,
   persistTodoImages,
   removeTodoImages as removeStoredTodoImages,
@@ -153,16 +164,55 @@ function hasTimingSubtask(todo: Todo): boolean {
   return visit(todo.subtasks ?? []);
 }
 
+type TodoState = {
+  todos: Todo[];
+  dailyPinnedAddResult: (DailyPinnedAddResult & { useManualSort: boolean }) | null;
+};
+type TodoAction =
+  | { type: "update"; update: SetStateAction<Todo[]> }
+  | {
+      type: "add-daily-pinned";
+      sourceId: string;
+      date: string;
+      options: Parameters<typeof addDailyPinnedTodoToDate>[3];
+    };
+
+function reduceTodos(state: TodoState, action: TodoAction): TodoState {
+  if (action.type === "update") {
+    const todos = typeof action.update === "function" ? action.update(state.todos) : action.update;
+    return todos === state.todos ? state : { ...state, todos };
+  }
+  const { todos, result } = addDailyPinnedTodoToDate(
+    state.todos, action.sourceId, action.date, action.options,
+  );
+  return {
+    todos,
+    dailyPinnedAddResult: { ...result, useManualSort: result.status === "added" && action.options.target != null },
+  };
+}
+
 export function useTodos(selectedDate: string) {
   const initialDataRef = useRef<LoadAppDataResult | null>(null);
   if (initialDataRef.current == null) {
     initialDataRef.current = loadAppData(localStorage);
   }
   const initialData = initialDataRef.current;
-  const [todos, setTodos] = useState<Todo[]>(initialData.data.todos);
+  const [{ todos, dailyPinnedAddResult }, dispatchTodos] = useReducer(reduceTodos, {
+    todos: initialData.data.todos,
+    dailyPinnedAddResult: null,
+  });
+  const setTodos = useCallback((update: SetStateAction<Todo[]>) => {
+    dispatchTodos({ type: "update", update });
+  }, []);
   const [manualSortDates, setManualSortDates] = useState<Set<string>>(
     () => new Set(initialData.data.manualSortDates),
   );
+  useEffect(() => {
+    if (!dailyPinnedAddResult?.useManualSort) return;
+    setManualSortDates((prev) => prev.has(dailyPinnedAddResult.date)
+      ? prev
+      : new Set(prev).add(dailyPinnedAddResult.date));
+  }, [dailyPinnedAddResult]);
   const [categoryDividers, setCategoryDividers] = useState<TodoCategoryDivider[]>(
     initialData.data.categoryDividers,
   );
@@ -456,6 +506,8 @@ export function useTodos(selectedDate: string) {
     }, delay);
     return () => window.clearTimeout(id);
   }, [nativeReminderSchedulerAvailable, reminderRetryToken, scanReminders, todos]);
+
+  const dailyPinnedTodos = useMemo(() => getDailyPinnedTodos(todos), [todos]);
 
   const dayTodos = useMemo(() => {
     void tick; // 依赖 tick 以刷新进行中的计时显示
@@ -789,14 +841,43 @@ export function useTodos(selectedDate: string) {
   }, []);
 
   const setDailyPinned = useCallback((id: string, pinned: boolean) => {
-    setTodos((prev) =>
-      prev.map((todo) =>
-        todo.id === id && Boolean(todo.dailyPinned) !== pinned
-          ? { ...todo, dailyPinned: pinned }
-          : todo,
-      ),
-    );
+    setTodos((prev) => setTodoDailyPinned(prev, id, pinned));
   }, []);
+
+  const addDailyPinnedToDay = useCallback(
+    async (sourceId: string, target: DailyPinnedDayDropTarget | null) => {
+      const source = todos.find((todo) => todo.id === sourceId && todo.dailyPinned);
+      const images = source && !findDailyPinnedDuplicate(todos, source, selectedDate)
+        ? await copyTodoImages(source)
+        : [];
+      dispatchTodos({
+        type: "add-daily-pinned",
+        sourceId,
+        date: selectedDate,
+        options: {
+          id: createId(),
+          now: Date.now(),
+          images,
+          target,
+          categorySortOrders: new Map(dayCategoryDividers.map((divider) => [divider.id, divider.sortOrder])),
+        },
+      });
+    },
+    [dayCategoryDividers, selectedDate, todos],
+  );
+
+  const reorderDailyPinnedTodo = useCallback(
+    (
+      draggedId: string,
+      targetId: string,
+      position: DailyPinnedDropPosition = "before",
+    ) => {
+      setTodos((prev) =>
+        reorderDailyPinnedTodos(prev, draggedId, targetId, position),
+      );
+    },
+    [],
+  );
 
   const clearFavorites = useCallback(() => {
     setTodos((prev) => clearTodoFavorites(prev));
@@ -982,6 +1063,8 @@ export function useTodos(selectedDate: string) {
 
   return {
     allTodos: todos,
+    dailyPinnedTodos,
+    dailyPinnedAddResult,
     dayTodos,
     dayCategoryDividers,
     stats,
@@ -999,6 +1082,8 @@ export function useTodos(selectedDate: string) {
     updateTodoImages,
     toggleFavorite,
     setDailyPinned,
+    addDailyPinnedToDay,
+    reorderDailyPinnedTodo,
     clearFavorites,
     completeTodos,
     moveTodos,

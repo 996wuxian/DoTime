@@ -220,6 +220,9 @@ function parseTodo(value: unknown): Todo | null {
     comment: typeof value.comment === "string" ? value.comment : "",
     favorite: Boolean(value.favorite),
     dailyPinned: Boolean(value.dailyPinned),
+    dailyPinnedSortOrder: isFiniteNumber(value.dailyPinnedSortOrder)
+      ? value.dailyPinnedSortOrder
+      : undefined,
     createdAt: isFiniteNumber(value.createdAt) ? value.createdAt : Date.now(),
     completedAt: isFiniteNumber(value.completedAt) ? value.completedAt : null,
     recurrenceSeriesId:

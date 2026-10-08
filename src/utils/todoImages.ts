@@ -88,6 +88,23 @@ export async function persistTodoImages(
   });
 }
 
+/** Copy image contents so the new todo owns its files independently. */
+export async function copyTodoImages(todo: Todo): Promise<TodoImage[]> {
+  const images = (todo.images ?? []).slice(0, MAX_TODO_IMAGES);
+  return Promise.all(images.map(async (image) => {
+    let dataUrl = image.dataUrl;
+    if (!dataUrl && image.fileName) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      dataUrl = await invoke<string>("read_todo_image", {
+        todoId: todo.id,
+        fileName: image.fileName,
+      });
+    }
+    if (!dataUrl) throw new Error(`无法读取图片「${image.name}」`);
+    return { id: image.id, name: image.name, mimeType: image.mimeType, dataUrl };
+  }));
+}
+
 export async function removeTodoImages(todoId: string): Promise<void> {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("remove_todo_images", { todoId });

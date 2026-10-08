@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Todo, TodoCategoryDivider } from "../types";
+import { getDailyPinnedTodos, reorderDailyPinnedTodos } from "../domain/dailyPinnedTodos";
 import {
   APP_DATA_STORAGE_KEY,
   APP_DATA_VERSION,
@@ -87,6 +88,59 @@ describe("app data storage", () => {
     expect(saveAppData(createAppDataDocument([pinned], []), storage).ok).toBe(true);
     expect(loadAppData(storage).data.todos[0].dailyPinned).toBe(true);
   });
+
+  it("preserves independent pinned ordering through reload and JSON import", () => {
+    const storage = new MemoryStorage();
+    const todos = [
+      createTodo({ id: "first", dailyPinned: true, date: "2026-07-30", sortOrder: 4000 }),
+      createTodo({ id: "second", dailyPinned: true, completed: true }),
+      createTodo({ id: "third", dailyPinned: true, date: "2026-07-28" }),
+    ];
+    const reordered = reorderDailyPinnedTodos(todos, "third", "first");
+    const document = createAppDataDocument(reordered, []);
+
+    expect(saveAppData(document, storage).ok).toBe(true);
+    const loaded = loadAppData(storage).data;
+    const imported = parseImportedAppData(JSON.stringify(document));
+
+    expect(loaded.version).toEqual(APP_DATA_VERSION);
+    expect(getDailyPinnedTodos(loaded.todos).map((todo) => todo.id)).toEqual([
+      "third", "first", "second",
+    ]);
+    expect(imported.ok).toBe(true);
+    if (!imported.ok) throw new Error(imported.error);
+    expect(getDailyPinnedTodos(imported.data.todos).map((todo) => todo.id)).toEqual([
+      "third", "first", "second",
+    ]);
+  });
+
+  it("preserves legacy pinned order without requiring a data migration", () => {
+    const storage = new MemoryStorage();
+    const legacy = [
+      createTodo({ id: "first", dailyPinned: true, completed: true }),
+      createTodo({ id: "second", dailyPinned: true, date: "2026-07-28" }),
+    ];
+    storage.setItem(APP_DATA_STORAGE_KEY, JSON.stringify(createAppDataDocument(legacy, [])));
+
+    const loaded = loadAppData(storage).data;
+
+    expect(getDailyPinnedTodos(loaded.todos).map((todo) => todo.id)).toEqual(["first", "second"]);
+    expect(loaded.todos.every((todo) => todo.dailyPinnedSortOrder == null)).toBe(true);
+  });
+
+  it.each([null, "1000", Number.NaN, Number.POSITIVE_INFINITY])(
+    "ignores invalid pinned sorting metadata (%s)",
+    (dailyPinnedSortOrder) => {
+      const result = parseImportedAppData(JSON.stringify([
+        { ...createTodo({ dailyPinned: true }), dailyPinnedSortOrder },
+      ]));
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error(result.error);
+      expect(result.data.todos[0].dailyPinnedSortOrder).toBeUndefined();
+      expect(result.data.todos[0].dailyPinned).toBe(true);
+    },
+  );
 
   it("migrates the legacy todo array into the v2 document", () => {
     const storage = new MemoryStorage();

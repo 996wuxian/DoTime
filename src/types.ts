@@ -114,6 +114,8 @@ export interface Todo {
   favorite?: boolean;
   /** 是否在首页的每日固定待办区域显示 */
   dailyPinned?: boolean;
+  /** 每日固定待办的独立排序值，越小越靠前 */
+  dailyPinnedSortOrder?: number;
   images?: TodoImage[];
   createdAt: number;
   completedAt: number | null;
