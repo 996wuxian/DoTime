@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "zt";
+  src: url("/fonts/zt.ttf") format("truetype");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
 :root {
   color-scheme: dark;
   --bg: #0b0d12;
@@ -28,8 +36,8 @@
   --app-accent-start: rgba(110, 168, 255, 0.16);
   --app-accent-end: rgba(139, 123, 255, 0.1);
   --titlebar-height: 48px;
-  --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
-    sans-serif;
+  --font: "zt", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui,
+    -apple-system, sans-serif;
   --mono: "Cascadia Code", "Consolas", "SF Mono", ui-monospace, monospace;
 
   --urgency-low: #6ea8ff;
@@ -1885,11 +1893,13 @@ a,
   font-size: 1.1rem;
 }
 
-.plan-overview__header p {
+.plan-overview__header p,
+.statistics-header p {
   margin: 5px 0 0;
   color: var(--text-muted);
   font-family: var(--mono);
   font-size: 0.72rem;
+  line-height: 1.4;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2409,16 +2419,18 @@ a,
 .plan-day__header {
   min-width: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 6px;
+  gap: 2px;
 }
 
 .plan-day__date {
+  flex-shrink: 0;
   color: var(--text);
   font-size: 0.86rem;
   font-weight: 850;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .plan-day__full-date {
@@ -2433,7 +2445,7 @@ a,
   flex-shrink: 0;
   display: inline-flex;
   align-items: baseline;
-  gap: 5px;
+  gap: 2px;
   color: var(--text-muted);
   font-size: 0.68rem;
   white-space: nowrap;
@@ -2442,12 +2454,8 @@ a,
 .plan-day__counts b {
   color: var(--text);
   font-family: var(--mono);
-  font-size: 1rem;
-}
-
-.plan-day__counts i {
-  color: var(--warning);
-  font-style: normal;
+  font-size: 0.86rem;
+  line-height: 1.2;
 }
 
 .plan-day__timing {
@@ -2469,8 +2477,27 @@ a,
   gap: 4px;
 }
 
+.plan-day__task {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.plan-day__task-status {
+  flex: 0 0 6px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--text-dim);
+}
+
+.plan-day__task-status.is-completed {
+  background: var(--success);
+}
+
 .plan-day__tasks em {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   color: var(--text-muted);
   font-size: 0.7rem;
@@ -2494,7 +2521,7 @@ a,
 .statistics-center {
   width: 100%;
   display: grid;
-  gap: 24px;
+  gap: 18px;
 }
 
 .statistics-header {
@@ -2513,14 +2540,6 @@ a,
 
 .statistics-header h2 {
   font-size: 1.1rem;
-}
-
-.statistics-header p {
-  margin: 5px 0 0;
-  color: var(--text-muted);
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
 }
 
 .statistics-header__controls,
@@ -5871,7 +5890,7 @@ a,
   min-width: 0;
   max-width: 100%;
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 16px;
   font-weight: 400;
   overflow: hidden;
 }
@@ -8417,8 +8436,7 @@ body.is-reminder-window #root {
   .plan-grid--month .plan-day__tasks,
   .plan-grid--month .plan-day__more,
   .plan-grid--month .plan-day__empty,
-  .plan-grid--month .plan-day__counts small,
-  .plan-grid--month .plan-day__counts i {
+  .plan-grid--month .plan-day__counts small {
     display: none;
   }
 
@@ -8521,10 +8539,6 @@ body.is-reminder-window #root {
   .date-nav__current {
     min-width: 84px;
     padding: 6px 8px;
-  }
-
-  .statistics-center {
-    gap: 20px;
   }
 
   .statistics-header__controls {

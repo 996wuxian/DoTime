@@ -39,7 +39,7 @@ type PlanDay = {
   pending: number;
   completed: number;
   timing: number;
-  topTitles: string[];
+  topTodos: Pick<Todo, "id" | "title" | "completed">[];
 };
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -90,7 +90,11 @@ function buildPlanDays(
       pending: dayTodos.filter((todo) => !todo.completed).length,
       completed: dayTodos.filter((todo) => todo.completed).length,
       timing: dayTodos.filter((todo) => todo.isTiming).length,
-      topTitles: dayTodos.slice(0, 4).map((todo) => todo.title),
+      topTodos: dayTodos.slice(0, 4).map(({ id, title, completed }) => ({
+        id,
+        title,
+        completed,
+      })),
     };
   });
 
@@ -287,7 +291,6 @@ export function PlanOverview({
                       <span className="plan-day__counts">
                         <b>{day.total}</b>
                         <small>待办</small>
-                        {day.pending > 0 && <i>{day.pending} 未完成</i>}
                       </span>
                     </span>
                     {period === "week" && (
@@ -301,12 +304,20 @@ export function PlanOverview({
                         {day.timing}
                       </span>
                     )}
-                    {day.topTitles.length > 0 ? (
+                    {day.topTodos.length > 0 ? (
                       <span className="plan-day__tasks">
-                        {day.topTitles.map((title) => (
-                          <em key={title}>{title}</em>
+                        {day.topTodos.map((todo) => (
+                          <span className="plan-day__task" key={todo.id}>
+                            <span
+                              className={`plan-day__task-status${todo.completed ? " is-completed" : ""}`}
+                              role="img"
+                              aria-label={todo.completed ? "已完成" : "未完成"}
+                              title={todo.completed ? "已完成" : "未完成"}
+                            />
+                            <em>{todo.title}</em>
+                          </span>
                         ))}
-                        {day.total > day.topTitles.length && (
+                        {day.total > day.topTodos.length && (
                           <span className="plan-day__more" aria-hidden="true">
                             ...
                           </span>
