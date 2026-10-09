@@ -76,6 +76,8 @@ npm install
 npm run tauri:dev
 ```
 
+仓库中的 Cargo 配置使用官方 crates.io sparse 源，供 CI 和发布构建使用。本地如需镜像、代理或其他网络设置，请放在 `$CARGO_HOME/config.toml`（未设置 `CARGO_HOME` 时为 `~/.cargo/config.toml`），不要把本机网络配置提交到仓库。
+
 仅运行浏览器预览：
 
 ```bash
