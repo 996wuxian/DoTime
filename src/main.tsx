@@ -37,6 +37,11 @@ const isMiniSubtasksWindow = params.get("view") === "mini-subtasks";
 const isPinnedTodoWindow = params.get("view") === "pinned-todo";
 const isPinnedSubtasksWindow = params.get("view") === "pinned-subtasks";
 
+if (isReminderWindow) {
+  document.documentElement.classList.add("is-reminder-window");
+  document.body.classList.add("is-reminder-window");
+}
+
 if (isMiniSubtasksWindow) {
   document.documentElement.classList.add("is-mini-subtasks-window");
   document.body.classList.add("is-mini-subtasks-window");

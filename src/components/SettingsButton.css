@@ -3,13 +3,18 @@
   max-height: calc(100dvh - 32px);
   margin: auto;
   padding: 0;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-card);
   color: var(--text);
   box-shadow: var(--shadow);
   font-family: var(--font);
+}
+
+.settings-dialog[open] {
+  display: flex;
+  flex-direction: column;
 }
 
 .settings-dialog::backdrop {
@@ -32,6 +37,7 @@
 }
 
 .settings-dialog__header {
+  flex-shrink: 0;
   padding: 20px 22px;
   border-bottom: 1px solid var(--border);
 }
@@ -65,9 +71,11 @@
 }
 
 .settings-dialog__body {
+  min-height: 0;
+  overflow-y: auto;
   display: grid;
-  gap: 24px;
-  padding: 22px;
+  gap: 20px;
+  padding: 20px 22px;
 }
 
 .settings-dialog__field {
@@ -190,12 +198,155 @@
 }
 
 .settings-dialog__footer {
+  flex-shrink: 0;
   padding: 16px 22px;
   border-top: 1px solid var(--border);
 }
 
 .settings-dialog__footer > div > button {
   margin-left: -12px;
+}
+
+.settings-update {
+  min-width: 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-update__heading,
+.settings-update__actions,
+.settings-update__status,
+.settings-update__downloaded p,
+.settings-update__progress > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-update__heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-update__heading h3 {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.settings-update__heading p,
+.settings-update__hint,
+.settings-update__progress small,
+.settings-update__downloaded small {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.settings-update__heading p {
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-update__heading .btn {
+  flex-shrink: 0;
+}
+
+.settings-update__status {
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.settings-update__status.is-current {
+  color: var(--success);
+}
+
+.settings-update__actions {
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 14px;
+}
+
+.settings-update__link {
+  padding: 4px 0;
+  color: var(--primary);
+  background: transparent;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.settings-update__link:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.settings-update__link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.settings-update__progress,
+.settings-update__downloaded {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+
+.settings-update__progress > div {
+  justify-content: space-between;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-update__progress progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin: 10px 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  accent-color: var(--primary);
+}
+
+.settings-update__progress progress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: var(--primary-soft);
+}
+
+.settings-update__progress progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.settings-update__downloaded p {
+  margin: 0;
+  color: var(--success);
+  font-size: 0.78rem;
+}
+
+.settings-update__downloaded > span {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+}
+
+.settings-update__error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  background: var(--danger-soft);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 420px) {

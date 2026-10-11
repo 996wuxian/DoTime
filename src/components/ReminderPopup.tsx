@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   REMINDER_ACTION_EVENT,
   REMINDER_GROUP_EVENT,
@@ -13,6 +13,8 @@ import {
   IconAlarmSnooze,
   IconBellRinging,
   IconChevronDown,
+  IconCheck,
+  IconClock,
   IconClose,
 } from "./icons";
 
@@ -59,6 +61,7 @@ export function ReminderPopup() {
     useState<(typeof SNOOZE_MINUTES)[number]>(10);
   const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const snoozeRef = useRef<HTMLDivElement>(null);
 
   const sortedItems = useMemo(
     () => [...(group?.items ?? [])].sort((a, b) => a.dueAt - b.dueAt),
@@ -142,11 +145,25 @@ export function ReminderPopup() {
     if (!snoozeMenuOpen) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSnoozeMenuOpen(false);
+      if (event.key === "Escape") {
+        setSnoozeMenuOpen(false);
+        snoozeRef.current?.querySelector<HTMLButtonElement>(
+          ".reminder-toast__snooze-trigger",
+        )?.focus();
+      }
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!snoozeRef.current?.contains(event.target as Node)) {
+        setSnoozeMenuOpen(false);
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
   }, [snoozeMenuOpen]);
 
   useEffect(() => {
@@ -197,7 +214,11 @@ export function ReminderPopup() {
           <div className="reminder-toast__title">
             <h1>待办提醒</h1>
             <p>
-              {itemCount > 0 ? `${itemCount} 个待办已到提醒时间` : "暂无提醒"}
+              {itemCount > 1
+                ? `${itemCount} 个待办到了提醒时间`
+                : itemCount === 1
+                  ? "你设置的提醒时间到了"
+                  : "暂无待办需要提醒"}
             </p>
           </div>
           <button
@@ -210,54 +231,76 @@ export function ReminderPopup() {
           </button>
         </div>
 
-        {actionError && (
-          <p className="reminder-toast__error" role="alert">
-            {actionError}
-          </p>
-        )}
-
-        <div className="reminder-toast__list" role="list">
-          {sortedItems.map((item) => (
-            <div
-              className="reminder-toast__item"
-              role="listitem"
-              key={item.id}
-            >
-              <div>
-                <span className="reminder-toast__item-title">{item.title}</span>
-                <span className="reminder-toast__item-time">
-                  {formatClockTime(item.dueAt)}
-                </span>
-              </div>
-              <button
-                type="button"
-                className="reminder-toast__item-close"
-                aria-label={`关闭 ${item.title} 的提醒`}
-                onClick={() => applyAction("dismiss", [item.id])}
+        <div className="reminder-toast__content">
+          {actionError && (
+            <p className="reminder-toast__error" role="alert">
+              {actionError}
+            </p>
+          )}
+          <div className="reminder-toast__list" role="list">
+            {sortedItems.map((item) => (
+              <div
+                className="reminder-toast__item"
+                role="listitem"
+                key={item.id}
               >
-                <IconClose size={15} />
-              </button>
-            </div>
-          ))}
+                <div>
+                  <span className="reminder-toast__item-title" title={item.title}>
+                    {item.title}
+                  </span>
+                  <span className="reminder-toast__item-time">
+                    <IconClock size={13} />
+                    <time dateTime={new Date(item.dueAt).toISOString()}>
+                      {formatClockTime(item.dueAt)}
+                    </time>
+                    <span>提醒</span>
+                  </span>
+                </div>
+                {itemCount > 1 && (
+                  <button
+                    type="button"
+                    className="reminder-toast__item-close"
+                    aria-label={`关闭 ${item.title} 的提醒`}
+                    onClick={() => applyAction("dismiss", [item.id])}
+                  >
+                    <IconClose size={15} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="reminder-toast__actions">
           {itemCount > 0 && (
             <>
-              <div className="reminder-toast__snooze">
+              <div className="reminder-toast__snooze" ref={snoozeRef}>
+                <button
+                  type="button"
+                  className="btn btn-primary reminder-toast__snooze-action"
+                  onClick={snoozeAll}
+                >
+                  <IconAlarmSnooze size={16} />
+                  <span>{snoozeMinutes} 分钟后提醒</span>
+                </button>
                 <button
                   type="button"
                   className="reminder-toast__snooze-trigger"
                   aria-haspopup="listbox"
                   aria-expanded={snoozeMenuOpen}
+                  aria-controls="reminder-snooze-options"
+                  aria-label="更改稍后提醒时间"
                   onClick={() => setSnoozeMenuOpen((open) => !open)}
                 >
-                  <IconAlarmSnooze size={15} />
-                  <span>{snoozeMinutes} 分钟后</span>
                   <IconChevronDown size={14} />
                 </button>
                 {snoozeMenuOpen && (
-                  <div className="reminder-toast__snooze-menu" role="listbox">
+                  <div
+                    className="reminder-toast__snooze-menu"
+                    id="reminder-snooze-options"
+                    role="listbox"
+                    aria-label="稍后提醒时间"
+                  >
                     {SNOOZE_MINUTES.map((minutes) => (
                       <button
                         key={minutes}
@@ -270,29 +313,26 @@ export function ReminderPopup() {
                         onClick={() => {
                           setSnoozeMinutes(minutes);
                           setSnoozeMenuOpen(false);
+                          snoozeRef.current?.querySelector<HTMLButtonElement>(
+                            ".reminder-toast__snooze-trigger",
+                          )?.focus();
                         }}
                       >
-                        {minutes} 分钟后
+                        <span>{minutes} 分钟后</span>
+                        {snoozeMinutes === minutes && <IconCheck size={14} />}
                       </button>
                     ))}
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                className="btn btn-secondary reminder-toast__action"
-                onClick={snoozeAll}
-              >
-                稍后
-              </button>
             </>
           )}
           <button
             type="button"
-            className="btn btn-primary reminder-toast__action"
+            className="btn btn-secondary reminder-toast__action"
             onClick={dismissAll}
           >
-            关闭
+            知道了
           </button>
         </div>
       </section>

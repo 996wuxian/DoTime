@@ -13,6 +13,7 @@ import { PlanOverview, type PlanPeriod } from "./components/PlanOverview";
 import { StatisticsCenter } from "./components/StatisticsCenter";
 import { DataActions } from "./components/DataActions";
 import { SettingsButton } from "./components/SettingsButton";
+import { useAppUpdates } from "./hooks/useAppUpdates";
 import { DateNavigator } from "./components/DateNavigator";
 import { CalendarPopover } from "./components/CalendarPopover";
 import {
@@ -67,6 +68,7 @@ import {
 } from "./utils/miniSubtasks";
 import { buildPinnedTodoPayload } from "./utils/pinnedTodo";
 import { loadTheme, saveTheme, toggleTheme } from "./utils/theme";
+import { APP_DOWNLOAD_URL, APP_REPOSITORY_URL } from "./utils/appUpdates";
 import {
   formatClockTime,
   formatDateKey,
@@ -100,8 +102,6 @@ type ActivePinnedTodo = {
   todoId: string;
 };
 const APP_AUTHOR = "996wuxian";
-const APP_REPOSITORY_URL = "https://github.com/996wuxian/DoTime";
-const APP_DOWNLOAD_URL = "https://github.com/996wuxian/DoTime/releases";
 
 type TodoDragState = {
   pointerId: number;
@@ -563,6 +563,7 @@ async function closeMiniSubtasksWindow() {
 }
 
 function App() {
+  const updates = useAppUpdates();
   const [selectedDate, setSelectedDate] = useState(() => formatDateKey());
   const [todoFormOpen, setTodoFormOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -2287,10 +2288,19 @@ function App() {
             type="button"
             className="brand__title-button"
             onClick={() => setAboutOpen(true)}
-            aria-label="查看 doTime 关于信息"
+            aria-label={updates.info?.hasUpdate
+              ? "查看 doTime 关于信息，发现新版本"
+              : "查看 doTime 关于信息"}
             title="关于 doTime"
           >
-            <h1 className="brand__title">doTime</h1>
+            <span className="brand__title-group">
+              <h1 className="brand__title">doTime</h1>
+              {updates.info?.hasUpdate && (
+                <span className="brand__update-badge" title={`发现新版本 v${updates.info.latestVersion}`}>
+                  new
+                </span>
+              )}
+            </span>
           </button>
         </div>
 
@@ -2301,7 +2311,7 @@ function App() {
         />
 
         <div className="titlebar-actions">
-          <SettingsButton />
+          <SettingsButton updates={updates} />
           <button
             type="button"
             className="btn btn-ghost btn-icon-only clipboard-window-toggle"

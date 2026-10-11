@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type { useAppUpdates } from "../hooks/useAppUpdates";
+import { AppUpdateSettings } from "./AppUpdateSettings";
 import {
   DEFAULT_TYPOGRAPHY,
   FONT_SIZE_MAX,
@@ -12,7 +14,10 @@ import {
 import { IconClose, IconMinus, IconPlus, IconSettings } from "./icons";
 import "./SettingsButton.css";
 
-function SettingsDialog({ onClose }: { onClose: () => void }) {
+function SettingsDialog({ onClose, updates }: {
+  onClose: () => void;
+  updates: ReturnType<typeof useAppUpdates>;
+}) {
   const [settings, setSettings] = useState(loadTypographySettings);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -72,7 +77,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
           </span>
           <div>
             <h2 id={titleId}>设置</h2>
-            <p>调整适合你的阅读方式</p>
+            <p>阅读偏好与版本更新</p>
           </div>
         </div>
         <button
@@ -167,6 +172,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
           <p>专注当下，把时间留给重要的事。</p>
           <small>doTime · 今天也要一步一步来 0123456789</small>
         </div>
+        <AppUpdateSettings updates={updates} />
       </div>
 
       <footer className="settings-dialog__footer">
@@ -189,7 +195,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function SettingsButton() {
+export function SettingsButton({ updates }: { updates: ReturnType<typeof useAppUpdates> }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -204,7 +210,7 @@ export function SettingsButton() {
       >
         <IconSettings size={17} />
       </button>
-      {open && <SettingsDialog onClose={() => setOpen(false)} />}
+      {open && <SettingsDialog onClose={() => setOpen(false)} updates={updates} />}
     </>
   );
 }

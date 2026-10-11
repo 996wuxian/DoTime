@@ -9,11 +9,11 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+mod reminder_window;
+mod updates;
+
 const MINI_OPACITY_MIN: f64 = 0.35;
 const MINI_OPACITY_MAX: f64 = 1.0;
-const REMINDER_WINDOW_WIDTH: f64 = 620.0;
-const REMINDER_WINDOW_HEIGHT: f64 = 380.0;
-const REMINDER_WINDOW_MARGIN: f64 = 16.0;
 const MINI_SUBTASKS_WINDOW_WIDTH: f64 = 460.0;
 const MINI_SUBTASKS_WINDOW_HEIGHT: f64 = 96.0;
 const MINI_SUBTASKS_WINDOW_MAX_HEIGHT: f64 = 320.0;
@@ -1060,16 +1060,27 @@ fn show_reminder_window_inner(
         .title("doTime 提醒")
         .visible(false)
         .decorations(false)
-        .transparent(false)
+        .transparent(true)
+        .shadow(false)
+        .background_color(Color(0, 0, 0, 0))
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        .inner_size(REMINDER_WINDOW_WIDTH, REMINDER_WINDOW_HEIGHT)
+        .inner_size(reminder_window::WIDTH, reminder_window::MIN_HEIGHT)
         .build()
         .map_err(|error| error.to_string())?,
     };
 
-    position_reminder_window(&window);
+    let item_count = serde_json::from_str::<serde_json::Value>(&reminder_group)
+        .ok()
+        .and_then(|group| {
+            group
+                .get("items")
+                .and_then(|items| items.as_array())
+                .map(Vec::len)
+        })
+        .unwrap_or(0);
+    position_reminder_window(&window, item_count);
 
     let _ = window.unminimize();
     window.show().map_err(|error| error.to_string())?;
@@ -2185,26 +2196,24 @@ fn decode_base64(value: &str) -> Option<Vec<u8>> {
     Some(output)
 }
 
-fn position_reminder_window(window: &tauri::WebviewWindow) {
+fn position_reminder_window(window: &tauri::WebviewWindow, item_count: usize) {
     let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
+        .app_handle()
+        .get_webview_window("main")
+        .and_then(|main| main.current_monitor().ok().flatten())
+        .or_else(|| window.current_monitor().ok().flatten())
         .or_else(|| window.primary_monitor().ok().flatten());
 
     if let Some(monitor) = monitor {
         let work_area = monitor.work_area();
-        let x = work_area.position.x as f64 + work_area.size.width as f64
-            - REMINDER_WINDOW_WIDTH
-            - REMINDER_WINDOW_MARGIN;
-        let y = work_area.position.y as f64 + work_area.size.height as f64
-            - REMINDER_WINDOW_HEIGHT
-            - REMINDER_WINDOW_MARGIN;
-        let _ = window.set_position(PhysicalPosition::new(x, y));
-        let _ = window.set_size(PhysicalSize::new(
-            REMINDER_WINDOW_WIDTH,
-            REMINDER_WINDOW_HEIGHT,
-        ));
+        let (position, size) = reminder_window::frame(
+            work_area.position,
+            work_area.size,
+            monitor.scale_factor(),
+            item_count,
+        );
+        let _ = window.set_position(position);
+        let _ = window.set_size(size);
     }
 }
 
@@ -2628,6 +2637,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(ReminderState(Mutex::new(None)))
+        .manage(updates::UpdateState::default())
         .manage(ReminderScheduleState(reminder_schedule_sender))
         .manage(MiniSubtasksState(Mutex::new(None)))
         .manage(PinnedTodoState(Mutex::new(HashMap::new())))
@@ -2683,12 +2693,15 @@ pub fn run() {
 
             tray_builder.build(app)?;
             if let Some(window) = app.get_webview_window("reminder") {
-                position_reminder_window(&window);
+                position_reminder_window(&window, 0);
             }
             hide_mini_subtasks_windows(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            updates::check_for_updates,
+            updates::download_update,
+            updates::open_update_download_directory,
             set_window_opacity,
             debug_log,
             set_pinned_window_frame,
