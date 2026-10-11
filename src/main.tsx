@@ -8,6 +8,7 @@ import { PinnedSubtasksWindow } from "./components/PinnedSubtasksWindow";
 import { ReminderPopup } from "./components/ReminderPopup";
 import { initializeFileBackedDataStore } from "./data/fileStorage";
 import { applyTheme, loadTheme } from "./utils/theme";
+import { initializeTypographySettings } from "./utils/typography";
 
 function disableGlobalBrowserShortcuts() {
   const preventContextMenu = (event: MouseEvent) => {
@@ -25,6 +26,7 @@ function disableGlobalBrowserShortcuts() {
 
 disableGlobalBrowserShortcuts();
 applyTheme(loadTheme());
+initializeTypographySettings();
 await initializeFileBackedDataStore();
 
 const params = new URLSearchParams(window.location.search);

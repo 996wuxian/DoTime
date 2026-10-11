@@ -154,4 +154,5 @@ export const IconDatabaseExport = wrap(TbDatabaseExport);
 export const IconDownload = wrap(TbDownload);
 export const IconDeviceFloppy = wrap(TbDeviceFloppy);
 export const IconSettings = wrap(TbSettings);
+export const IconMinus = wrap(TbMinus);
 export const IconUpload = wrap(TbUpload);

@@ -1,0 +1,205 @@
+.settings-dialog {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-family: var(--font);
+}
+
+.settings-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+}
+
+:root[data-theme="light"] .settings-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.24);
+}
+
+.settings-dialog__header,
+.settings-dialog__heading,
+.settings-dialog__size-heading,
+.settings-dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-dialog__header {
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-dialog__heading {
+  justify-content: flex-start;
+}
+
+.settings-dialog__icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.settings-dialog__heading h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.settings-dialog__heading p,
+.settings-dialog__footer p {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.settings-dialog__body {
+  display: grid;
+  gap: 24px;
+  padding: 22px;
+}
+
+.settings-dialog__field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-dialog__field legend,
+.settings-dialog__size-heading label {
+  padding: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.settings-dialog__font-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.settings-dialog__font-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+
+.settings-dialog__font-option:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.settings-dialog__font-option:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.settings-dialog__font-option input {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.settings-dialog__font-option span {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.settings-dialog__font-option strong {
+  font-size: 0.84rem;
+  font-weight: 400;
+}
+
+.settings-dialog__font-option small,
+.settings-dialog__size-labels {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
+.settings-dialog__size-heading output {
+  color: var(--primary);
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-dialog__size-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.settings-dialog__size-control input {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.settings-dialog__size-labels {
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 42px 0;
+}
+
+.settings-dialog__preview {
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  overflow-wrap: anywhere;
+}
+
+.settings-dialog__preview > span {
+  color: var(--text-dim);
+  font-size: 0.68rem;
+}
+
+.settings-dialog__preview p {
+  margin: 10px 0 6px;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.settings-dialog__preview small {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.settings-dialog__footer {
+  padding: 16px 22px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-dialog__footer > div > button {
+  margin-left: -12px;
+}
+
+@media (max-width: 420px) {
+  .settings-dialog__font-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

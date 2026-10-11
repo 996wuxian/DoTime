@@ -12,6 +12,7 @@ import { GlobalSearch } from "./components/GlobalSearch";
 import { PlanOverview, type PlanPeriod } from "./components/PlanOverview";
 import { StatisticsCenter } from "./components/StatisticsCenter";
 import { DataActions } from "./components/DataActions";
+import { SettingsButton } from "./components/SettingsButton";
 import { DateNavigator } from "./components/DateNavigator";
 import { CalendarPopover } from "./components/CalendarPopover";
 import {
@@ -2300,6 +2301,7 @@ function App() {
         />
 
         <div className="titlebar-actions">
+          <SettingsButton />
           <button
             type="button"
             className="btn btn-ghost btn-icon-only clipboard-window-toggle"
