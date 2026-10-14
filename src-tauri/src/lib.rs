@@ -2635,7 +2635,15 @@ fn set_native_window_opacity(_window: tauri::Window, _opacity: f64) -> Result<()
 pub fn run() {
     let (reminder_schedule_sender, reminder_schedule_receiver) = mpsc::channel();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // 在其他插件和应用初始化之前拦截重复启动，唤起已有主窗口。
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        show_main_window(app);
+    }));
+
+    builder
         .manage(ReminderState(Mutex::new(None)))
         .manage(updates::UpdateState::default())
         .manage(ReminderScheduleState(reminder_schedule_sender))
