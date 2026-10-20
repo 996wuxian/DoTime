@@ -6316,6 +6316,11 @@ a,
   z-index: 1;
 }
 
+.todo-subtask:last-child::before {
+  bottom: 0;
+  height: auto;
+}
+
 .todo-subtask__row {
   position: relative;
   grid-column: 1 / -1;
@@ -6342,6 +6347,11 @@ a,
   transform: translateY(-8px);
   pointer-events: none;
   z-index: 2;
+}
+
+.todo-subtask--level-2 > .todo-subtask__row::before {
+  height: 24px;
+  transform: translateY(-24px);
 }
 
 .todo-subtask__row:hover,
