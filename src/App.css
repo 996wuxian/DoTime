@@ -6286,6 +6286,8 @@ a,
 }
 
 .todo-subtasks__children {
+  grid-column: 1 / -1;
+  min-width: 0;
   margin: 4px 0 0 28px;
   padding: 0;
 }
