@@ -30,6 +30,7 @@ import {
   type PinnedTodoPayload,
 } from "../utils/pinnedTodo";
 import { formatDuration } from "../utils/time";
+import { useWindowOpacity } from "../utils/windowOpacity";
 import {
   IconBell,
   IconCheck,
@@ -37,6 +38,8 @@ import {
   IconClockHour4,
   IconFlame,
   IconListCheck,
+  IconPin,
+  IconPinOff,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
@@ -65,6 +68,12 @@ async function removePinnedTodo(slot: string) {
 async function bringPinnedStackToFront(slot: string) {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("bring_pinned_stack_to_front", { slot });
+}
+
+async function setPinnedSubtasksMoving(slot: string, moving: boolean) {
+  if (slot === "") return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("sync_pinned_subtasks_window_with_parent", { slot, moving });
 }
 
 type PinnedTodoFrameTarget = {
@@ -262,7 +271,10 @@ export function PinnedTodoWindow() {
   const [todo, setTodo] = useState<PinnedTodoPayload | null>(null);
   const [now, setNow] = useState(Date.now());
   const [expanded, setExpanded] = useState(false);
+  const [alwaysOnTop, setAlwaysOnTop] = useState(true);
+  const [topmostBusy, setTopmostBusy] = useState(false);
   const shellRef = useRef<HTMLDivElement | null>(null);
+  useWindowOpacity(shellRef);
   const collapseTimerRef = useRef<number | null>(null);
   const hoverLockUntilRef = useRef(0);
   const hoveredRef = useRef(false);
@@ -273,6 +285,8 @@ export function PinnedTodoWindow() {
   const dragPointerIdRef = useRef<number | null>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragStartedRef = useRef(false);
+  const dragMovementCleanupRef = useRef<(() => void) | null>(null);
+  const dragMovementFinishRef = useRef<(() => Promise<void>) | null>(null);
   const slot = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("slot") ?? "";
@@ -328,6 +342,24 @@ export function PinnedTodoWindow() {
       unlisten?.();
     };
   }, [slot]);
+
+  useEffect(() => {
+    if (todo == null || slot === "") return;
+    let cancelled = false;
+    void import("@tauri-apps/api/core")
+      .then(({ invoke }) =>
+        invoke<boolean>("get_pinned_stack_always_on_top", { slot }),
+      )
+      .then((nextAlwaysOnTop) => {
+        if (!cancelled) setAlwaysOnTop(nextAlwaysOnTop);
+      })
+      .catch((error) => {
+        console.error("failed to read pinned window topmost state", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slot, todo?.id]);
 
   useEffect(() => {
     const refreshPinnedTodo = () => {
@@ -389,6 +421,7 @@ export function PinnedTodoWindow() {
 
   useEffect(() => {
     return () => {
+      dragMovementCleanupRef.current?.();
       dragPointerIdRef.current = null;
       dragStartRef.current = null;
       dragStartedRef.current = false;
@@ -443,8 +476,86 @@ export function PinnedTodoWindow() {
     if (dragStartedRef.current) return;
     dragStartedRef.current = true;
     void (async () => {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().startDragging();
+      try {
+        const [{ invoke }, { getCurrentWindow, monitorFromPoint }] = await Promise.all([
+          import("@tauri-apps/api/core"),
+          import("@tauri-apps/api/window"),
+        ]);
+        await setPinnedSubtasksMoving(slot, true);
+        if (dragPointerIdRef.current == null || !dragStartedRef.current) {
+          await setPinnedSubtasksMoving(slot, false);
+          return;
+        }
+        const parentWindow = getCurrentWindow();
+        const childCount = todo?.subtaskTotal ?? 0;
+        let latestPosition: { x: number; y: number } | null = null;
+        let frameRequest = 0;
+        let syncVersion = 0;
+        const moveChildAlongside = async (position: { x: number; y: number }) => {
+          const version = ++syncVersion;
+          const monitor = await monitorFromPoint(position.x, position.y);
+          const scale = monitor?.scaleFactor ?? await parentWindow.scaleFactor();
+          const parentSize = await parentWindow.outerSize();
+          const childWidth = 180 * scale;
+          const visibleChildren = Math.min(childCount, 3);
+          const childHeight = (visibleChildren * 46 + Math.max(0, visibleChildren - 1) * 8 + 8) * scale;
+          const gap = 4 * scale;
+          const workArea = monitor?.workArea;
+          let x = position.x + parentSize.width - childWidth;
+          let y = position.y + parentSize.height + gap;
+          if (workArea != null) {
+            const minX = workArea.position.x + gap;
+            const maxX = workArea.position.x + workArea.size.width - childWidth - gap;
+            const minY = workArea.position.y + gap;
+            const maxY = workArea.position.y + workArea.size.height - childHeight - gap;
+            x = Math.min(Math.max(x, minX), Math.max(minX, maxX));
+            if (y + childHeight > maxY) y = position.y - childHeight - gap;
+            y = Math.min(Math.max(y, minY), Math.max(minY, maxY));
+          }
+          if (version !== syncVersion) return;
+          await invoke("move_pinned_subtasks_window_with_parent", { slot, x, y });
+        };
+        const unlistenMoved = await parentWindow.onMoved(({ payload }) => {
+          latestPosition = payload;
+          if (frameRequest !== 0) return;
+          frameRequest = window.requestAnimationFrame(() => {
+            frameRequest = 0;
+            if (latestPosition != null) {
+              void moveChildAlongside(latestPosition).catch((error) => {
+                console.error("failed to move pinned subtasks with parent", error);
+              });
+            }
+          });
+        });
+        dragMovementCleanupRef.current = () => {
+          unlistenMoved();
+          if (frameRequest !== 0) window.cancelAnimationFrame(frameRequest);
+        };
+        dragMovementFinishRef.current = async () => {
+          try {
+            dragMovementCleanupRef.current?.();
+            dragMovementCleanupRef.current = null;
+            const position = await parentWindow.outerPosition();
+            await moveChildAlongside(position);
+          } finally {
+            await setPinnedSubtasksMoving(slot, false);
+          }
+        };
+        if (dragPointerIdRef.current == null || !dragStartedRef.current) {
+          const finishMovement = dragMovementFinishRef.current;
+          dragMovementFinishRef.current = null;
+          await finishMovement?.();
+          return;
+        }
+        await parentWindow.startDragging();
+      } catch (error) {
+        dragStartedRef.current = false;
+        dragMovementCleanupRef.current?.();
+        dragMovementCleanupRef.current = null;
+        dragMovementFinishRef.current = null;
+        void setPinnedSubtasksMoving(slot, false).catch(() => {});
+        console.error("failed to start dragging pinned todo", error);
+      }
     })();
   };
 
@@ -473,6 +584,13 @@ export function PinnedTodoWindow() {
 
   const clearPointerDragState = (event: PointerEvent<HTMLElement>) => {
     if (dragPointerIdRef.current !== event.pointerId) return;
+    if (dragStartedRef.current) {
+      const finishMovement = dragMovementFinishRef.current;
+      dragMovementFinishRef.current = null;
+      void (finishMovement?.() ?? setPinnedSubtasksMoving(slot, false)).catch((error) => {
+        console.error("failed to finish pinned todo movement", error);
+      });
+    }
     dragPointerIdRef.current = null;
     dragStartRef.current = null;
     dragStartedRef.current = false;
@@ -480,6 +598,9 @@ export function PinnedTodoWindow() {
 
   const handleDoubleClickCapture = (event: MouseEvent<HTMLElement>) => {
     event.stopPropagation();
+    if (event.target instanceof Element && event.target.closest("button")) {
+      return;
+    }
     handleUnpin();
   };
 
@@ -672,6 +793,24 @@ export function PinnedTodoWindow() {
     if (slot !== "") void removePinnedTodo(slot);
   };
 
+  const handleToggleAlwaysOnTop = async () => {
+    if (slot === "" || topmostBusy) return;
+    const nextAlwaysOnTop = !alwaysOnTop;
+    setTopmostBusy(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_pinned_stack_always_on_top", {
+        slot,
+        alwaysOnTop: nextAlwaysOnTop,
+      });
+      setAlwaysOnTop(nextAlwaysOnTop);
+    } catch (error) {
+      console.error("failed to update pinned window topmost state", error);
+    } finally {
+      setTopmostBusy(false);
+    }
+  };
+
   const handleStartTiming = () => {
     if (todo == null) return;
     try {
@@ -789,6 +928,28 @@ export function PinnedTodoWindow() {
                         ? "进行中"
                         : "待开始"}
                   </span>
+                  <button
+                    type="button"
+                    className={`pinned-card-action pinned-card-action--sm pinned-todo-card__topmost-toggle ${
+                      alwaysOnTop ? "is-active" : ""
+                    }`}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleToggleAlwaysOnTop();
+                    }}
+                    disabled={topmostBusy}
+                    aria-pressed={alwaysOnTop}
+                    aria-label={alwaysOnTop ? "取消窗口置顶" : "置顶窗口"}
+                    title={alwaysOnTop ? "取消置顶" : "置顶"}
+                  >
+                    {alwaysOnTop ? (
+                      <IconPin size={13} />
+                    ) : (
+                      <IconPinOff size={13} />
+                    )}
+                  </button>
                 </div>
 
                 <div className="pinned-todo-card__meta">

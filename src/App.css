@@ -381,12 +381,13 @@ body.is-daily-pinned-dragging .daily-pinned__task {
 }
 
 .daily-pinned__task:hover .daily-pinned__task-title {
-  color: var(--primary);
+  color: var(--todo-title-color, var(--primary));
 }
 
 .daily-pinned__task-title {
   width: 100%;
   overflow: hidden;
+  color: var(--todo-title-color, var(--text));
   font-size: 0.8125rem;
   line-height: 1.4;
   text-overflow: ellipsis;
@@ -5950,7 +5951,7 @@ a,
   max-width: 100%;
   padding: 0;
   border-radius: 6px;
-  color: inherit;
+  color: var(--todo-title-color, inherit);
   font: inherit;
   font-weight: inherit;
   line-height: 1.25;
@@ -5965,12 +5966,12 @@ a,
   flex-shrink: 0;
 }
 
-.todo-item__title-btn:hover {
-  color: var(--primary-hover);
+.todo-item:not(.is-completed) .todo-item__title-btn:hover {
+  color: var(--todo-title-color, var(--primary-hover));
 }
 
-:root[data-theme="light"] .todo-item__title-btn:hover {
-  color: #0f766e;
+:root[data-theme="light"] .todo-item:not(.is-completed) .todo-item__title-btn:hover {
+  color: var(--todo-title-color, #0f766e);
   background: rgba(15, 118, 110, 0.07);
 }
 
@@ -6384,7 +6385,7 @@ a,
   min-width: 0;
   padding: 3px 4px;
   border-radius: 5px;
-  color: var(--text-muted);
+  color: var(--todo-title-color, var(--text-muted));
   font-size: 0.78rem;
   line-height: 1.35;
   text-align: left;
@@ -6396,7 +6397,7 @@ a,
 .todo-subtask__title:hover,
 .todo-subtask__title:focus-visible {
   outline: none;
-  color: var(--text);
+  color: var(--todo-title-color, var(--text));
 }
 
 .todo-subtask__title.is-completed {
@@ -7497,6 +7498,30 @@ body.is-pinned-subtasks-window #root {
   line-height: 0;
 }
 
+.urgency-title--low {
+  --todo-title-color: var(--urgency-low);
+}
+
+.urgency-title--medium {
+  --todo-title-color: var(--urgency-medium);
+}
+
+.urgency-title--high {
+  --todo-title-color: var(--urgency-high);
+}
+
+.urgency-title--critical {
+  --todo-title-color: var(--urgency-critical);
+}
+
+:root[data-theme="light"] .urgency-title--medium {
+  --todo-title-color: #047857;
+}
+
+:root[data-theme="light"] .urgency-title--high {
+  --todo-title-color: #b45309;
+}
+
 .urgency-icon--low {
   color: var(--urgency-low);
 }
@@ -7608,6 +7633,23 @@ body.is-pinned-subtasks-window #root {
 .pinned-todo-card__title-row .status-badge {
   font-size: 0.62rem;
   padding: 2px 7px;
+}
+
+.pinned-todo-card__topmost-toggle {
+  width: 20px;
+  height: 20px;
+  margin-left: 1px;
+  color: var(--text-muted);
+}
+
+.pinned-todo-card__topmost-toggle.is-active {
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+}
+
+.pinned-todo-card__topmost-toggle:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .pinned-subtasks-window .mini-subtasks-window__title-row .status-badge {

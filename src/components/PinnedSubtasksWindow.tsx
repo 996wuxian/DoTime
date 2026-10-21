@@ -14,9 +14,13 @@ import {
   type MiniSubtaskItem,
   type MiniSubtasksGroup,
 } from "../utils/miniSubtasks";
-import { pinnedSubtasksExpandedEventForSlot } from "../utils/pinnedTodo";
+import {
+  pinnedSubtasksExpandedEventForSlot,
+  pinnedSubtasksMovingEventForSlot,
+} from "../utils/pinnedTodo";
 import type { Todo } from "../types";
 import { URGENCY_LABELS } from "../types";
+import { useWindowOpacity } from "../utils/windowOpacity";
 import { formatDuration, formatDurationHuman } from "../utils/time";
 import {
   IconCheck,
@@ -170,7 +174,12 @@ async function getPinnedSubtasksFrameTarget(
       ? PINNED_PARENT_EXPANDED_HEIGHT
       : PINNED_PARENT_COLLAPSED_HEIGHT;
 
-    targetX = work.x + workSize.width - target.width;
+    const parentWidth = parentWindow
+      ? (await parentWindow.outerSize()).toLogical(scale).width
+      : target.width;
+    targetX = parentPos != null
+      ? parentPos.x + parentWidth - target.width
+      : work.x + workSize.width - target.width;
     targetY = parentPos != null ? parentPos.y + parentHeight + gap : startPos.y;
 
     const maxX = work.x + workSize.width - target.width;
@@ -269,6 +278,7 @@ export function PinnedSubtasksWindow() {
   const [expanded, setExpanded] = useState(false);
   const [renderedItems, setRenderedItems] = useState<RenderedPinnedSubtask[]>([]);
   const shellRef = useRef<HTMLElement | null>(null);
+  useWindowOpacity(shellRef);
   const listRef = useRef<HTMLDivElement | null>(null);
   const collapseTimerRef = useRef<number | null>(null);
   const hoverLockUntilRef = useRef(0);
@@ -282,6 +292,7 @@ export function PinnedSubtasksWindow() {
   const activeTodoIdRef = useRef<string | null>(null);
   const latestGroupUpdatedAtRef = useRef(0);
   const readyNotifiedRef = useRef(false);
+  const parentMovingRef = useRef(false);
   const enteredItemIdsRef = useRef<Set<string>>(new Set());
   const [frameReady, setFrameReady] = useState(false);
   const slot = new URLSearchParams(window.location.search).get("slot") ?? "";
@@ -300,6 +311,10 @@ export function PinnedSubtasksWindow() {
 
   const handleMouseEnter = () => {
     hoveredRef.current = true;
+    if (parentMovingRef.current) {
+      pendingExpandOnMoveRef.current = true;
+      return;
+    }
     hoverLockUntilRef.current = Date.now() + 260;
     if (collapseTimerRef.current != null) {
       window.clearTimeout(collapseTimerRef.current);
@@ -335,7 +350,11 @@ export function PinnedSubtasksWindow() {
   };
 
   const handleShellPointerMove = () => {
-    if (pendingExpandOnMoveRef.current && hoveredRef.current) {
+    if (
+      pendingExpandOnMoveRef.current &&
+      hoveredRef.current &&
+      !parentMovingRef.current
+    ) {
       pendingExpandOnMoveRef.current = false;
       setExpanded(true);
       emitPinnedSubtasksExpanded(slot, true);
@@ -495,6 +514,40 @@ export function PinnedSubtasksWindow() {
     return () => {
       cancelled = true;
       cleanup?.();
+    };
+  }, [slot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlistenMoving: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        unlistenMoving = await listen<{ moving: boolean }>(
+          pinnedSubtasksMovingEventForSlot(slot),
+          (event) => {
+            const moving = Boolean(event.payload?.moving);
+            parentMovingRef.current = moving;
+            if (!moving) return;
+            if (collapseTimerRef.current != null) {
+              window.clearTimeout(collapseTimerRef.current);
+              collapseTimerRef.current = null;
+            }
+            pendingExpandOnMoveRef.current = false;
+            setExpanded(false);
+          },
+        );
+        if (cancelled) unlistenMoving();
+      } catch (error) {
+        console.error("failed to listen for pinned parent movement", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      parentMovingRef.current = false;
+      unlistenMoving?.();
     };
   }, [slot]);
 
@@ -754,7 +807,7 @@ export function PinnedSubtasksWindow() {
           if (disposed || token !== frameTokenRef.current) return;
           gsap.set(shell, { clearProps: "width,height" });
           if (!expanded) {
-            void setNativeFrame(end.x, end.y, end.width, end.height);
+            void snapPinnedSubtasksWindowFrame(slot, false, itemCount);
           } else {
             void snapPinnedSubtasksWindowFrame(
               slot,

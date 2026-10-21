@@ -1,4 +1,5 @@
 import type { Todo, TodoImage, TodoSubtask } from "../types";
+import { compareTodoDefaultOrder } from "./todoOrdering";
 
 export type DailyPinnedDropPosition = "before" | "after";
 
@@ -112,7 +113,7 @@ export function addDailyPinnedTodoToDate(
   };
 }
 
-/** Older pinned todos retain their original array order until reordered. */
+/** Explicit pinned positions take precedence over the default urgency/time order. */
 export function getDailyPinnedTodos(todos: readonly Todo[]): Todo[] {
   return todos.filter((todo) => todo.dailyPinned).sort((a, b) => {
     const aOrder =
@@ -123,7 +124,7 @@ export function getDailyPinnedTodos(todos: readonly Todo[]): Todo[] {
       b.dailyPinnedSortOrder != null && Number.isFinite(b.dailyPinnedSortOrder)
         ? b.dailyPinnedSortOrder
         : Number.POSITIVE_INFINITY;
-    if (aOrder === bOrder) return 0;
+    if (aOrder === bOrder) return compareTodoDefaultOrder(a, b);
     return aOrder < bOrder ? -1 : 1;
   });
 }
@@ -177,5 +178,9 @@ export function setTodoDailyPinned(
   );
   if (!pinned) return updated;
 
-  return applyDailyPinnedOrder(updated, [...getDailyPinnedTodos(todos), target]);
+  const ordered = getDailyPinnedTodos(todos);
+  const hasManualOrder = ordered.some((todo) =>
+    todo.dailyPinnedSortOrder != null && Number.isFinite(todo.dailyPinnedSortOrder),
+  );
+  return hasManualOrder ? applyDailyPinnedOrder(updated, [...ordered, target]) : updated;
 }

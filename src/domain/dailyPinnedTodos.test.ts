@@ -175,21 +175,21 @@ describe("adding daily pinned todos to a date", () => {
 });
 
 describe("daily pinned todo ordering", () => {
-  it("retains the array order of legacy pins independently of date and completion", () => {
+  it("defaults to urgency then newest creation independently of date, day order, and completion", () => {
     const todos = [
       createTodo("first", { date: "2026-10-10", sortOrder: 9000, completed: true }),
       createTodo("ordinary", { dailyPinned: false }),
       createTodo("second", { date: "2026-10-01", sortOrder: 2000, urgency: "critical" }),
-      createTodo("third", { sortOrder: 1000, isTiming: true }),
+      createTodo("third", { sortOrder: 1000, isTiming: true, createdAt: 2 }),
     ];
 
-    expect(pinnedIds(todos)).toEqual(["first", "second", "third"]);
+    expect(pinnedIds(todos)).toEqual(["second", "third", "first"]);
   });
 
-  it("uses explicit pinned order and retains array order for ties or missing values", () => {
+  it("uses explicit pinned order before the default order", () => {
     const todos = [
       createTodo("legacy-first"),
-      createTodo("last", { dailyPinnedSortOrder: 3000 }),
+      createTodo("last", { dailyPinnedSortOrder: 3000, urgency: "critical" }),
       createTodo("first", { dailyPinnedSortOrder: 1000 }),
       createTodo("same-rank", { dailyPinnedSortOrder: 1000 }),
       createTodo("legacy-second", { dailyPinnedSortOrder: Number.NaN }),
@@ -248,15 +248,18 @@ describe("daily pinned todo ordering", () => {
     expect(reorderDailyPinnedTodos(todos, dragged, target, position)).toBe(todos);
   });
 
-  it("appends a newly pinned todo while preserving legacy pins", () => {
+  it("keeps automatic ordering active when pinning without a manual order", () => {
     const todos = [
-      createTodo("new", { dailyPinned: false, dailyPinnedSortOrder: -1000 }),
+      createTodo("new", { dailyPinned: false, dailyPinnedSortOrder: -1000, urgency: "critical" }),
       createTodo("first"), createTodo("second"),
     ];
 
     const pinned = setTodoDailyPinned(todos, "new", true);
 
-    expect(pinnedIds(pinned)).toEqual(["first", "second", "new"]);
+    expect(pinnedIds(pinned)).toEqual(["new", "first", "second"]);
+    expect(pinned.every((todo) => todo.dailyPinnedSortOrder == null)).toBe(true);
+    const updated = pinned.map((todo) => todo.id === "second" ? { ...todo, urgency: "critical" as const, createdAt: 2 } : todo);
+    expect(pinnedIds(updated)).toEqual(["second", "new", "first"]);
     expect(todos[0].dailyPinned).toBe(false);
   });
 

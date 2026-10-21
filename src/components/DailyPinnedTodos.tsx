@@ -17,7 +17,7 @@ interface Props {
 
 function TaskLabel({ todo }: { todo: Todo }) {
   return <>
-    <span className="daily-pinned__task-title">{todo.title}</span>
+    <span className={`daily-pinned__task-title urgency-title--${todo.urgency}`}>{todo.title}</span>
     <span className="daily-pinned__task-date">
       {formatDisplayDate(todo.date)} · {todo.completed ? "已完成" : todo.isTiming ? "计时中" : "待办"}
     </span>

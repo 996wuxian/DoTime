@@ -73,6 +73,7 @@ struct ReminderScheduleState(Sender<Vec<ScheduledReminder>>);
 struct MiniSubtasksState(Mutex<Option<String>>);
 struct PinnedTodoState(Mutex<HashMap<String, String>>);
 struct PinnedSubtasksState(Mutex<HashMap<String, String>>);
+struct PinnedStackTopmostState(Mutex<HashMap<String, bool>>);
 struct ClipboardMonitorState(Mutex<Option<mpsc::Sender<()>>>);
 struct ClipboardHistoryState {
     items: Mutex<Vec<ClipboardSnapshot>>,
@@ -680,6 +681,7 @@ async fn show_mini_subtasks_window(
 async fn show_pinned_todo_window(
     app: tauri::AppHandle,
     state: State<'_, PinnedTodoState>,
+    topmost_state: State<'_, PinnedStackTopmostState>,
     pinned_todo: String,
 ) -> Result<String, String> {
     let todo: serde_json::Value =
@@ -695,6 +697,13 @@ async fn show_pinned_todo_window(
             .ok_or_else(|| "固定待办窗口已达到上限".to_string())?
     };
     let window_label = pinned_todo_window_label(slot);
+    let always_on_top = topmost_state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .get(&slot.to_string())
+        .copied()
+        .unwrap_or(true);
 
     state
         .0
@@ -726,7 +735,7 @@ async fn show_pinned_todo_window(
                     .transparent(true)
                     .shadow(false)
                     .background_color(Color(0, 0, 0, 0))
-                    .always_on_top(true)
+                    .always_on_top(always_on_top)
                     .skip_taskbar(true)
                     .resizable(false)
                     .inner_size(
@@ -747,7 +756,7 @@ async fn show_pinned_todo_window(
     };
 
     let _ = window.unminimize();
-    let _ = window.set_always_on_top(true);
+    let _ = window.set_always_on_top(always_on_top);
     let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
     // 先拷贝一份再定位窗口：定位会派发到主线程等待，若此时仍持有锁，
     // 主线程同步命令（如 remove_pinned_todo）会等锁，形成死锁卡死整个应用。
@@ -772,6 +781,54 @@ fn get_active_pinned_todo(
         .lock()
         .map(|todos| todos.get(&slot).cloned())
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_pinned_stack_always_on_top(
+    state: State<'_, PinnedStackTopmostState>,
+    slot: String,
+) -> Result<bool, String> {
+    let slot = slot
+        .parse::<usize>()
+        .map_err(|error| format!("invalid pinned todo slot: {error}"))?
+        .to_string();
+    Ok(state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .get(&slot)
+        .copied()
+        .unwrap_or(true))
+}
+
+#[tauri::command]
+fn set_pinned_stack_always_on_top(
+    app: tauri::AppHandle,
+    state: State<'_, PinnedStackTopmostState>,
+    slot: String,
+    always_on_top: bool,
+) -> Result<(), String> {
+    let slot = slot
+        .parse::<usize>()
+        .map_err(|error| format!("invalid pinned todo slot: {error}"))?;
+    let slot_key = slot.to_string();
+    state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .insert(slot_key, always_on_top);
+
+    if let Some(window) = app.get_webview_window(&pinned_todo_window_label(slot)) {
+        window
+            .set_always_on_top(always_on_top)
+            .map_err(|error| error.to_string())?;
+    }
+    if let Some(window) = app.get_webview_window(&pinned_subtasks_window_label(slot)) {
+        window
+            .set_always_on_top(always_on_top)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 #[derive(serde::Serialize)]
@@ -808,10 +865,16 @@ fn remove_pinned_todo(
     app: tauri::AppHandle,
     state: State<'_, PinnedTodoState>,
     subtasks_state: State<'_, PinnedSubtasksState>,
+    topmost_state: State<'_, PinnedStackTopmostState>,
     slot: String,
 ) -> Result<(), String> {
     let window_label = pinned_todo_window_label(slot.parse::<usize>().unwrap_or(0));
     state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .remove(&slot);
+    topmost_state
         .0
         .lock()
         .map_err(|error| error.to_string())?
@@ -841,6 +904,7 @@ async fn show_pinned_subtasks_window(
     app: tauri::AppHandle,
     state: State<'_, PinnedSubtasksState>,
     pinned_todo_state: State<'_, PinnedTodoState>,
+    topmost_state: State<'_, PinnedStackTopmostState>,
     slot: String,
     subtasks_group: String,
 ) -> Result<(), String> {
@@ -854,6 +918,14 @@ async fn show_pinned_subtasks_window(
         .lock()
         .map_err(|error| error.to_string())?
         .insert(slot.clone(), subtasks_group.clone());
+
+    let always_on_top = topmost_state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .get(&slot)
+        .copied()
+        .unwrap_or(true);
 
     let window_label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
     let existing_window = app.get_webview_window(&window_label);
@@ -882,7 +954,7 @@ async fn show_pinned_subtasks_window(
                     .transparent(true)
                     .shadow(false)
                     .background_color(Color(0, 0, 0, 0))
-                    .always_on_top(true)
+                    .always_on_top(always_on_top)
                     .skip_taskbar(true)
                     .resizable(false)
                     .inner_size(
@@ -911,7 +983,7 @@ async fn show_pinned_subtasks_window(
         &pinned,
     );
     let _ = window.unminimize();
-    let _ = window.set_always_on_top(true);
+    let _ = window.set_always_on_top(always_on_top);
     let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
     if !is_new_window {
         window.show().map_err(|error| error.to_string())?;
@@ -968,6 +1040,40 @@ fn close_pinned_subtasks_window(
     let window_label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
     if let Some(window) = app.get_webview_window(&window_label) {
         window.hide().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn sync_pinned_subtasks_window_with_parent(
+    app: tauri::AppHandle,
+    slot: String,
+    moving: bool,
+) -> Result<(), String> {
+    let label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
+    if let Some(window) = app.get_webview_window(&label) {
+        window
+            .emit(
+                format!("dotime-pinned-subtasks-moving-{slot}").as_str(),
+                serde_json::json!({ "moving": moving }),
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn move_pinned_subtasks_window_with_parent(
+    app: tauri::AppHandle,
+    slot: String,
+    x: f64,
+    y: f64,
+) -> Result<(), String> {
+    let label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
+    if let Some(window) = app.get_webview_window(&label) {
+        window
+            .set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32))
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -2607,7 +2713,7 @@ fn bring_native_window_to_front(window: &tauri::WebviewWindow) -> Result<(), Str
     let result = unsafe {
         SetWindowPos(
             hwnd,
-            -1isize as Hwnd,
+            std::ptr::null_mut(),
             0,
             0,
             0,
@@ -2650,6 +2756,7 @@ pub fn run() {
         .manage(MiniSubtasksState(Mutex::new(None)))
         .manage(PinnedTodoState(Mutex::new(HashMap::new())))
         .manage(PinnedSubtasksState(Mutex::new(HashMap::new())))
+        .manage(PinnedStackTopmostState(Mutex::new(HashMap::new())))
         .manage(ClipboardMonitorState(Mutex::new(None)))
         .manage(ClipboardHistoryState {
             items: Mutex::new(Vec::new()),
@@ -2725,12 +2832,16 @@ pub fn run() {
             mini_subtasks_window_ready,
             show_pinned_todo_window,
             get_active_pinned_todo,
+            get_pinned_stack_always_on_top,
+            set_pinned_stack_always_on_top,
             get_active_pinned_todos,
             remove_pinned_todo,
             get_active_pinned_subtasks_group,
             show_pinned_subtasks_window,
             pinned_subtasks_window_ready,
             close_pinned_subtasks_window,
+            sync_pinned_subtasks_window_with_parent,
+            move_pinned_subtasks_window_with_parent,
             sync_pinned_subtasks_window,
             open_external_url,
             show_reminder_window,

@@ -12,6 +12,14 @@ import {
   type TypographySettings,
 } from "../utils/typography";
 import { IconClose, IconMinus, IconPlus, IconSettings } from "./icons";
+import {
+  loadWindowOpacity,
+  saveWindowOpacity,
+  WINDOW_OPACITY_CHANGE_EVENT,
+  WINDOW_OPACITY_MAX,
+  WINDOW_OPACITY_MIN,
+  WINDOW_OPACITY_STORAGE_KEY,
+} from "../utils/windowOpacity";
 import "./SettingsButton.css";
 
 function SettingsDialog({ onClose, updates }: {
@@ -19,9 +27,11 @@ function SettingsDialog({ onClose, updates }: {
   updates: ReturnType<typeof useAppUpdates>;
 }) {
   const [settings, setSettings] = useState(loadTypographySettings);
+  const [windowOpacity, setWindowOpacity] = useState(loadWindowOpacity);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const fontSizeId = useId();
+  const opacityId = useId();
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -30,17 +40,37 @@ function SettingsDialog({ onClose, updates }: {
       if (event.key === TYPOGRAPHY_STORAGE_KEY || event.key == null) {
         setSettings(loadTypographySettings());
       }
+      if (event.key === WINDOW_OPACITY_STORAGE_KEY || event.key == null) {
+        setWindowOpacity(loadWindowOpacity());
+      }
+    };
+    const handleOpacityChange = (event: Event) => {
+      const nextOpacity = (event as CustomEvent<number>).detail;
+      if (typeof nextOpacity === "number" && Number.isFinite(nextOpacity)) {
+        setWindowOpacity(nextOpacity);
+      }
     };
     window.addEventListener("storage", handleStorage);
+    window.addEventListener(WINDOW_OPACITY_CHANGE_EVENT, handleOpacityChange);
     return () => {
       dialog?.close();
       window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(WINDOW_OPACITY_CHANGE_EVENT, handleOpacityChange);
     };
   }, []);
 
   const updateSettings = (next: TypographySettings) => {
     setSettings(next);
     saveTypographySettings(next);
+  };
+
+  const updateWindowOpacity = (value: number) => {
+    const nextOpacity = Math.min(
+      WINDOW_OPACITY_MAX,
+      Math.max(WINDOW_OPACITY_MIN, value),
+    );
+    setWindowOpacity(nextOpacity);
+    saveWindowOpacity(nextOpacity);
   };
 
   const closeDialog = () => {
@@ -167,6 +197,30 @@ function SettingsDialog({ onClose, updates }: {
           </div>
         </div>
 
+        <div className="settings-dialog__field">
+          <div className="settings-dialog__size-heading">
+            <label htmlFor={opacityId}>悬浮窗口不透明度</label>
+            <output htmlFor={opacityId}>{Math.round(windowOpacity * 100)}%</output>
+          </div>
+          <div className="settings-dialog__size-control">
+            <input
+              id={opacityId}
+              type="range"
+              min={Math.round(WINDOW_OPACITY_MIN * 100)}
+              max={Math.round(WINDOW_OPACITY_MAX * 100)}
+              step={5}
+              value={Math.round(windowOpacity * 100)}
+              aria-valuetext={`${Math.round(windowOpacity * 100)}% 不透明度`}
+              onChange={(event) =>
+                updateWindowOpacity(Number(event.target.value) / 100)
+              }
+            />
+          </div>
+          <p className="settings-dialog__hint">
+            适用于置顶待办和固定待办。窗口上按住 Ctrl 并滚动滚轮可调整，向上增加、向下减少，每格 5%。
+          </p>
+        </div>
+
         <div className="settings-dialog__preview">
           <span>字体预览</span>
           <p>专注当下，把时间留给重要的事。</p>
@@ -180,7 +234,10 @@ function SettingsDialog({ onClose, updates }: {
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            onClick={() => updateSettings({ ...DEFAULT_TYPOGRAPHY })}
+            onClick={() => {
+              updateSettings({ ...DEFAULT_TYPOGRAPHY });
+              updateWindowOpacity(WINDOW_OPACITY_MAX);
+            }}
           >
             恢复默认
           </button>

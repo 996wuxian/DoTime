@@ -53,6 +53,7 @@ import {
   IconTrash,
 } from "./components/icons";
 import type { StatisticsPeriod } from "./domain/statistics";
+import { getTodoTimelineItems } from "./domain/todoOrdering";
 import { useTodos } from "./hooks/useTodos";
 import type { DailyPinnedDayDropState } from "./hooks/useDailyPinnedDrag";
 import { useTaskTemplates } from "./hooks/useTaskTemplates";
@@ -83,13 +84,16 @@ import {
   exitMiniWindowMode,
   revealMiniWindowMode,
 } from "./utils/windowMode";
-import { setWindowOpacity } from "./utils/windowOpacity";
+import {
+  adjustWindowOpacity,
+  loadWindowOpacity,
+  saveWindowOpacity,
+  setWindowOpacity,
+  WINDOW_OPACITY_CHANGE_EVENT,
+  WINDOW_OPACITY_STORAGE_KEY,
+} from "./utils/windowOpacity";
 import "./App.css";
 
-const MINI_OPACITY_STORAGE_KEY = "dotime:mini-opacity";
-const MINI_OPACITY_MIN = 0.35;
-const MINI_OPACITY_MAX = 1;
-const MINI_OPACITY_STEP = 0.05;
 const TODO_HIGHLIGHT_MS = 2000;
 const TODO_DRAG_LONG_PRESS_MS = 180;
 const TODO_DRAG_CANCEL_DISTANCE = 8;
@@ -157,10 +161,6 @@ type CategoryInsertTarget = {
   beforeTodoId: string;
   afterTodoId: string;
 };
-
-type TodoTimelineItem =
-  | { type: "todo"; todo: Todo }
-  | { type: "category"; divider: TodoCategoryDivider };
 
 function findTodoSubtask(
   subtasks: readonly TodoSubtask[] = [],
@@ -482,15 +482,6 @@ function TodoCategoryInsertRow({
   );
 }
 
-function clampMiniOpacity(value: number) {
-  return Math.min(MINI_OPACITY_MAX, Math.max(MINI_OPACITY_MIN, value));
-}
-
-function loadMiniOpacity() {
-  const stored = Number(localStorage.getItem(MINI_OPACITY_STORAGE_KEY));
-  return Number.isFinite(stored) ? clampMiniOpacity(stored) : 1;
-}
-
 async function showClipboardWindow() {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("show_clipboard_window").catch((error) => {
@@ -587,7 +578,7 @@ function App() {
     kind: "error" | "success";
   } | null>(null);
   const globalToastTimerRef = useRef<number | null>(null);
-  const [miniOpacity, setMiniOpacity] = useState(() => loadMiniOpacity());
+  const [miniOpacity, setMiniOpacity] = useState(loadWindowOpacity);
   const [mainView, setMainView] = useState<
     "todos" | "plan" | "statistics" | "review"
   >("todos");
@@ -962,8 +953,24 @@ function App() {
   }, [aboutOpen]);
 
   useEffect(() => {
-    localStorage.setItem(MINI_OPACITY_STORAGE_KEY, String(miniOpacity));
-  }, [miniOpacity]);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === WINDOW_OPACITY_STORAGE_KEY || event.key == null) {
+        setMiniOpacity(loadWindowOpacity());
+      }
+    };
+    const handleOpacityChange = (event: Event) => {
+      const nextOpacity = (event as CustomEvent<number>).detail;
+      if (typeof nextOpacity === "number" && Number.isFinite(nextOpacity)) {
+        setMiniOpacity(nextOpacity);
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener(WINDOW_OPACITY_CHANGE_EVENT, handleOpacityChange);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(WINDOW_OPACITY_CHANGE_EVENT, handleOpacityChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (miniMode) void setWindowOpacity(miniOpacity);
@@ -1046,22 +1053,8 @@ function App() {
     selectedCount > 0
       ? `将删除已选择的 ${selectedCount} 个待办（包含子待办和计时记录），此操作不可撤销。`
       : "请先选择要删除的待办。";
-  const dayTimelineItems = useMemo<TodoTimelineItem[]>(
-    () =>
-      [
-        ...dayTodos.map((todo) => ({ type: "todo" as const, todo })),
-        ...dayCategoryDividers.map((divider) => ({
-          type: "category" as const,
-          divider,
-        })),
-      ].sort((a, b) => {
-        const sortA = a.type === "todo" ? a.todo.sortOrder : a.divider.sortOrder;
-        const sortB = b.type === "todo" ? b.todo.sortOrder : b.divider.sortOrder;
-        if (sortA !== sortB) return sortA - sortB;
-        const createdA = a.type === "todo" ? a.todo.createdAt : a.divider.createdAt;
-        const createdB = b.type === "todo" ? b.todo.createdAt : b.divider.createdAt;
-        return createdA - createdB;
-      }),
+  const dayTimelineItems = useMemo(
+    () => getTodoTimelineItems(dayTodos, dayCategoryDividers),
     [dayCategoryDividers, dayTodos],
   );
 
@@ -1773,11 +1766,7 @@ function App() {
   };
 
   const changeMiniOpacity = (direction: -1 | 1) => {
-    setMiniOpacity((current) =>
-      clampMiniOpacity(
-        Number((current + direction * MINI_OPACITY_STEP).toFixed(2)),
-      ),
-    );
+    saveWindowOpacity(adjustWindowOpacity(loadWindowOpacity(), direction));
   };
 
   const handleSubmitEdit = (draft: TodoDraft) => {

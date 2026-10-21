@@ -350,7 +350,7 @@ function SubtaskRow({
           <div className="todo-subtask__main">
             <button
               type="button"
-              className={`todo-subtask__title ${
+              className={`todo-subtask__title urgency-title--${subtask.urgency} ${
                 subtask.completed ? "is-completed" : ""
               }`}
               onClick={() => onToggle(subtask.id)}
@@ -822,7 +822,7 @@ export function TodoItem({
             <h3 className="todo-item__title">
               <button
                 type="button"
-                className="todo-item__title-btn"
+                className={`todo-item__title-btn urgency-title--${todo.urgency}`}
                 onClick={onToggle}
                 aria-label={todo.completed ? "标记未完成" : "标记完成"}
                 title={todo.completed ? "标记未完成" : "标记完成"}

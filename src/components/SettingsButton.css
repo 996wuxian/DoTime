@@ -140,9 +140,15 @@
 }
 
 .settings-dialog__font-option small,
-.settings-dialog__size-labels {
+.settings-dialog__size-labels,
+.settings-dialog__hint {
   color: var(--text-muted);
   font-size: 0.68rem;
+}
+
+.settings-dialog__hint {
+  margin: 9px 0 0;
+  line-height: 1.55;
 }
 
 .settings-dialog__size-heading output {

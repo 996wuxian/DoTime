@@ -8,6 +8,7 @@ import type {
   Urgency,
 } from "../types";
 import type { RecurrenceRule } from "../types";
+import { getDayTodos, getTodoTimelineItems, materializeDayTodoOrder } from "../domain/todoOrdering";
 import {
   APP_DATA_STORAGE_KEY,
   createAppDataDocument,
@@ -174,6 +175,7 @@ type TodoAction =
       type: "add-daily-pinned";
       sourceId: string;
       date: string;
+      isManualSort: boolean;
       options: Parameters<typeof addDailyPinnedTodoToDate>[3];
     };
 
@@ -183,10 +185,13 @@ function reduceTodos(state: TodoState, action: TodoAction): TodoState {
     return todos === state.todos ? state : { ...state, todos };
   }
   const { todos, result } = addDailyPinnedTodoToDate(
-    state.todos, action.sourceId, action.date, action.options,
+    action.options.target && !action.isManualSort
+      ? materializeDayTodoOrder(state.todos, action.date)
+      : state.todos,
+    action.sourceId, action.date, action.options,
   );
   return {
-    todos,
+    todos: result.status === "added" ? todos : state.todos,
     dailyPinnedAddResult: { ...result, useManualSort: result.status === "added" && action.options.target != null },
   };
 }
@@ -511,16 +516,7 @@ export function useTodos(selectedDate: string) {
 
   const dayTodos = useMemo(() => {
     void tick; // 依赖 tick 以刷新进行中的计时显示
-    const isManualSort = manualSortDates.has(selectedDate);
-    return todos
-      .filter((t) => t.date === selectedDate)
-      .sort((a, b) => {
-        if (!isManualSort && a.completed !== b.completed) {
-          return a.completed ? 1 : -1;
-        }
-
-        return a.sortOrder - b.sortOrder;
-      });
+    return getDayTodos(todos, selectedDate, manualSortDates.has(selectedDate));
   }, [manualSortDates, todos, selectedDate, tick]);
 
   const dayCategoryDividers = useMemo(
@@ -672,8 +668,9 @@ export function useTodos(selectedDate: string) {
     ) => {
       const trimmedTitle = title.trim();
       if (!trimmedTitle) return;
-      const beforeTodo = todos.find((todo) => todo.id === beforeTodoId);
-      const afterTodo = todos.find((todo) => todo.id === afterTodoId);
+      const orderedTodos = manualSortDates.has(date) ? todos : materializeDayTodoOrder(todos, date);
+      const beforeTodo = orderedTodos.find((todo) => todo.id === beforeTodoId && todo.date === date);
+      const afterTodo = orderedTodos.find((todo) => todo.id === afterTodoId && todo.date === date);
       if (beforeTodo == null || afterTodo == null) return;
       const now = Date.now();
       const sortOrder = (beforeTodo.sortOrder + afterTodo.sortOrder) / 2;
@@ -685,6 +682,9 @@ export function useTodos(selectedDate: string) {
         createdAt: now,
         updatedAt: now,
       };
+      if (!manualSortDates.has(date)) {
+        setTodos((prev) => materializeDayTodoOrder(prev, date));
+      }
       setCategoryDividers((prev) => [...prev, divider]);
       setManualSortDates((prev) => {
         if (prev.has(date)) return prev;
@@ -693,7 +693,7 @@ export function useTodos(selectedDate: string) {
         return next;
       });
     },
-    [todos],
+    [manualSortDates, todos],
   );
 
   const updateCategoryDivider = useCallback((id: string, title: string) => {
@@ -724,35 +724,14 @@ export function useTodos(selectedDate: string) {
 
       setTodos((prev) => {
         const isManualSort = manualSortDates.has(selectedDate);
-        const orderedDayTodos = prev
-          .filter((todo) => todo.date === selectedDate)
-          .sort((a, b) => {
-            if (!isManualSort && a.completed !== b.completed) {
-              return a.completed ? 1 : -1;
-            }
-
-            return a.sortOrder - b.sortOrder;
-          });
+        const orderedDayTodos = getDayTodos(prev, selectedDate, isManualSort);
         const orderedDayDividers = categoryDividers
           .filter((divider) => divider.date === selectedDate)
           .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
-        const timeline = [
-          ...orderedDayTodos.map((todo) => ({
-            type: "todo" as const,
-            id: todo.id,
-            sortOrder: todo.sortOrder,
-            createdAt: todo.createdAt,
-          })),
-          ...orderedDayDividers.map((divider) => ({
-            type: "category" as const,
-            id: divider.id,
-            sortOrder: divider.sortOrder,
-            createdAt: divider.createdAt,
-          })),
-        ].sort((a, b) => {
-          const sortDifference = a.sortOrder - b.sortOrder;
-          return sortDifference !== 0 ? sortDifference : a.createdAt - b.createdAt;
-        });
+        const timeline = getTodoTimelineItems(orderedDayTodos, orderedDayDividers).map((item) => ({
+          type: item.type,
+          id: item.type === "todo" ? item.todo.id : item.divider.id,
+        }));
         const draggedIndex = timeline.findIndex(
           (item) => item.type === "todo" && item.id === draggedId,
         );
@@ -854,6 +833,7 @@ export function useTodos(selectedDate: string) {
         type: "add-daily-pinned",
         sourceId,
         date: selectedDate,
+        isManualSort: manualSortDates.has(selectedDate),
         options: {
           id: createId(),
           now: Date.now(),
@@ -863,7 +843,7 @@ export function useTodos(selectedDate: string) {
         },
       });
     },
-    [dayCategoryDividers, selectedDate, todos],
+    [dayCategoryDividers, manualSortDates, selectedDate, todos],
   );
 
   const reorderDailyPinnedTodo = useCallback(
