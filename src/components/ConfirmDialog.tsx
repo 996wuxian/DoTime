@@ -29,17 +29,43 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const titleId = useId();
   const descriptionId = useId();
-  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const cancelRef = useRef(onCancel);
+  cancelRef.current = onCancel;
 
   useEffect(() => {
-    confirmButtonRef.current?.focus();
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const root = document.getElementById("root");
+    const wasInert = root?.inert ?? false;
+    if (root != null) root.inert = true;
+    cancelButtonRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelRef.current();
+      }
+      if (event.key !== "Tab") return;
+      const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+      if (buttons == null || buttons.length === 0) return;
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel]);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      if (root != null) root.inert = wasInert;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, []);
 
   const dialog = (
     <div
@@ -50,6 +76,7 @@ export function ConfirmDialog({
       }}
     >
       <section
+        ref={dialogRef}
         className={`confirm-dialog is-${confirmVariant}`}
         role="alertdialog"
         aria-modal="true"
@@ -77,12 +104,12 @@ export function ConfirmDialog({
             <button
               type="button"
               className="btn btn-secondary btn-sm"
+              ref={cancelButtonRef}
               onClick={onCancel}
             >
               {cancelLabel}
             </button>
             <button
-              ref={confirmButtonRef}
               type="button"
               className={`btn btn-${confirmVariant} btn-sm`}
               onClick={onConfirm}

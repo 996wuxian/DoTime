@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type SetStateAction } from "react";
+import { isBackupRestoreInProgress } from "../data/backupRestore";
+import type { TodoDraft } from "../types";
+import { parseSubtaskTitles } from "../utils/todoDraft";
 import type {
   Todo,
   TodoCategoryDivider,
@@ -243,6 +246,7 @@ export function useTodos(selectedDate: string) {
 
   useEffect(() => {
     const syncedSignatures = syncedTodoImageSignaturesRef.current;
+    if (isBackupRestoreInProgress()) return;
     if (syncedSignatures == null || pendingTodoImageSyncRef.current.size > 0) {
       return;
     }
@@ -285,6 +289,7 @@ export function useTodos(selectedDate: string) {
       );
 
       pendingTodoImageSyncRef.current = new Set();
+      if (isBackupRestoreInProgress()) return;
       if (updates.length === 0) return;
 
       setTodos((current) => {
@@ -315,6 +320,7 @@ export function useTodos(selectedDate: string) {
   }, [todos]);
 
   useEffect(() => {
+    if (isBackupRestoreInProgress()) return;
     const result = saveAppData(
       createAppDataDocument(todos, manualSortDates, categoryDividers),
       localStorage,
@@ -636,6 +642,15 @@ export function useTodos(selectedDate: string) {
     },
     [selectedDate],
   );
+
+  const addTodoFromDraft = useCallback((draft: TodoDraft) => {
+    addTodo(
+      draft.title, draft.urgency, draft.plannedSeconds, draft.countdownEnabled,
+      draft.countdownOnlyEnabled, draft.reminderEnabled, draft.reminderTime,
+      draft.recordTimeEnabled, draft.taskTime, draft.date, draft.recurrence,
+      draft.comment, parseSubtaskTitles(draft.subtaskTitles), draft.images,
+    );
+  }, [addTodo]);
 
   const removeTodo = useCallback((id: string) => {
     void removeTodoImageDirectories([id]);
@@ -1010,6 +1025,11 @@ export function useTodos(selectedDate: string) {
     [getLiveElapsed],
   );
 
+  const getAppDataDocument = useCallback(
+    () => createAppDataDocument(todos, manualSortDates, categoryDividers),
+    [categoryDividers, manualSortDates, todos],
+  );
+
   const exportTodosData = useCallback(
     () =>
       exportAppDataAsText(
@@ -1050,6 +1070,7 @@ export function useTodos(selectedDate: string) {
     stats,
     todoDateSummaries,
     addTodo,
+    addTodoFromDraft,
     removeTodo,
     clearDayTodos,
     reorderTodo,
@@ -1087,6 +1108,7 @@ export function useTodos(selectedDate: string) {
     getLiveElapsed,
     getCountdownRemaining,
     exportTodosData,
+    getAppDataDocument,
     exportSelectedDateData,
     importTodosData,
     storageNotice,

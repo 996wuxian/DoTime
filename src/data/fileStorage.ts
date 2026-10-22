@@ -51,6 +51,7 @@ const TASK_TEMPLATE_STORAGE_KEYS = [
 export const FILE_STORAGE_RELOADED_EVENT = "dotime-file-storage-reloaded";
 
 let initialized = false;
+let mirrorQueue: Promise<void> = Promise.resolve();
 
 function canUseTauriCommands(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as TauriWindow);
@@ -70,17 +71,20 @@ async function removeDataFile(fileName: string): Promise<void> {
 
 async function mirrorBindings(bindings: readonly DataFileBinding[]): Promise<void> {
   if (!canUseTauriCommands()) return;
-
-  await Promise.all(
-    bindings.map(async ({ storageKey, fileName }) => {
-      const value = localStorage.getItem(storageKey);
-      if (value == null) {
-        await removeDataFile(fileName);
-        return;
-      }
-      await writeDataFile(fileName, value);
-    }),
-  );
+  const snapshots = bindings.map(({ storageKey, fileName }) => ({
+    fileName,
+    value: localStorage.getItem(storageKey),
+  }));
+  const pending = mirrorQueue.catch(() => {}).then(async () => {
+    const results = await Promise.allSettled(snapshots.map(async ({ fileName, value }) => {
+      if (value == null) await removeDataFile(fileName);
+      else await writeDataFile(fileName, value);
+    }));
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+  });
+  mirrorQueue = pending;
+  await pending;
 }
 
 async function loadBindingsIntoLocalStorage(

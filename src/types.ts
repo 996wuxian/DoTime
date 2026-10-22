@@ -76,6 +76,30 @@ export interface TodoImage {
   dataUrl?: string;
 }
 
+export interface TodoDraft {
+  title: string;
+  date: string;
+  taskTime: string;
+  comment: string;
+  subtaskTitles: string;
+  images: TodoImage[];
+  urgency: Urgency;
+  plannedSeconds: number;
+  countdownEnabled: boolean;
+  countdownOnlyEnabled: boolean;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
+  recordTimeEnabled: boolean;
+  recurrence: RecurrenceRule | null;
+  recurrenceEditScope: RecurrenceEditScope;
+}
+
+export interface TodoDraftSnapshot {
+  draft: TodoDraft;
+  countdownTargetTime: string;
+  countdownTimeTouched: boolean;
+}
+
 export interface Todo {
   id: string;
   title: string;

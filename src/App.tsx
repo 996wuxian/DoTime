@@ -16,12 +16,11 @@ import { SettingsButton } from "./components/SettingsButton";
 import { useAppUpdates } from "./hooks/useAppUpdates";
 import { DateNavigator } from "./components/DateNavigator";
 import { CalendarPopover } from "./components/CalendarPopover";
-import {
-  createDefaultTodoDraft,
-  TodoEditorForm,
-} from "./components/TodoEditorForm";
+import { TodoEditorForm } from "./components/TodoEditorForm";
+import { createDefaultTodoDraft } from "./utils/todoDraft";
 import type { TodoDraft } from "./components/TodoEditorForm";
 import { TodoForm } from "./components/TodoForm";
+import { QuickTodoForm } from "./components/QuickTodoForm";
 import { TodoItem } from "./components/TodoItem";
 import {
   WindowControls,
@@ -60,6 +59,8 @@ import { useTaskTemplates } from "./hooks/useTaskTemplates";
 import type { Todo, TodoCategoryDivider, TodoSubtask } from "./types";
 import { URGENCY_LABELS } from "./types";
 import { loadAppData } from "./data/appData";
+import { createAppBackup } from "./data/appBackup";
+import { restoreAppBackup } from "./data/backupRestore";
 import { shiftDateKey } from "./utils/calendar";
 import {
   MINI_SUBTASKS_CLOSED_EVENT,
@@ -644,7 +645,7 @@ function App() {
     dayCategoryDividers,
     stats,
     todoDateSummaries,
-    addTodo,
+    addTodoFromDraft,
     removeTodo,
     clearDayTodos,
     reorderTodo,
@@ -680,8 +681,8 @@ function App() {
     getLiveElapsed,
     getCountdownRemaining,
     exportTodosData,
+    getAppDataDocument,
     exportSelectedDateData,
-    importTodosData,
     storageNotice,
   } = useTodos(selectedDate);
   const {
@@ -1262,6 +1263,11 @@ function App() {
     }
   };
 
+  const handleAddTodoDraft = (draft: TodoDraft) => {
+    addTodoFromDraft(draft);
+    if (draft.date !== selectedDate) setSelectedDate(draft.date);
+  };
+
   const handleStartEdit = (id: string) => {
     setMainView("todos");
     setEditingTodoId(id);
@@ -1301,6 +1307,7 @@ function App() {
     setMiniAutoHideEnabled(false);
     setMiniAutoHideRevealed(true);
     await enterMiniWindowMode();
+    setMiniOpacity(loadWindowOpacity());
     setMiniMode(true);
   };
 
@@ -1308,7 +1315,6 @@ function App() {
     setMiniMode(false);
     setMiniAutoHideEnabled(false);
     setMiniAutoHideRevealed(true);
-    await setWindowOpacity(1);
     await exitMiniWindowMode();
     // 最后再关一次子待办窗口，兜底处理退出瞬间仍在途的 show 请求，
     // 避免迷你子待办窗口残留在桌面上。
@@ -2361,7 +2367,8 @@ function App() {
             selectedTodoCount={dayTodos.length}
             onExportAll={exportTodosData}
             onExportSelectedDate={exportSelectedDateData}
-            onImport={importTodosData}
+            onExportBackup={async () => JSON.stringify(await createAppBackup(getAppDataDocument(), templates), null, 2)}
+            onRestoreBackup={(backup) => restoreAppBackup(backup, getAppDataDocument(), templates)}
             onCleanupImages={() => cleanupStoredTodoImages(allTodos)}
           />
           <button
@@ -2639,6 +2646,7 @@ function App() {
             />
           ) : subtaskEditorTarget ? (
             <TodoEditorForm
+              draftKey={`subtask:${subtaskEditorTarget.todoId}:${subtaskEditorTarget.mode === "edit" ? `edit:${subtaskEditorTarget.subtaskId}` : `add:${subtaskEditorTarget.parentSubtaskId ?? "root"}`}`}
               key={`${subtaskEditorTarget.todoId}-${
                 subtaskEditorTarget.mode === "edit"
                   ? subtaskEditorTarget.subtaskId
@@ -2670,6 +2678,7 @@ function App() {
           ) : editingTodo ? (
             <TodoEditorForm
               key={editingTodo.id}
+              draftKey={`edit:${editingTodo.id}`}
               initialDraft={{
                 title: editingTodo.title,
                 date: editingTodo.date,
@@ -2702,7 +2711,7 @@ function App() {
             />
           ) : (
             <TodoForm
-              onAdd={addTodo}
+              onAdd={handleAddTodoDraft}
               open={todoFormOpen}
               selectedDate={selectedDate}
               todoDateSummaries={todoDateSummaries}
@@ -2718,6 +2727,11 @@ function App() {
 
           {mainView === "todos" && !showingEditor && (
             <>
+              <QuickTodoForm
+                key={selectedDate}
+                date={selectedDate}
+                onAdd={handleAddTodoDraft}
+              />
               <section
                 className={`todo-list ${
                   draggingTodoId != null ? "is-dragging" : ""
@@ -2737,7 +2751,7 @@ function App() {
                     <p>
                       {dailyPinnedDayDropTarget
                         ? "松手即可添加固定待办"
-                        : "点击上方「新建待办」，设置紧急程度，按需开启倒计时。"}
+                        : "在上方输入任务，按 Enter 添加；需要提醒或倒计时，可点击顶部新建待办。"}
                     </p>
                   </div>
                 ) : (

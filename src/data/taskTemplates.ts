@@ -219,6 +219,10 @@ function createDocument(templates: readonly TaskTemplate[]): TaskTemplateDocumen
   };
 }
 
+export function parseTaskTemplates(value: unknown): TaskTemplate[] | null {
+  return parseDocument({ version: TASK_TEMPLATE_DATA_VERSION, templates: value })?.templates ?? null;
+}
+
 export function createTaskTemplate(
   input: TaskTemplateInput,
   sortOrder: number,

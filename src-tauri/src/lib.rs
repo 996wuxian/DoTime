@@ -74,6 +74,8 @@ struct MiniSubtasksState(Mutex<Option<String>>);
 struct PinnedTodoState(Mutex<HashMap<String, String>>);
 struct PinnedSubtasksState(Mutex<HashMap<String, String>>);
 struct PinnedStackTopmostState(Mutex<HashMap<String, bool>>);
+#[derive(Default)]
+struct WindowOpacityState(Mutex<HashMap<String, f64>>);
 struct ClipboardMonitorState(Mutex<Option<mpsc::Sender<()>>>);
 struct ClipboardHistoryState {
     items: Mutex<Vec<ClipboardSnapshot>>,
@@ -300,6 +302,7 @@ fn persist_todo_images(
     app: tauri::AppHandle,
     todo_id: String,
     images: Vec<TodoImageInput>,
+    preserve_existing: Option<bool>,
 ) -> Result<Vec<StoredTodoImage>, String> {
     let dir = todo_image_dir(&app, &todo_id)?;
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
@@ -338,6 +341,10 @@ fn persist_todo_images(
         });
     }
 
+    // Restores stage new files without removing resources referenced by the previous data.
+    if preserve_existing.unwrap_or(false) {
+        return Ok(stored);
+    }
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -578,8 +585,43 @@ fn cleanup_todo_images(
 }
 
 #[tauri::command]
-fn set_window_opacity(window: tauri::Window, opacity: f64) -> Result<(), String> {
-    set_native_window_opacity(window, opacity)
+fn set_window_opacity(
+    window: tauri::Window,
+    state: State<'_, WindowOpacityState>,
+    opacity: f64,
+) -> Result<(), String> {
+    if !opacity.is_finite() {
+        return Err("invalid window opacity".into());
+    }
+    let opacity = opacity.clamp(MINI_OPACITY_MIN, MINI_OPACITY_MAX);
+    set_native_window_opacity(&window, opacity)?;
+    state
+        .0
+        .lock()
+        .map_err(|error| error.to_string())?
+        .insert(window.label().to_string(), opacity);
+    Ok(())
+}
+
+fn restore_window_opacity(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let target = window.clone();
+    // Tao 在 show / 置顶操作中会重写扩展样式，移除手动设置的 WS_EX_LAYERED。
+    // 排在这些主线程操作之后恢复，即使设置值没变也重新应用。
+    window
+        .run_on_main_thread(move || {
+            let opacity = target
+                .state::<WindowOpacityState>()
+                .0
+                .lock()
+                .ok()
+                .and_then(|values| values.get(target.label()).copied());
+            if let Some(opacity) = opacity {
+                if let Err(error) = set_native_window_opacity(&target.as_ref().window(), opacity) {
+                    eprintln!("failed to restore window opacity: {error}");
+                }
+            }
+        })
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -746,6 +788,7 @@ async fn show_pinned_todo_window(
                         if matches!(event.event(), PageLoadEvent::Finished) {
                             let _ = window.show();
                             let _ = window.set_focus();
+                            let _ = restore_window_opacity(&window);
                         }
                     })
                     .build()
@@ -765,6 +808,7 @@ async fn show_pinned_todo_window(
     if !is_new_window {
         window.show().map_err(|error| error.to_string())?;
         let _ = window.set_focus();
+        restore_window_opacity(&window)?;
     }
     let _ = window.emit(format!("dotime-pinned-todo-{slot}").as_str(), pinned_todo);
     let _ = app.emit(PINNED_TODOS_UPDATED_EVENT, ());
@@ -822,11 +866,13 @@ fn set_pinned_stack_always_on_top(
         window
             .set_always_on_top(always_on_top)
             .map_err(|error| error.to_string())?;
+        restore_window_opacity(&window)?;
     }
     if let Some(window) = app.get_webview_window(&pinned_subtasks_window_label(slot)) {
         window
             .set_always_on_top(always_on_top)
             .map_err(|error| error.to_string())?;
+        restore_window_opacity(&window)?;
     }
     Ok(())
 }
@@ -988,6 +1034,7 @@ async fn show_pinned_subtasks_window(
     if !is_new_window {
         window.show().map_err(|error| error.to_string())?;
         let _ = window.set_focus();
+        restore_window_opacity(&window)?;
     }
     let _ = window.emit(
         format!("dotime-pinned-subtasks-{slot}").as_str(),
@@ -1012,6 +1059,7 @@ fn pinned_subtasks_window_ready(
         let _ = window.unminimize();
         window.show().map_err(|error| error.to_string())?;
         let _ = window.set_focus();
+        restore_window_opacity(&window)?;
     }
     Ok(())
 }
@@ -1022,6 +1070,7 @@ fn mini_subtasks_window_ready(app: tauri::AppHandle) -> Result<(), String> {
         let _ = window.unminimize();
         window.show().map_err(|error| error.to_string())?;
         let _ = window.set_focus();
+        restore_window_opacity(&window)?;
     }
     Ok(())
 }
@@ -1242,6 +1291,7 @@ fn show_mini_subtasks_window_inner(
     if !is_new_window {
         window.show().map_err(|error| error.to_string())?;
         let _ = window.set_focus();
+        restore_window_opacity(&window)?;
     }
     let _ = window.emit("dotime-mini-subtasks-group", subtasks_group);
 
@@ -2588,11 +2638,12 @@ fn show_main_window(app: &tauri::AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+        let _ = restore_window_opacity(&window);
     }
 }
 
 #[cfg(windows)]
-fn set_native_window_opacity(window: tauri::Window, opacity: f64) -> Result<(), String> {
+fn set_native_window_opacity(window: &tauri::Window, opacity: f64) -> Result<(), String> {
     use std::ffi::c_void;
 
     type Hwnd = *mut c_void;
@@ -2733,7 +2784,7 @@ fn bring_native_window_to_front(window: &tauri::WebviewWindow) -> Result<(), Str
 }
 
 #[cfg(not(windows))]
-fn set_native_window_opacity(_window: tauri::Window, _opacity: f64) -> Result<(), String> {
+fn set_native_window_opacity(_window: &tauri::Window, _opacity: f64) -> Result<(), String> {
     Ok(())
 }
 
@@ -2757,6 +2808,7 @@ pub fn run() {
         .manage(PinnedTodoState(Mutex::new(HashMap::new())))
         .manage(PinnedSubtasksState(Mutex::new(HashMap::new())))
         .manage(PinnedStackTopmostState(Mutex::new(HashMap::new())))
+        .manage(WindowOpacityState::default())
         .manage(ClipboardMonitorState(Mutex::new(None)))
         .manage(ClipboardHistoryState {
             items: Mutex::new(Vec::new()),

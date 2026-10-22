@@ -1474,6 +1474,66 @@ a,
   margin-top: 12px;
 }
 
+.data-actions__hint,
+.data-actions__section-label {
+  margin: 9px 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.data-actions__section-label {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.data-actions__recovery {
+  color: var(--primary-hover);
+  font-size: 0.75rem;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.data-actions__recovery:focus-visible,
+.todo-draft-status button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.data-actions__maintenance {
+  margin-top: 12px;
+}
+
+.backup-preview {
+  display: grid;
+  gap: 10px;
+  overflow-wrap: anywhere;
+}
+
+.todo-draft-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 8px 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.todo-draft-status.is-error {
+  color: var(--danger);
+}
+
+.todo-draft-status button {
+  padding: 4px 0;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .data-actions__commands .btn {
   min-width: 0;
   justify-content: center;
@@ -3433,11 +3493,165 @@ a,
 }
 
 /* Form */
+.quick-todo {
+  margin: 0 0 0 58px;
+  padding: 8px 16px;
+}
+
+.quick-todo__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quick-todo input {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  padding: 2px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.94rem;
+}
+
+.quick-todo:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.quick-todo input::placeholder {
+  color: var(--text-muted);
+}
+
+.quick-todo__hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.7;
+}
+
+.quick-todo__hint > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.quick-todo__hint > span:first-child {
+  flex-shrink: 0;
+}
+
+.quick-todo__notice {
+  margin: 8px 0 0;
+  color: var(--success);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.quick-todo__notice.is-error,
+.todo-form__submit-notice.is-error {
+  color: var(--danger);
+}
+
 .todo-form {
   padding: 18px 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.todo-form__more {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+}
+
+.todo-form__more > summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 14px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.todo-form__more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.todo-form__more-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.todo-form__more[open] .todo-form__more-title .g-icon {
+  transform: rotate(180deg);
+}
+
+.todo-form__more > summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+
+.todo-form__more-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 2px 14px 14px;
+}
+
+.todo-form__actions {
+  margin: 0 -20px -18px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--bg-card);
+}
+
+.todo-form__action-buttons {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.todo-form__action-buttons > .btn {
+  min-height: 40px;
+}
+
+.todo-form__submit-notice {
+  margin: 0 0 10px;
+  color: var(--success);
+  font-size: 0.78rem;
+}
+
+@media (max-width: 760px) {
+  .quick-todo {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 540px) {
+  .todo-form__more > summary {
+    flex-wrap: wrap;
+  }
+  .todo-form__action-buttons > .btn {
+    flex: 1;
+  }
 }
 
 .todo-form__header {

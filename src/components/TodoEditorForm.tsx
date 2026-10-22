@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import type {
   ClipboardEvent,
   CSSProperties,
@@ -8,7 +8,6 @@ import type {
   WheelEvent,
 } from "react";
 import type {
-  RecurrenceEditScope,
   RecurrenceFrequency,
   RecurrenceRule,
   TaskTemplate,
@@ -47,25 +46,14 @@ import {
   IconUpload,
 } from "./icons";
 
-export interface TodoDraft {
-  title: string;
-  date: string;
-  taskTime: string;
-  comment: string;
-  subtaskTitles: string;
-  images: TodoImage[];
-  urgency: Urgency;
-  plannedSeconds: number;
-  countdownEnabled: boolean;
-  countdownOnlyEnabled: boolean;
-  reminderEnabled: boolean;
-  reminderTime: string | null;
-  recordTimeEnabled: boolean;
-  recurrence: RecurrenceRule | null;
-  recurrenceEditScope: RecurrenceEditScope;
-}
+import type { TodoDraft, TodoDraftSnapshot } from "../types";
+import { loadTodoDraft, removeTodoDraft, saveTodoDraft } from "../data/todoDrafts";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { createDefaultTodoDraft, getCountdownSecondsUntil, getDraftExtras, prepareTodoDraft } from "../utils/todoDraft";
+export type { TodoDraft } from "../types";
 
 interface TodoEditorFormProps {
+  draftKey: string;
   initialDraft: TodoDraft;
   title: string;
   titleIcon: ReactNode;
@@ -74,7 +62,8 @@ interface TodoEditorFormProps {
   todoId?: string;
   showImages?: boolean;
   autoFocus?: boolean;
-  onSubmit: (draft: TodoDraft) => void;
+  onSubmit: (draft: TodoDraft) => void | Promise<void>;
+  onSubmitAndContinue?: (draft: TodoDraft) => void | Promise<void>;
   onCancel: () => void;
   todoDateSummaries: ReadonlyMap<string, import("../types").TodoDateSummary>;
   templates?: readonly TaskTemplate[];
@@ -269,20 +258,6 @@ function getCountdownTargetTime(plannedSeconds: number) {
   return formatClockTime(Date.now() + Math.max(60, plannedSeconds) * 1000);
 }
 
-function getCountdownSecondsUntil(time: string, nowMs = Date.now()) {
-  const normalized = normalizeReminderTime(time);
-  if (normalized == null) return 60;
-
-  const [hour, minute] = normalized.split(":").map(Number);
-  const target = new Date(nowMs);
-  target.setHours(hour, minute, 0, 0);
-  if (target.getTime() <= nowMs) {
-    target.setDate(target.getDate() + 1);
-  }
-
-  return Math.max(60, Math.ceil((target.getTime() - nowMs) / 1000));
-}
-
 function formatCountdownTargetHint(time: string) {
   const normalized = normalizeReminderTime(time);
   if (normalized == null) return null;
@@ -342,27 +317,127 @@ function TodoFormImagePreview({
   );
 }
 
-export function createDefaultTodoDraft(date = formatDateKey()): TodoDraft {
-  return {
-    title: "",
-    date,
-    taskTime: formatClockTime(Date.now()),
-    comment: "",
-    subtaskTitles: "",
-    images: [],
-    urgency: "medium",
-    plannedSeconds: 25 * 60,
-    countdownEnabled: false,
-    countdownOnlyEnabled: false,
-    reminderEnabled: false,
-    reminderTime: getDefaultReminderTime(),
-    recordTimeEnabled: false,
-    recurrence: null,
-    recurrenceEditScope: "series",
-  };
+export function TodoEditorForm(props: TodoEditorFormProps) {
+  return <PersistentTodoEditor key={props.draftKey} {...props} />;
 }
 
-export function TodoEditorForm({
+function PersistentTodoEditor(props: TodoEditorFormProps) {
+  const [snapshot, setSnapshot] = useState<TodoDraftSnapshot | null | undefined>();
+  const [notice, setNotice] = useState("草稿自动保留，切换页面后可继续");
+  const [hasDraft, setHasDraft] = useState(false);
+  const [draftError, setDraftError] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [discardBusy, setDiscardBusy] = useState(false);
+  const currentSnapshotRef = useRef<TodoDraftSnapshot | null>(null);
+  const revisionRef = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadTodoDraft(props.draftKey).then((stored) => {
+      if (cancelled) return;
+      currentSnapshotRef.current = stored;
+      setSnapshot(stored);
+      setHasDraft(stored != null);
+      if (stored != null) setNotice("已恢复草稿，后续修改自动保留");
+    }).catch(() => {
+      if (cancelled) return;
+      setSnapshot(null);
+      setDraftError(true);
+      setNotice("无法读取本地草稿；请及时保存待办，避免关闭窗口后丢失内容。");
+    });
+    return () => { cancelled = true; };
+  }, [props.draftKey]);
+
+  const saveSnapshot = useCallback((next: TodoDraftSnapshot) => {
+    currentSnapshotRef.current = next;
+    setHasDraft(true);
+    const revision = ++revisionRef.current;
+    void saveTodoDraft(props.draftKey, next).then(() => {
+      if (revision !== revisionRef.current) return;
+      setDraftError(false);
+      setNotice("草稿已自动保存，切换页面或重启后可继续");
+    }).catch(() => {
+      if (revision !== revisionRef.current) return;
+      setDraftError(true);
+      setNotice("草稿尚未保存到本机；请及时保存待办，避免关闭窗口后丢失内容。");
+    });
+  }, [props.draftKey]);
+
+  const submit = async (draft: TodoDraft, keepOpen = false) => {
+    revisionRef.current += 1;
+    await removeTodoDraft(props.draftKey);
+    try {
+      if (keepOpen) await props.onSubmitAndContinue?.(draft);
+      else await props.onSubmit(draft);
+      currentSnapshotRef.current = null;
+      setHasDraft(false);
+      setSnapshot(null);
+      setNotice("草稿自动保留，切换页面后可继续");
+    } catch (error) {
+      if (currentSnapshotRef.current != null) {
+        await saveTodoDraft(props.draftKey, currentSnapshotRef.current);
+      }
+      throw error;
+    }
+  };
+
+  const discard = async () => {
+    setDiscardBusy(true);
+    try {
+      await removeTodoDraft(props.draftKey);
+      props.onCancel();
+    } catch {
+      setDraftError(true);
+      setNotice("无法放弃草稿，请重试。当前填写内容仍保留。");
+      setDiscardOpen(false);
+    } finally {
+      setDiscardBusy(false);
+    }
+  };
+
+  if (snapshot === undefined) {
+    return <div className={props.className} role="status">正在读取草稿…</div>;
+  }
+  return (
+    <>
+      <TodoEditorFields
+        {...props}
+        initialDraft={snapshot?.draft ?? props.initialDraft}
+        initialSnapshot={snapshot}
+        onSubmit={submit}
+        onSubmitAndContinue={props.onSubmitAndContinue == null ? undefined : (draft) => submit(draft, true)}
+        onSnapshotChange={saveSnapshot}
+        draftNotice={notice}
+        draftError={draftError}
+        hasDraft={hasDraft}
+        onDiscard={() => setDiscardOpen(true)}
+      />
+      {discardOpen && (
+        <ConfirmDialog
+          title="放弃这份草稿？"
+          description="未保存的填写内容会被清除，已保存的待办不受影响。"
+          icon={<IconClose size={20} />}
+          confirmLabel={discardBusy ? "正在放弃…" : "放弃草稿"}
+          confirmVariant="danger"
+          confirmDisabled={discardBusy}
+          onCancel={() => { if (!discardBusy) setDiscardOpen(false); }}
+          onConfirm={() => void discard()}
+        />
+      )}
+    </>
+  );
+}
+
+interface TodoEditorFieldsProps extends TodoEditorFormProps {
+  initialSnapshot: TodoDraftSnapshot | null;
+  onSnapshotChange: (snapshot: TodoDraftSnapshot) => void;
+  draftNotice: string;
+  draftError: boolean;
+  hasDraft: boolean;
+  onDiscard: () => void;
+}
+
+function TodoEditorFields({
   initialDraft,
   title,
   titleIcon,
@@ -372,22 +447,49 @@ export function TodoEditorForm({
   showImages = true,
   autoFocus = false,
   onSubmit,
+  onSubmitAndContinue,
   onCancel,
   todoDateSummaries,
   templates,
   templateNotice = null,
   onSaveTemplate,
   onManageTemplates,
-}: TodoEditorFormProps) {
+  initialSnapshot,
+  onSnapshotChange,
+  draftNotice,
+  draftError,
+  hasDraft,
+  onDiscard,
+}: TodoEditorFieldsProps) {
   const [draft, setDraft] = useState<TodoDraft>(initialDraft);
   const [activeTimePicker, setActiveTimePicker] =
     useState<ActiveTimePicker>(null);
   const [timePickerPosition, setTimePickerPosition] =
     useState<CSSProperties | null>(null);
   const [countdownTargetTime, setCountdownTargetTime] = useState(() =>
-    getCountdownTargetTime(initialDraft.plannedSeconds),
+    initialSnapshot?.countdownTimeTouched
+      ? initialSnapshot.countdownTargetTime
+      : getCountdownTargetTime(initialDraft.plannedSeconds),
   );
-  const [countdownTimeTouched, setCountdownTimeTouched] = useState(false);
+  const [countdownTimeTouched, setCountdownTimeTouched] = useState(initialSnapshot?.countdownTimeTouched ?? false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitNotice, setSubmitNotice] = useState<string | null>(null);
+  const [submitFailed, setSubmitFailed] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(() =>
+    getDraftExtras(initialDraft).length > 0 || initialDraft.urgency !== "medium",
+  );
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const composingRef = useRef(false);
+  const submittingRef = useRef(false);
+  const initialDraftRef = useRef(initialDraft);
+  const initialCountdownRef = useRef({ countdownTargetTime, countdownTimeTouched });
+
+  useEffect(() => {
+    if (draft === initialDraftRef.current &&
+        countdownTargetTime === initialCountdownRef.current.countdownTargetTime &&
+        countdownTimeTouched === initialCountdownRef.current.countdownTimeTouched) return;
+    onSnapshotChange({ draft, countdownTargetTime, countdownTimeTouched });
+  }, [draft, countdownTargetTime, countdownTimeTouched, onSnapshotChange]);
   const [draggingImageId, setDraggingImageId] = useState<string | null>(null);
   const [isImageDropActive, setIsImageDropActive] = useState(false);
   const [isImagePasteTarget, setIsImagePasteTarget] = useState(false);
@@ -610,7 +712,7 @@ export function TodoEditorForm({
   }, [showImages]);
 
   useEffect(() => {
-    if (!isImagePasteTarget) return;
+    if (!isImagePasteTarget || !moreOpen) return;
 
     const handleDocumentPaste = (event: globalThis.ClipboardEvent) => {
       if (event.defaultPrevented) return;
@@ -624,7 +726,7 @@ export function TodoEditorForm({
 
     document.addEventListener("paste", handleDocumentPaste);
     return () => document.removeEventListener("paste", handleDocumentPaste);
-  }, [draft.images.length, isImagePasteTarget]);
+  }, [draft.images.length, isImagePasteTarget, moreOpen]);
 
   const updateImagePasteTarget = () => {
     setIsImagePasteTarget(
@@ -936,30 +1038,48 @@ export function TodoEditorForm({
     });
   };
 
+  const submitDraft = async (keepOpen = false) => {
+    if (!trimmedTitle || submittingRef.current || composingRef.current) return;
+    const submitAction = keepOpen ? onSubmitAndContinue : onSubmit;
+    if (submitAction == null) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setSubmitNotice(null);
+    setSubmitFailed(false);
+    try {
+      await submitAction({
+        ...prepareTodoDraft({ draft, countdownTargetTime: countdownTimeValue, countdownTimeTouched }),
+        images: showImages ? draft.images.slice(0, MAX_IMAGE_SELECTION) : [],
+      });
+      if (keepOpen) {
+        const next = createDefaultTodoDraft(draft.date);
+        const target = getCountdownTargetTime(next.plannedSeconds);
+        initialDraftRef.current = next;
+        initialCountdownRef.current = { countdownTargetTime: target, countdownTimeTouched: false };
+        setDraft(next);
+        setCountdownTargetTime(target);
+        setCountdownTimeTouched(false);
+        setMoreOpen(false);
+        setActiveTimePicker(null);
+        setSubmitNotice("已添加待办，可以继续填写下一条。");
+        window.requestAnimationFrame(() => titleInputRef.current?.focus());
+      }
+    } catch {
+      setSubmitFailed(true);
+      setSubmitNotice("未能保存待办，请重试。填写内容仍保留。");
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (!trimmedTitle) return;
-    const plannedSeconds =
-      draft.countdownEnabled && countdownTimeTouched
-        ? getCountdownSecondsUntil(countdownTimeValue)
-        : draft.plannedSeconds;
-    onSubmit({
-      ...draft,
-      title: trimmedTitle,
-      countdownOnlyEnabled: draft.countdownEnabled && draft.countdownOnlyEnabled,
-      plannedSeconds,
-      taskTime: normalizeReminderTime(draft.taskTime) ?? taskTimeValue,
-      recordTimeEnabled: draft.countdownEnabled
-        ? true
-        : draft.recordTimeEnabled,
-      reminderTime: draft.reminderEnabled
-        ? normalizeReminderTime(draft.reminderTime)
-        : null,
-      images: showImages ? draft.images.slice(0, MAX_IMAGE_SELECTION) : [],
-    });
+    void submitDraft();
   };
 
   const applyTemplate = (template: TaskTemplate) => {
+    setMoreOpen(true);
     setCountdownTargetTime(getCountdownTargetTime(template.plannedSeconds));
     setCountdownTimeTouched(false);
     setDraft((current) => ({
@@ -1022,10 +1142,18 @@ export function TodoEditorForm({
         </div>
       </div>
 
+      <div className={`todo-draft-status ${draftError ? "is-error" : ""}`}>
+        <span role={draftError ? "alert" : "status"}>{draftNotice}</span>
+        {hasDraft && (
+          <button type="button" onClick={onDiscard} disabled={submitting}>放弃草稿</button>
+        )}
+      </div>
+
       <div className="todo-form__primary-row">
         <label className="field">
           <span className="field__label">任务内容</span>
           <input
+            ref={titleInputRef}
             className="field__input"
             name="title"
             autoComplete="off"
@@ -1033,6 +1161,11 @@ export function TodoEditorForm({
             onChange={(event) => updateDraft("title", event.target.value)}
             placeholder="今天要完成什么？"
             autoFocus={autoFocus}
+            onCompositionStart={() => { composingRef.current = true; }}
+            onCompositionEnd={() => { composingRef.current = false; }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault();
+            }}
             maxLength={120}
           />
         </label>
@@ -1069,110 +1202,6 @@ export function TodoEditorForm({
           </div>
         </div>
       </div>
-
-      <div className="todo-form__meta-row">
-        <div className="field field--urgency">
-          <span className="field__label">
-            <IconFlame size={14} />
-            紧急程度
-          </span>
-          <div className="urgency-group" role="group" aria-label="紧急程度">
-            {URGENCIES.map((urgency) => (
-              <button
-                key={urgency}
-                type="button"
-                className={`urgency-chip urgency-chip--${urgency} ${
-                  draft.urgency === urgency ? "is-active" : ""
-                }`}
-                onClick={() => updateDraft("urgency", urgency)}
-              >
-                <span
-                  className={`urgency-icon urgency-icon--${urgency}`}
-                  aria-hidden
-                >
-                  <IconFlame size={14} />
-                </span>
-                {URGENCY_LABELS[urgency]}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="field field--reminder" aria-label="提醒时间设置">
-          <div className="field__label-row">
-            <span className="field__label">
-              <IconBell size={14} />
-              提醒时间
-            </span>
-            <label className="switch-control">
-              <input
-                type="checkbox"
-                aria-label={draft.reminderEnabled ? "关闭提醒" : "开启提醒"}
-                checked={draft.reminderEnabled}
-                onChange={(event) =>
-                  handleReminderToggle(event.currentTarget.checked)
-                }
-              />
-              <span className="switch-control__track" aria-hidden />
-            </label>
-          </div>
-          <div
-            ref={reminderTimeRef}
-            className={`todo-reminder-time ${
-              draft.reminderEnabled ? "" : "is-disabled"
-            }`}
-          >
-            <button
-              ref={reminderTimeButtonRef}
-              type="button"
-              className="todo-reminder-time__control"
-              disabled={!draft.reminderEnabled}
-              onClick={() => toggleTimePicker("reminder")}
-              aria-haspopup="listbox"
-              aria-expanded={activeTimePicker === "reminder"}
-            >
-              <IconClock size={14} />
-              <span className="todo-reminder-time__value">
-                {reminderTimeValue}
-              </span>
-            </button>
-          </div>
-          {reminderDateTimeHint && (
-            <span className="field__hint">
-              实际提醒：{reminderDateTimeHint}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {templates && (
-        <div className="todo-form__template-defaults">
-          <label className="field">
-            <span className="field__label">默认评论</span>
-            <textarea
-              className="field__textarea"
-              value={draft.comment}
-              rows={3}
-              maxLength={500}
-              onChange={(event) => updateDraft("comment", event.target.value)}
-              placeholder="应用模板后带入到待办评论"
-            />
-          </label>
-          <label className="field">
-            <span className="field__label">默认子待办</span>
-            <textarea
-              className="field__textarea"
-              value={draft.subtaskTitles}
-              rows={3}
-              maxLength={1200}
-              onChange={(event) =>
-                updateDraft("subtaskTitles", event.target.value)
-              }
-              placeholder="每行一个子待办"
-            />
-          </label>
-        </div>
-      )}
 
       <div className="todo-task-mode" role="radiogroup" aria-label="待办类型">
         <label
@@ -1288,222 +1317,345 @@ export function TodoEditorForm({
         </label>
       </div>
 
-      <section className="recurrence-panel" aria-label="重复任务设置">
-        <div className="field__label-row">
-          <span className="field__label">
-            <IconRepeat size={14} />
-            重复任务
-          </span>
-          <label className="switch-control">
-            <input
-              type="checkbox"
-              aria-label={
-                draft.recurrence == null ? "开启重复任务" : "关闭重复任务"
-              }
-              checked={draft.recurrence != null}
-              onChange={(event) =>
-                handleRecurrenceToggle(event.currentTarget.checked)
-              }
-            />
-            <span className="switch-control__track" aria-hidden />
-          </label>
-        </div>
-
-        {draft.recurrence != null && (
-          <div className="recurrence-panel__body">
-            <div
-              className="recurrence-frequency"
-              role="group"
-              aria-label="重复频率"
-            >
-              {RECURRENCE_FREQUENCIES.map((frequency) => (
-                <button
-                  key={frequency}
-                  type="button"
-                  className={`recurrence-frequency__option ${
-                    draft.recurrence?.frequency === frequency ? "is-active" : ""
-                  }`}
-                  onClick={() => updateRecurrence("frequency", frequency)}
-                >
-                  {RECURRENCE_LABELS[frequency]}
-                </button>
-              ))}
-            </div>
-
-            {draft.recurrence.frequency === "weekly" && (
-              <div className="recurrence-weekdays" aria-label="每周重复日期">
-                {WEEKDAYS.map((weekday) => (
+      <details
+        className="todo-form__more"
+        open={moreOpen}
+        onToggle={(event) => {
+          setMoreOpen(event.currentTarget.open);
+          if (!event.currentTarget.open) setActiveTimePicker(null);
+        }}
+      >
+        <summary>
+          <span className="todo-form__more-title"><IconChevronDown size={16} />更多设置</span>
+          <span>{[
+            ...(draft.urgency !== "medium" ? [`紧急程度：${URGENCY_LABELS[draft.urgency]}`] : []),
+            ...getDraftExtras(draft),
+          ].join(" · ") || "紧急程度、提醒、备注、子待办、重复和图片"}</span>
+        </summary>
+        <div className="todo-form__more-content">
+          <div className="todo-form__meta-row">
+            <div className="field field--urgency">
+              <span className="field__label">
+                <IconFlame size={14} />
+                紧急程度
+              </span>
+              <div className="urgency-group" role="group" aria-label="紧急程度">
+                {URGENCIES.map((urgency) => (
                   <button
-                    key={weekday.value}
+                    key={urgency}
                     type="button"
-                    className={
-                      draft.recurrence?.weekdays.includes(weekday.value)
-                        ? "is-active"
-                        : ""
-                    }
-                    aria-pressed={
-                      draft.recurrence?.weekdays.includes(weekday.value) ??
-                      false
-                    }
-                    onClick={() => toggleRecurrenceWeekday(weekday.value)}
+                    className={`urgency-chip urgency-chip--${urgency} ${
+                      draft.urgency === urgency ? "is-active" : ""
+                    }`}
+                    onClick={() => updateDraft("urgency", urgency)}
                   >
-                    {weekday.label}
+                    <span
+                      className={`urgency-icon urgency-icon--${urgency}`}
+                      aria-hidden
+                    >
+                      <IconFlame size={14} />
+                    </span>
+                    {URGENCY_LABELS[urgency]}
                   </button>
                 ))}
               </div>
-            )}
+            </div>
 
-            <div className="recurrence-panel__limits">
-              {draft.recurrence.frequency === "monthly" && (
-                <div className="field recurrence-panel__month-day">
-                  <span className="field__label">每月日期</span>
-                  <MonthDaySelect
-                    value={draft.recurrence.monthDay ?? 1}
-                    onChange={(day) => updateRecurrence("monthDay", day)}
+            <div className="field field--reminder" aria-label="提醒时间设置">
+              <div className="field__label-row">
+                <span className="field__label">
+                  <IconBell size={14} />
+                  提醒时间
+                </span>
+                <label className="switch-control">
+                  <input
+                    type="checkbox"
+                    aria-label={draft.reminderEnabled ? "关闭提醒" : "开启提醒"}
+                    checked={draft.reminderEnabled}
+                    onChange={(event) =>
+                      handleReminderToggle(event.currentTarget.checked)
+                    }
+                  />
+                  <span className="switch-control__track" aria-hidden />
+                </label>
+              </div>
+              <div
+                ref={reminderTimeRef}
+                className={`todo-reminder-time ${
+                  draft.reminderEnabled ? "" : "is-disabled"
+                }`}
+              >
+                <button
+                  ref={reminderTimeButtonRef}
+                  type="button"
+                  className="todo-reminder-time__control"
+                  disabled={!draft.reminderEnabled}
+                  onClick={() => toggleTimePicker("reminder")}
+                  aria-haspopup="listbox"
+                  aria-expanded={activeTimePicker === "reminder"}
+                >
+                  <IconClock size={14} />
+                  <span className="todo-reminder-time__value">
+                    {reminderTimeValue}
+                  </span>
+                </button>
+              </div>
+              {reminderDateTimeHint && (
+                <span className="field__hint">
+                  实际提醒：{reminderDateTimeHint}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {templates && (
+            <div className="todo-form__template-defaults">
+              <label className="field">
+                <span className="field__label">备注</span>
+                <textarea
+                  className="field__textarea"
+                  value={draft.comment}
+                  rows={3}
+                  maxLength={500}
+                  onChange={(event) => updateDraft("comment", event.target.value)}
+                  placeholder="补充任务说明或注意事项…"
+                />
+              </label>
+              <label className="field">
+                <span className="field__label">子待办</span>
+                <textarea
+                  className="field__textarea"
+                  value={draft.subtaskTitles}
+                  rows={3}
+                  maxLength={1200}
+                  onChange={(event) =>
+                    updateDraft("subtaskTitles", event.target.value)
+                  }
+                  placeholder="每行一个子待办"
+                />
+              </label>
+            </div>
+          )}
+
+          <section className="recurrence-panel" aria-label="重复任务设置">
+            <div className="field__label-row">
+              <span className="field__label">
+                <IconRepeat size={14} />
+                重复任务
+              </span>
+              <label className="switch-control">
+                <input
+                  type="checkbox"
+                  aria-label={
+                    draft.recurrence == null ? "开启重复任务" : "关闭重复任务"
+                  }
+                  checked={draft.recurrence != null}
+                  onChange={(event) =>
+                    handleRecurrenceToggle(event.currentTarget.checked)
+                  }
+                />
+                <span className="switch-control__track" aria-hidden />
+              </label>
+            </div>
+
+            {draft.recurrence != null && (
+              <div className="recurrence-panel__body">
+                <div
+                  className="recurrence-frequency"
+                  role="group"
+                  aria-label="重复频率"
+                >
+                  {RECURRENCE_FREQUENCIES.map((frequency) => (
+                    <button
+                      key={frequency}
+                      type="button"
+                      className={`recurrence-frequency__option ${
+                        draft.recurrence?.frequency === frequency ? "is-active" : ""
+                      }`}
+                      onClick={() => updateRecurrence("frequency", frequency)}
+                    >
+                      {RECURRENCE_LABELS[frequency]}
+                    </button>
+                  ))}
+                </div>
+
+                {draft.recurrence.frequency === "weekly" && (
+                  <div className="recurrence-weekdays" aria-label="每周重复日期">
+                    {WEEKDAYS.map((weekday) => (
+                      <button
+                        key={weekday.value}
+                        type="button"
+                        className={
+                          draft.recurrence?.weekdays.includes(weekday.value)
+                            ? "is-active"
+                            : ""
+                        }
+                        aria-pressed={
+                          draft.recurrence?.weekdays.includes(weekday.value) ??
+                          false
+                        }
+                        onClick={() => toggleRecurrenceWeekday(weekday.value)}
+                      >
+                        {weekday.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="recurrence-panel__limits">
+                  {draft.recurrence.frequency === "monthly" && (
+                    <div className="field recurrence-panel__month-day">
+                      <span className="field__label">每月日期</span>
+                      <MonthDaySelect
+                        value={draft.recurrence.monthDay ?? 1}
+                        onChange={(day) => updateRecurrence("monthDay", day)}
+                      />
+                    </div>
+                  )}
+                  <DatePickerField
+                    label="结束日期（可选）"
+                    value={draft.recurrence.endDate}
+                    fallbackDate={draft.date}
+                    todoSummaries={todoDateSummaries}
+                    minDate={draft.date}
+                    optional
+                    onChange={(date) => updateRecurrence("endDate", date)}
                   />
                 </div>
-              )}
-              <DatePickerField
-                label="结束日期（可选）"
-                value={draft.recurrence.endDate}
-                fallbackDate={draft.date}
-                todoSummaries={todoDateSummaries}
-                minDate={draft.date}
-                optional
-                onChange={(date) => updateRecurrence("endDate", date)}
-              />
-            </div>
-          </div>
-        )}
-
-        {initialDraft.recurrence != null && (
-          <div
-            className="recurrence-edit-scope"
-            role="group"
-            aria-label="编辑重复任务范围"
-          >
-            <button
-              type="button"
-              className={
-                draft.recurrenceEditScope === "single" ? "is-active" : ""
-              }
-              onClick={() => updateDraft("recurrenceEditScope", "single")}
-            >
-              仅本次
-            </button>
-            <button
-              type="button"
-              className={
-                draft.recurrenceEditScope === "series" ? "is-active" : ""
-              }
-              onClick={() => updateDraft("recurrenceEditScope", "series")}
-            >
-              本次及后续
-            </button>
-          </div>
-        )}
-      </section>
-
-      {showImages && (
-        <section className="todo-form__images" aria-label="待办图片">
-          <div className="field__label-row">
-            <span className="field__label">
-              <IconPhoto size={14} />
-              图片
-            </span>
-            <div className="todo-form__images-meta">
-              <span>
-                {draft.images.length}/{MAX_IMAGE_SELECTION}
-              </span>
-            </div>
-          </div>
-          <input
-            ref={imageInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={handleImageInputChange}
-          />
-          {draft.images.length > 0 ? (
-            <div className="todo-form__image-list">
-              {draft.images.map((image) => (
-                <figure
-                  key={image.id}
-                  className={`todo-form__image-item ${
-                    draggingImageId === image.id ? "is-dragging" : ""
-                  }`}
-                  draggable
-                  onDragStart={handleImageDragStart(image.id)}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={handleImageDrop(image.id)}
-                  onDragEnd={() => setDraggingImageId(null)}
-                  title="拖拽调整顺序"
-                >
-                  <TodoFormImagePreview todoId={todoId} image={image} />
-                  <button
-                    type="button"
-                    className="todo-form__image-remove"
-                    onClick={() => removeDraftImage(image.id)}
-                    aria-label={`移除图片 ${image.name}`}
-                    title="移除图片"
-                  >
-                    <IconTrash size={12} />
-                  </button>
-                </figure>
-              ))}
-            </div>
-          ) : (
-            <div className="todo-form__images-empty"></div>
-          )}
-          <button
-            type="button"
-            ref={imageDropzoneRef}
-            className={`todo-form__image-dropzone ${
-              isImageDropActive ? "is-drag-active" : ""
-            }`}
-            onClick={() => imageInputRef.current?.click()}
-            onPaste={handleImagePaste}
-            onMouseEnter={() => {
-              imageDropzoneHoveredRef.current = true;
-              updateImagePasteTarget();
-            }}
-            onMouseLeave={() => {
-              imageDropzoneHoveredRef.current = false;
-              updateImagePasteTarget();
-            }}
-            onFocus={() => {
-              imageDropzoneFocusedRef.current = true;
-              updateImagePasteTarget();
-            }}
-            onBlur={() => {
-              imageDropzoneFocusedRef.current = false;
-              updateImagePasteTarget();
-            }}
-            onDragEnter={handleImageDropzoneDragEnter}
-            onDragOver={handleImageDropzoneDragOver}
-            onDragLeave={handleImageDropzoneDragLeave}
-            onDrop={handleImageDropzoneDrop}
-            disabled={draft.images.length >= MAX_IMAGE_SELECTION}
-            aria-label="粘贴、选择或拖拽图片"
-          >
-            <IconUpload size={20} />
-            <strong>
-              {draft.images.length >= MAX_IMAGE_SELECTION
-                ? `已达到 ${MAX_IMAGE_SELECTION} 张图片上限`
-                : "粘贴图片、选择文件或拖拽到此处"}
-            </strong>
-            {draft.images.length < MAX_IMAGE_SELECTION && (
-              <span>支持同时添加多张图片</span>
+              </div>
             )}
-          </button>
-          {imageImportNotice && (
-            <p className="todo-form__images-notice" role="status">
-              {imageImportNotice}
-            </p>
+
+            {initialDraft.recurrence != null && (
+              <div
+                className="recurrence-edit-scope"
+                role="group"
+                aria-label="编辑重复任务范围"
+              >
+                <button
+                  type="button"
+                  className={
+                    draft.recurrenceEditScope === "single" ? "is-active" : ""
+                  }
+                  onClick={() => updateDraft("recurrenceEditScope", "single")}
+                >
+                  仅本次
+                </button>
+                <button
+                  type="button"
+                  className={
+                    draft.recurrenceEditScope === "series" ? "is-active" : ""
+                  }
+                  onClick={() => updateDraft("recurrenceEditScope", "series")}
+                >
+                  本次及后续
+                </button>
+              </div>
+            )}
+          </section>
+
+          {showImages && (
+            <section className="todo-form__images" aria-label="待办图片">
+              <div className="field__label-row">
+                <span className="field__label">
+                  <IconPhoto size={14} />
+                  图片
+                </span>
+                <div className="todo-form__images-meta">
+                  <span>
+                    {draft.images.length}/{MAX_IMAGE_SELECTION}
+                  </span>
+                </div>
+              </div>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={handleImageInputChange}
+              />
+              {draft.images.length > 0 ? (
+                <div className="todo-form__image-list">
+                  {draft.images.map((image) => (
+                    <figure
+                      key={image.id}
+                      className={`todo-form__image-item ${
+                        draggingImageId === image.id ? "is-dragging" : ""
+                      }`}
+                      draggable
+                      onDragStart={handleImageDragStart(image.id)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={handleImageDrop(image.id)}
+                      onDragEnd={() => setDraggingImageId(null)}
+                      title="拖拽调整顺序"
+                    >
+                      <TodoFormImagePreview todoId={todoId} image={image} />
+                      <button
+                        type="button"
+                        className="todo-form__image-remove"
+                        onClick={() => removeDraftImage(image.id)}
+                        aria-label={`移除图片 ${image.name}`}
+                        title="移除图片"
+                      >
+                        <IconTrash size={12} />
+                      </button>
+                    </figure>
+                  ))}
+                </div>
+              ) : (
+                <div className="todo-form__images-empty"></div>
+              )}
+              <button
+                type="button"
+                ref={imageDropzoneRef}
+                className={`todo-form__image-dropzone ${
+                  isImageDropActive ? "is-drag-active" : ""
+                }`}
+                onClick={() => imageInputRef.current?.click()}
+                onPaste={handleImagePaste}
+                onMouseEnter={() => {
+                  imageDropzoneHoveredRef.current = true;
+                  updateImagePasteTarget();
+                }}
+                onMouseLeave={() => {
+                  imageDropzoneHoveredRef.current = false;
+                  updateImagePasteTarget();
+                }}
+                onFocus={() => {
+                  imageDropzoneFocusedRef.current = true;
+                  updateImagePasteTarget();
+                }}
+                onBlur={() => {
+                  imageDropzoneFocusedRef.current = false;
+                  updateImagePasteTarget();
+                }}
+                onDragEnter={handleImageDropzoneDragEnter}
+                onDragOver={handleImageDropzoneDragOver}
+                onDragLeave={handleImageDropzoneDragLeave}
+                onDrop={handleImageDropzoneDrop}
+                disabled={draft.images.length >= MAX_IMAGE_SELECTION}
+                aria-label="粘贴、选择或拖拽图片"
+              >
+                <IconUpload size={20} />
+                <strong>
+                  {draft.images.length >= MAX_IMAGE_SELECTION
+                    ? `已达到 ${MAX_IMAGE_SELECTION} 张图片上限`
+                    : "粘贴图片、选择文件或拖拽到此处"}
+                </strong>
+                {draft.images.length < MAX_IMAGE_SELECTION && (
+                  <span>支持同时添加多张图片</span>
+                )}
+              </button>
+              {imageImportNotice && (
+                <p className="todo-form__images-notice" role="status">
+                  {imageImportNotice}
+                </p>
+              )}
+            </section>
           )}
-        </section>
-      )}
+
+        </div>
+      </details>
 
       {activeTimePicker != null && (
         <div
@@ -1600,14 +1752,22 @@ export function TodoEditorForm({
         </div>
       )}
 
-      <button
-        type="submit"
-        className="btn btn-primary btn-block btn-add-submit"
-        disabled={!trimmedTitle}
-      >
-        <IconCheck size={16} />
-        {submitLabel}
-      </button>
+      <footer className="todo-form__actions">
+        {submitNotice && (
+          <p className={`todo-form__submit-notice ${submitFailed ? "is-error" : ""}`} role={submitFailed ? "alert" : "status"}>{submitNotice}</p>
+        )}
+        <div className="todo-form__action-buttons">
+          {onSubmitAndContinue && (
+            <button type="button" className="btn btn-secondary" disabled={!trimmedTitle || submitting} onClick={() => void submitDraft(true)}>
+              保存并继续添加
+            </button>
+          )}
+          <button type="submit" className="btn btn-primary btn-add-submit" disabled={!trimmedTitle || submitting}>
+            <IconCheck size={16} />
+            {submitting ? "保存中…" : submitLabel}
+          </button>
+        </div>
+      </footer>
     </form>
   );
 }

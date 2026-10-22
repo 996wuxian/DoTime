@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { TodoImage } from "../types";
+import { readTodoImage } from "../utils/todoImages";
 
 export function useTodoImageSrc(
   todoId: string | null | undefined,
@@ -29,11 +30,7 @@ export function useTodoImageSrc(
     setSrc(null);
     void (async () => {
       try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const dataUrl = await invoke<string>("read_todo_image", {
-          todoId: currentTodoId,
-          fileName,
-        });
+        const dataUrl = await readTodoImage(currentTodoId, fileName);
         if (!cancelled) setSrc(dataUrl);
       } catch {
         if (!cancelled) setSrc(null);

@@ -1,34 +1,15 @@
 import { useState } from "react";
-import type { Urgency } from "../types";
-import type { RecurrenceRule } from "../types";
 import type { TodoDateSummary } from "../types";
 import type { TaskTemplate } from "../types";
 import type { TaskTemplateInput } from "../data/taskTemplates";
-import {
-  createDefaultTodoDraft,
-  TodoEditorForm,
-} from "./TodoEditorForm";
+import { TodoEditorForm } from "./TodoEditorForm";
+import { createDefaultTodoDraft, parseSubtaskTitles } from "../utils/todoDraft";
 import type { TodoDraft } from "./TodoEditorForm";
 import { IconPlus } from "./icons";
 import { TaskTemplateManager } from "./TaskTemplateManager";
 
 interface TodoFormProps {
-  onAdd: (
-    title: string,
-    urgency: Urgency,
-    plannedSeconds: number,
-    countdownEnabled: boolean,
-    countdownOnlyEnabled: boolean,
-    reminderEnabled: boolean,
-    reminderTime: string | null,
-    recordTimeEnabled: boolean,
-    taskTime: string,
-    date?: string,
-    recurrence?: RecurrenceRule | null,
-    comment?: string,
-    subtaskTitles?: string[],
-    images?: import("../types").TodoImage[],
-  ) => void;
+  onAdd: (draft: TodoDraft) => void;
   open: boolean;
   selectedDate: string;
   todoDateSummaries: ReadonlyMap<string, TodoDateSummary>;
@@ -56,22 +37,7 @@ export function TodoForm({
 }: TodoFormProps) {
   const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
   const handleSubmit = (draft: TodoDraft) => {
-    onAdd(
-      draft.title,
-      draft.urgency,
-      draft.plannedSeconds,
-      draft.countdownEnabled,
-      draft.countdownOnlyEnabled,
-      draft.reminderEnabled,
-      draft.reminderTime,
-      draft.recordTimeEnabled,
-      draft.taskTime,
-      draft.date,
-      draft.recurrence,
-      draft.comment,
-      parseSubtaskTitles(draft.subtaskTitles),
-      draft.images,
-    );
+    onAdd(draft);
     onOpenChange(false);
   };
 
@@ -108,6 +74,7 @@ export function TodoForm({
   return (
     <>
       <TodoEditorForm
+        draftKey={`new:${selectedDate}`}
         initialDraft={createDefaultTodoDraft(selectedDate)}
         title="新建待办"
         titleIcon={<IconPlus size={18} />}
@@ -115,6 +82,7 @@ export function TodoForm({
         className="todo-form card"
         autoFocus
         onSubmit={handleSubmit}
+        onSubmitAndContinue={onAdd}
         onCancel={() => onOpenChange(false)}
         todoDateSummaries={todoDateSummaries}
         templates={templates}
@@ -134,12 +102,4 @@ export function TodoForm({
       )}
     </>
   );
-}
-
-function parseSubtaskTitles(value: string): string[] {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 20);
 }

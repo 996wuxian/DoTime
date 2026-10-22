@@ -1,3 +1,5 @@
+import { loadWindowOpacity, setWindowOpacity } from "./windowOpacity";
+
 export const DEFAULT_WINDOW_WIDTH = 1280;
 export const DEFAULT_WINDOW_HEIGHT = 720;
 export const DEFAULT_MIN_WIDTH = 1280;
@@ -41,6 +43,8 @@ export async function enterMiniWindowMode() {
         ),
       );
     }
+    // 置顶和调整窗口样式会重置 Windows 的原生透明效果，最后重新应用偏好。
+    await setWindowOpacity(loadWindowOpacity());
   } catch {
     /* browser */
   }
@@ -122,6 +126,8 @@ export async function exitMiniWindowMode() {
     await window.setMinSize(new LogicalSize(DEFAULT_MIN_WIDTH, DEFAULT_MIN_HEIGHT));
     await window.setSize(new LogicalSize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
     await window.center();
+    // 主窗口恢复不透明，但保留用户对悬浮窗口的设置。
+    await setWindowOpacity(1);
   } catch {
     /* browser */
   }

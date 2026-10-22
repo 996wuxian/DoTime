@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { ImportAppDataResult } from "../data/appData";
+import { parseAppBackup, type BackupImport } from "../data/appBackup";
+import { readRecoveryBackup } from "../data/backupRestore";
 import {
   getDataDirectory,
   migrateDataDirectory,
@@ -24,7 +25,8 @@ interface DataActionsProps {
   selectedTodoCount: number;
   onExportAll: () => string;
   onExportSelectedDate: () => string;
-  onImport: (text: string) => ImportAppDataResult;
+  onExportBackup: () => Promise<string>;
+  onRestoreBackup: (backup: BackupImport) => Promise<void>;
   onCleanupImages: () => Promise<{
     removedDirs: number;
     removedFiles: number;
@@ -39,7 +41,7 @@ type ActionStatus = {
 };
 
 type PendingConfirm =
-  | { kind: "import"; text: string }
+  | { kind: "import"; backup: BackupImport; recovery: boolean }
   | { kind: "migrate"; directory: string };
 
 function createExportFileName(scopeDate: string | null, now = new Date()): string {
@@ -63,7 +65,8 @@ export function DataActions({
   selectedTodoCount,
   onExportAll,
   onExportSelectedDate,
-  onImport,
+  onExportBackup,
+  onRestoreBackup,
   onCleanupImages,
 }: DataActionsProps) {
   const [open, setOpen] = useState(false);
@@ -73,11 +76,14 @@ export function DataActions({
   const [dataDirectory, setDataDirectory] = useState<string | null>(null);
   const [directoryDraft, setDirectoryDraft] = useState("");
   const [directoryBusy, setDirectoryBusy] = useState(false);
+  const [backupBusy, setBackupBusy] = useState<"export" | "restore" | null>(null);
+  const [recoveryAvailable, setRecoveryAvailable] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [toast, setToast] = useState<ActionStatus | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const busy = directoryBusy || backupBusy != null;
 
   const showStatus = (nextStatus: ActionStatus) => {
     setStatus(nextStatus);
@@ -120,6 +126,15 @@ export function DataActions({
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
+    void readRecoveryBackup().then((text) => {
+      if (!cancelled) setRecoveryAvailable(text != null && parseAppBackup(text).ok);
+    }).catch(() => { if (!cancelled) setRecoveryAvailable(false); });
+    return () => { cancelled = true; };
+  }, [open, backupBusy]);
+
+  useEffect(() => {
+    if (!open) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -144,10 +159,11 @@ export function DataActions({
     content: string,
     fileName: string,
     message: string,
+    mimeType = "text/plain;charset=utf-8",
   ) => {
     try {
-      const blob = new Blob(["\uFEFF", content], {
-        type: "text/plain;charset=utf-8",
+      const blob = new Blob([mimeType.startsWith("text/plain") ? "\uFEFF" : "", content], {
+        type: mimeType,
       });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -187,12 +203,32 @@ export function DataActions({
     );
   };
 
+  const handleExportBackup = async () => {
+    if (busy) return;
+    setBackupBusy("export");
+    showStatus({ kind: "info", message: "正在准备备份和图片…" });
+    try {
+      const text = await onExportBackup();
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      downloadText(text, `doTime-backup-${stamp}.json`, "备份已导出，可用于恢复全部待办、模板和图片。", "application/json;charset=utf-8");
+    } catch (error) {
+      showStatus({ kind: "error", message: `备份未导出：${error instanceof Error ? error.message : String(error)}` });
+    } finally {
+      setBackupBusy(null);
+    }
+  };
+
   const handleImportFile = async (file: File | undefined) => {
     if (!file) return;
 
     try {
       const text = await file.text();
-      setPendingConfirm({ kind: "import", text });
+      const parsed = parseAppBackup(text);
+      if (!parsed.ok) {
+        showStatus({ kind: "error", message: parsed.error });
+        return;
+      }
+      setPendingConfirm({ kind: "import", backup: parsed.backup, recovery: false });
     } catch {
       showStatus({ kind: "error", message: "无法读取所选文件。" });
     } finally {
@@ -251,17 +287,32 @@ export function DataActions({
     setPendingConfirm({ kind: "migrate", directory: nextDirectory });
   };
 
-  const confirmImportFile = (text: string) => {
-    const result = onImport(text);
-    if (!result.ok) {
-      showStatus({ kind: "error", message: result.error });
-      return;
+  const prepareRecovery = async () => {
+    try {
+      const text = await readRecoveryBackup();
+      const parsed = text == null ? null : parseAppBackup(text);
+      if (parsed == null || !parsed.ok) throw new Error("未找到有效的导入前备份。");
+      setPendingConfirm({ kind: "import", backup: parsed.backup, recovery: true });
+    } catch (error) {
+      showStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
     }
+  };
 
-    showStatus({
-      kind: "success",
-      message: `已导入 ${result.data.todos.length} 个待办。`,
-    });
+  const confirmImportFile = async (backup: BackupImport) => {
+    if (busy) return;
+    setBackupBusy("restore");
+    showStatus({ kind: "info", message: "正在保留原数据并恢复备份…" });
+    try {
+      await onRestoreBackup(backup);
+      setPendingConfirm(null);
+      setRecoveryAvailable(true);
+      showStatus({ kind: "success", message: `已恢复 ${backup.appData.todos.length} 个待办${backup.templates == null ? "，现有模板已保留" : `、${backup.templates.length} 个模板`}。` });
+    } catch (error) {
+      setPendingConfirm(null);
+      showStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setBackupBusy(null);
+    }
   };
 
   const confirmMigrateDataDirectory = async (nextDirectory: string) => {
@@ -288,23 +339,24 @@ export function DataActions({
   const handleConfirm = () => {
     const target = pendingConfirm;
     if (target == null) return;
-    setPendingConfirm(null);
     if (target.kind === "import") {
-      confirmImportFile(target.text);
+      void confirmImportFile(target.backup);
       return;
     }
+    setPendingConfirm(null);
     void confirmMigrateDataDirectory(target.directory);
   };
 
   const confirmDialog =
     pendingConfirm == null ? null : pendingConfirm.kind === "import" ? (
       <ConfirmDialog
-        title="导入旧备份？"
-        description="导入会替换当前待办数据，现有数据会自动保留在本地备份中。"
+        title={pendingConfirm.recovery ? "恢复上次导入前的数据？" : "从备份恢复？"}
+        description={<BackupPreview backup={pendingConfirm.backup} busy={backupBusy === "restore"} />}
         icon={<IconUpload size={20} />}
         confirmIcon={<IconUpload size={14} />}
-        confirmLabel="导入"
-        onCancel={() => setPendingConfirm(null)}
+        confirmLabel={backupBusy === "restore" ? "正在恢复…" : "覆盖并恢复"}
+        confirmDisabled={backupBusy === "restore"}
+        onCancel={() => { if (backupBusy !== "restore") setPendingConfirm(null); }}
         onConfirm={handleConfirm}
       />
     ) : (
@@ -346,32 +398,56 @@ export function DataActions({
           <div className="data-actions__commands">
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={handleExportSelectedDate}
-            >
-              <IconCalendarEvent size={15} />
-              导出当日
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={handleExportAll}
+              className="btn btn-primary btn-sm"
+              onClick={() => void handleExportBackup()}
+              disabled={busy}
             >
               <IconDownload size={15} />
-              导出全部
+              {backupBusy === "export" ? "准备备份中…" : "导出可恢复备份"}
             </button>
             <button
               type="button"
               className="btn btn-secondary btn-sm data-actions__import"
               onClick={() => fileInputRef.current?.click()}
+              disabled={busy}
             >
               <IconUpload size={15} />
-              导入旧备份
+              从备份恢复
+            </button>
+          </div>
+          <p className="data-actions__hint">JSON 备份包含全部待办、子待办、模板、排序和图片。</p>
+          {recoveryAvailable && (
+            <button type="button" className="data-actions__recovery" disabled={busy} onClick={() => void prepareRecovery()}>
+              恢复上次导入前的数据
+            </button>
+          )}
+          <div className="data-actions__section-label">阅读文档（不能用于恢复）</div>
+          <div className="data-actions__commands">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleExportSelectedDate}
+              disabled={busy}
+            >
+              <IconCalendarEvent size={15} />
+              导出当日 TXT
             </button>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
+              onClick={handleExportAll}
+              disabled={busy}
+            >
+              <IconDownload size={15} />
+              导出全部 TXT
+            </button>
+          </div>
+          <div className="data-actions__maintenance">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
               onClick={() => void handleCleanupImages()}
+              disabled={busy}
             >
               <IconTrash size={15} />
               清理图片
@@ -401,7 +477,7 @@ export function DataActions({
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={() => void handleMigrateDataDirectory()}
-                  disabled={directoryBusy}
+                  disabled={busy}
                 >
                   <IconDeviceFloppy size={15} />
                   {directoryBusy ? "迁移中" : "迁移目录"}
@@ -434,5 +510,20 @@ export function DataActions({
       {confirmDialog}
       {toast && <ToastNotice kind={toast.kind} message={toast.message} />}
     </div>
+  );
+}
+
+function BackupPreview({ backup, busy }: { backup: BackupImport; busy: boolean }) {
+  const dates = backup.appData.todos.map((todo) => todo.date).sort();
+  const imageCount = backup.appData.todos.reduce((count, todo) => count + (todo.images?.length ?? 0), 0);
+  const dateRange = dates.length === 0 ? "无待办" : `${formatDisplayDate(dates[0])} 至 ${formatDisplayDate(dates[dates.length - 1])}`;
+  return (
+    <span className="backup-preview">
+      <span>{backup.appData.todos.length} 个待办 · {imageCount} 张图片{backup.templates == null ? "" : ` · ${backup.templates.length} 个模板`}</span>
+      <span>日期范围：{dateRange}</span>
+      {backup.exportedAt != null && <span>备份时间：{new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(backup.exportedAt)}</span>}
+      <span>{backup.legacy ? "这是旧版备份，将替换待办并保留现有模板；旧备份中的图片可能依赖原电脑。" : "将替换当前全部待办和模板，包含图片与排序。"}</span>
+      <span>{busy ? "正在恢复，请保持窗口打开。" : "恢复前会自动保留原数据，可从数据管理中恢复。草稿、外观设置和剪贴板记录不参与替换。"}</span>
+    </span>
   );
 }
