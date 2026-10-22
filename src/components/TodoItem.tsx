@@ -40,6 +40,7 @@ import {
 } from "./icons";
 import { useTodoImageSrc } from "../hooks/useTodoImageSrc";
 import { MAX_TODO_IMAGES } from "../utils/todoImages";
+import { TaskActionMenu } from "./TaskActionMenu";
 
 interface TodoItemProps {
   todo: Todo;
@@ -364,7 +365,7 @@ function SubtaskRow({
             >
               <IconFlame size={13} />
             </span>
-            {!subtask.completed && (
+            {!subtask.completed && (subtask.isTiming || subtaskOvertime) && (
               <span
                 className={`status-badge status-badge--${
                   subtaskOvertime
@@ -390,7 +391,7 @@ function SubtaskRow({
                 ) : (
                   <IconChevronDown size={12} />
                 )}
-                {childStats.done}/{childStats.total}
+                <span className="todo-progress-count">{`${childStats.done}/${childStats.total}`}</span>
               </button>
             )}
           </div>
@@ -418,16 +419,15 @@ function SubtaskRow({
             )}
           </span>
           <div className="todo-subtask__actions">
-            {depth === 1 && (
-              <button
-                type="button"
-                onClick={() => onStartAdd(subtask.id)}
-                aria-label="添加下级子待办"
-                title="添加下级"
-              >
-                <IconPlus size={14} />
-              </button>
-            )}
+            <button
+              type="button"
+              className="todo-subtask__sort"
+              onPointerDown={onDragHandlePointerDown(subtask.id)}
+              aria-label="拖拽排序子待办"
+              title="长按拖拽排序"
+            >
+              <IconGripVertical size={14} />
+            </button>
             <button
               type="button"
               onClick={() => onStartEdit(subtask.id)}
@@ -435,25 +435,6 @@ function SubtaskRow({
               title="编辑"
             >
               <IconPencil size={14} />
-            </button>
-            {countdownSyncEnabled && !subtask.completed && (
-              <button
-                type="button"
-                onClick={() => onSync(subtask.id)}
-                aria-label="同步父待办已用时间"
-                title="同步父待办已用时间"
-              >
-                <IconRepeat size={14} />
-              </button>
-            )}
-            <button
-              type="button"
-              className="is-danger"
-              onClick={() => onRemove(subtask.id)}
-              aria-label="删除子待办"
-              title="删除"
-            >
-              <IconTrash size={14} />
             </button>
             {subtask.recordTimeEnabled && !subtask.completed && !subtask.isTiming && (
               <button
@@ -467,36 +448,25 @@ function SubtaskRow({
               </button>
             )}
             {subtask.isTiming && (
-              <>
-                <button
-                  type="button"
-                  className="todo-subtask__timer-action"
-                  onClick={() => onPause(subtask.id)}
-                  aria-label="暂停子待办计时"
-                  title="暂停计时"
-                >
-                  <IconPlayerPause size={14} />
-                </button>
-                <button
-                  type="button"
-                  className="todo-subtask__timer-action is-danger"
-                  onClick={() => onStop(subtask.id)}
-                  aria-label="结束子待办计时"
-                  title="结束计时"
-                >
-                  <IconPlayerStop size={14} />
-                </button>
-              </>
+              <button
+                type="button"
+                className="todo-subtask__timer-action"
+                onClick={() => onPause(subtask.id)}
+                aria-label="暂停子待办计时"
+                title="暂停计时"
+              >
+                <IconPlayerPause size={14} />
+              </button>
             )}
-            <button
-              type="button"
-              className="todo-subtask__sort"
-              onPointerDown={onDragHandlePointerDown(subtask.id)}
-              aria-label="拖拽排序子待办"
-              title="长按拖拽排序"
-            >
-              <IconGripVertical size={14} />
-            </button>
+            <TaskActionMenu
+              label="子待办更多操作"
+              actions={[
+                ...(depth === 1 ? [{ label: "添加下级子待办", icon: <IconPlus size={16} />, onSelect: () => onStartAdd(subtask.id) }] : []),
+                ...(countdownSyncEnabled && !subtask.completed ? [{ label: "同步父待办已用时间", icon: <IconRepeat size={16} />, onSelect: () => onSync(subtask.id) }] : []),
+                ...(subtask.isTiming ? [{ label: "结束子待办计时", icon: <IconPlayerStop size={16} />, onSelect: () => onStop(subtask.id) }] : []),
+                { label: "删除子待办", icon: <IconTrash size={16} />, onSelect: () => onRemove(subtask.id), danger: true, separator: true },
+              ]}
+            />
           </div>
         </>
       </div>
@@ -572,6 +542,7 @@ export function TodoItem({
   onStopSubtask,
   onDragHandlePointerDown,
 }: TodoItemProps) {
+  const [detailsExpanded, setDetailsExpanded] = useState(isHighlighted);
   const [subtasksCollapsed, setSubtasksCollapsed] = useState(false);
   const [collapsedSubtaskIds, setCollapsedSubtaskIds] = useState<Set<string>>(
     () => new Set(),
@@ -615,6 +586,17 @@ export function TodoItem({
     todo.reminderLastFiredAt != null &&
     todo.reminderLastFiredAt >= reminderDueAt;
   const todoComment = todo.comment?.trim() ?? "";
+  const detailsCollapsed = todo.completed && !detailsExpanded && !commentEditorOpen;
+  const hasDetails = showSubtasks || todoImages.length > 0 || Boolean(todoComment) || countdownEnabled || reminderEnabled || Boolean(todo.recurrence);
+  const subtasksVisible = showSubtasks && !subtasksCollapsed && !detailsCollapsed;
+
+  useEffect(() => {
+    setDetailsExpanded(false);
+  }, [todo.completed]);
+
+  useEffect(() => {
+    if (isHighlighted) setDetailsExpanded(true);
+  }, [isHighlighted]);
 
   const handleOpenCommentEditor = () => {
     setCommentDraft(todo.comment ?? "");
@@ -657,7 +639,7 @@ export function TodoItem({
 
     container.addEventListener("wheel", handleImageWheel, { passive: false });
     return () => container.removeEventListener("wheel", handleImageWheel);
-  }, [todoImages.length]);
+  }, [todoImages.length, detailsCollapsed]);
 
   const activeImage =
     activeImageIndex == null ? null : todoImages[activeImageIndex] ?? null;
@@ -743,7 +725,7 @@ export function TodoItem({
       data-todo-id={todo.id}
       className={[
         "todo-item-shell",
-        showSubtasks && !subtasksCollapsed ? "has-open-subtasks" : "",
+        subtasksVisible ? "has-open-subtasks" : "",
         batchMode ? "is-batch-mode" : "",
         dropPosition ? `is-drop-${dropPosition}` : "",
       ]
@@ -775,6 +757,7 @@ export function TodoItem({
           ? "has-record-elapsed"
           : "",
         todo.completed ? "is-completed" : "",
+        detailsCollapsed ? "is-details-collapsed" : "",
         todoImages.length > 0 ? "has-images" : "",
         todo.isTiming ? "is-timing" : "",
         overtime ? "is-overtime" : "",
@@ -830,6 +813,16 @@ export function TodoItem({
                 {todo.title}
               </button>
             </h3>
+            {todo.favorite && (
+              <span className="todo-item__state-icon" role="img" aria-label="已收藏" title="已收藏">
+                <IconBookmark size={13} />
+              </span>
+            )}
+            {isPinned && (
+              <span className="todo-item__state-icon" role="img" aria-label="已固定到窗口" title="已固定到窗口">
+                <IconPin size={13} />
+              </span>
+            )}
             <span
               className={`urgency-icon urgency-icon--${todo.urgency}`}
               title={`紧急程度：${URGENCY_LABELS[todo.urgency]}`}
@@ -837,7 +830,7 @@ export function TodoItem({
             >
               <IconFlame size={13} />
             </span>
-            {!todo.completed && (
+            {!todo.completed && todo.isTiming && (
               <span
                 className={`status-badge status-badge--${
                   todo.isTiming ? "active" : "idle"
@@ -850,22 +843,30 @@ export function TodoItem({
               <button
                 type="button"
                 className="todo-item__subtask-progress"
-                onClick={() => setSubtasksCollapsed((collapsed) => !collapsed)}
-                aria-expanded={!subtasksCollapsed}
-                title={subtasksCollapsed ? "展开子待办" : "折叠子待办"}
+                onClick={() => {
+                  if (detailsCollapsed) {
+                    setDetailsExpanded(true);
+                    setSubtasksCollapsed(false);
+                  } else {
+                    setSubtasksCollapsed((collapsed) => !collapsed);
+                  }
+                }}
+                aria-expanded={subtasksVisible}
+                aria-label={subtasksVisible ? "折叠子待办" : "展开子待办"}
+                title={subtasksVisible ? "折叠子待办" : "展开子待办"}
               >
-                {subtasksCollapsed ? (
+                {!subtasksVisible ? (
                   <IconChevronRight size={13} />
                 ) : (
                   <IconChevronDown size={13} />
                 )}
-                {subtaskStats.done}/{subtaskStats.total}
+                <span className="todo-progress-count">{`${subtaskStats.done}/${subtaskStats.total}`}</span>
               </button>
             )}
           </div>
 
           <div className="todo-item__meta">
-            {countdownEnabled && (
+            {countdownEnabled && !detailsCollapsed && (
               <span
                 className={`meta-item ${
                   countdownOnlyEnabled && !todo.completed
@@ -879,7 +880,7 @@ export function TodoItem({
                   : `计划 ${formatDuration(todo.plannedSeconds)}`}
               </span>
             )}
-            {todo.reminderEnabled && todo.reminderTime && (
+            {todo.reminderEnabled && todo.reminderTime && !detailsCollapsed && (
               <span
                 className={`meta-item meta-reminder ${
                   reminderFired ? "meta-reminder--fired" : ""
@@ -893,13 +894,13 @@ export function TodoItem({
                 {formatReminderMeta(todo.date, todo.reminderTime)}
               </span>
             )}
-            {todo.recurrence && (
+            {todo.recurrence && !detailsCollapsed && (
               <span className="meta-item meta-recurrence">
                 <IconRepeat size={13} />
                 {RECURRENCE_LABELS[todo.recurrence.frequency]}
               </span>
             )}
-            {timeTrackingEnabled && (liveElapsed > 0 || todo.isTiming) && (
+            {timeTrackingEnabled && (liveElapsed > 0 || todo.isTiming) && (todo.actualDurationSeconds == null || todo.isTiming) && (
               <span className="meta-item meta-elapsed">
                 <IconClockHour4 size={13} />
                 已用 {formatDuration(liveElapsed)}
@@ -918,15 +919,12 @@ export function TodoItem({
         <div className="todo-item__top-actions">
           <button
             type="button"
-            className="btn btn-ghost btn-icon-only"
-            onClick={() => {
-              setSubtasksCollapsed(false);
-              onAddSubtask(null);
-            }}
-            aria-label="添加子待办"
-            title="添加子待办"
+            className="btn btn-ghost btn-icon-only btn-drag-handle"
+            onPointerDown={onDragHandlePointerDown}
+            aria-label="拖拽排序"
+            title="长按拖拽排序"
           >
-            <IconPlus size={16} />
+            <IconGripVertical size={16} />
           </button>
           <button
             type="button"
@@ -937,61 +935,6 @@ export function TodoItem({
           >
             <IconPencil size={16} />
           </button>
-          <button
-            type="button"
-            className={`btn btn-ghost btn-icon-only todo-item__comment-action ${
-              todoComment ? "has-comment" : ""
-            }`}
-            onClick={handleOpenCommentEditor}
-            aria-label={todoComment ? "编辑评论" : "添加评论"}
-            title={todoComment ? "编辑评论" : "添加评论"}
-          >
-            <IconMessageCircle size={16} />
-          </button>
-          <button
-            type="button"
-            className={`btn btn-ghost btn-icon-only todo-item__favorite-action ${
-              todo.favorite ? "is-active" : ""
-            }`}
-            onClick={onToggleFavorite}
-            aria-pressed={Boolean(todo.favorite)}
-            aria-label={todo.favorite ? "取消收藏待办" : "收藏待办"}
-            title={todo.favorite ? "取消收藏" : "收藏"}
-          >
-            <IconBookmark size={16} />
-          </button>
-          <button
-            type="button"
-            className={`btn btn-ghost btn-icon-only todo-item__pin-action ${
-              isPinned ? "is-active" : ""
-            }`}
-            onClick={onPin}
-            aria-pressed={isPinned}
-            aria-label={isPinned ? "取消固定待办窗口" : "固定待办到新窗口"}
-            title={isPinned ? "取消固定" : "固定到新窗口"}
-          >
-            <IconPin size={16} />
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-icon-only btn-delete"
-            onClick={onRemove}
-            aria-label="删除"
-            title="删除"
-          >
-            <IconTrash size={16} />
-          </button>
-          {timeTrackingEnabled && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-icon-only"
-              onClick={onReset}
-              aria-label="重置倒计时和计时"
-              title="重置倒计时和计时"
-            >
-              <IconRepeat size={16} />
-            </button>
-          )}
           {todo.recordTimeEnabled &&
             !todo.completed &&
             !todo.isTiming &&
@@ -1007,39 +950,35 @@ export function TodoItem({
             </button>
           )}
           {todo.isTiming && (
-            <>
-              <button
-                type="button"
-                className="todo-item__timer-action"
-                onClick={onPause}
-                aria-label="暂停待办计时"
-                title="暂停计时"
-              >
-                <IconPlayerPause size={14} />
-              </button>
-              <button
-                type="button"
-                className="todo-item__timer-action is-danger"
-                onClick={onStop}
-                aria-label="结束待办计时"
-                title="结束计时"
-              >
-                <IconPlayerStop size={14} />
-              </button>
-            </>
+            <button
+              type="button"
+              className="todo-item__timer-action"
+              onClick={onPause}
+              aria-label="暂停待办计时"
+              title="暂停计时"
+            >
+              <IconPlayerPause size={14} />
+            </button>
           )}
-          <button
-            type="button"
-            className="btn btn-ghost btn-icon-only btn-drag-handle"
-            onPointerDown={onDragHandlePointerDown}
-            aria-label="拖拽排序"
-            title="长按拖拽排序"
-          >
-            <IconGripVertical size={16} />
-          </button>
+          <TaskActionMenu
+            label="待办更多操作"
+            actions={[
+              { label: "添加子待办", icon: <IconPlus size={16} />, onSelect: () => {
+                setDetailsExpanded(true);
+                setSubtasksCollapsed(false);
+                onAddSubtask(null);
+              } },
+              { label: todoComment ? "编辑评论" : "添加评论", icon: <IconMessageCircle size={16} />, onSelect: handleOpenCommentEditor },
+              { label: todo.favorite ? "取消收藏待办" : "收藏待办", icon: <IconBookmark size={16} />, onSelect: onToggleFavorite },
+              { label: isPinned ? "取消固定待办窗口" : "固定待办到新窗口", icon: <IconPin size={16} />, onSelect: onPin },
+              ...(todo.isTiming ? [{ label: "结束待办计时", icon: <IconPlayerStop size={16} />, onSelect: onStop }] : []),
+              ...(timeTrackingEnabled ? [{ label: "重置倒计时和计时", icon: <IconRepeat size={16} />, onSelect: onReset }] : []),
+              { label: "删除待办", icon: <IconTrash size={16} />, onSelect: onRemove, danger: true, separator: true },
+            ]}
+          />
         </div>
 
-        {countdownEnabled && liveElapsed > 0 && (
+        {countdownEnabled && liveElapsed > 0 && !detailsCollapsed && (
             <div className="progress-bar todo-item__progress" aria-hidden>
               <div
                 className="progress-bar__fill"
@@ -1049,7 +988,7 @@ export function TodoItem({
           )}
       </div>
 
-      {todoImages.length > 0 && (
+      {todoImages.length > 0 && !detailsCollapsed && (
         <div
           className="todo-item__images"
           ref={imageListRef}
@@ -1068,7 +1007,7 @@ export function TodoItem({
         </div>
       )}
 
-      {showSubtasks && !subtasksCollapsed && (
+      {subtasksVisible && (
         <div className="todo-subtasks">
           {subtasks.length > 0 && (
             <ol className="todo-subtasks__list" aria-label="子待办">
@@ -1128,6 +1067,18 @@ export function TodoItem({
         </div>
       )}
 
+      {todo.completed && hasDetails && !commentEditorOpen && (
+        <button
+          type="button"
+          className="todo-item__details-toggle"
+          aria-label={detailsCollapsed ? "展开已完成待办详情" : "收起已完成待办详情"}
+          aria-expanded={!detailsCollapsed}
+          onClick={() => setDetailsExpanded(detailsCollapsed)}
+        >
+          {detailsCollapsed ? <IconChevronRight size={13} /> : <IconChevronDown size={13} />}
+          {detailsCollapsed ? "展开详情" : "收起详情"}
+        </button>
+      )}
     </article>
     {commentEditorOpen && (
       <div className="todo-item__comment-editor">
@@ -1159,7 +1110,7 @@ export function TodoItem({
       </div>
     )}
 
-      {!commentEditorOpen && todoComment && (
+      {!commentEditorOpen && todoComment && !detailsCollapsed && (
         <div className="todo-item__comment">
           <IconMessageCircle size={14} />
           <p>{todoComment}</p>

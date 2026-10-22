@@ -25,6 +25,7 @@ import {
   IconCode as TbCode,
   IconDatabaseExport as TbDatabaseExport,
   IconDownload as TbDownload,
+  IconDots as TbDots,
   IconDeviceFloppy as TbDeviceFloppy,
   IconFlag as TbFlag,
   IconFilter as TbFilter,
@@ -107,6 +108,7 @@ function wrap(Tb: TbIcon, defaults?: { stroke?: number; className?: string }) {
 }
 
 export const IconPlus = wrap(TbPlus);
+export const IconDots = wrap(TbDots);
 export const IconSearch = wrap(TbSearch);
 export const IconTrash = wrap(TbTrash);
 export const IconCheck = wrap(TbCheck);
