@@ -12,6 +12,8 @@ import { GlobalSearch } from "./components/GlobalSearch";
 import { PlanOverview, type PlanPeriod } from "./components/PlanOverview";
 import { StatisticsCenter } from "./components/StatisticsCenter";
 import { DataActions } from "./components/DataActions";
+import { useAutomaticBackup } from "./hooks/useAutomaticBackup";
+import { RecycleBin } from "./components/RecycleBin";
 import { SettingsButton } from "./components/SettingsButton";
 import { useAppUpdates } from "./hooks/useAppUpdates";
 import { DateNavigator } from "./components/DateNavigator";
@@ -600,6 +602,7 @@ function App() {
   const [completionUndo, setCompletionUndo] = useState<CompletionUndo | null>(
     null,
   );
+  const [deletionUndo, setDeletionUndo] = useState<{ batchId: string; label: string } | null>(null);
   const [categoryInsertTarget, setCategoryInsertTarget] =
     useState<CategoryInsertTarget | null>(null);
   const [categoryDraft, setCategoryDraft] = useState("");
@@ -638,6 +641,10 @@ function App() {
   const activeTodoDropTarget = dailyPinnedDayDropTarget?.target ?? todoDropTarget;
   const {
     allTodos,
+    trash,
+    imageTodos,
+    restoreTrashEntries,
+    purgeTrashEntries,
     dailyPinnedTodos,
     dailyPinnedAddResult,
     addDailyPinnedToDay,
@@ -693,6 +700,7 @@ function App() {
     removeTemplate,
     moveTemplate,
   } = useTaskTemplates();
+  const automaticBackup = useAutomaticBackup(async () => JSON.stringify(await createAppBackup(getAppDataDocument(), templates)));
 
   const refreshPinnedTodoSlots = () => {
     void getActivePinnedTodos()
@@ -1028,11 +1036,11 @@ function App() {
   const pendingDeleteDescription =
     pendingDeleteSubtask != null
       ? pendingDeleteSubtaskItem
-        ? `「${pendingDeleteSubtaskItem.title}」将被移除，包含它的下级子待办。`
-        : "这个子待办将从列表中移除。"
+        ? `「${pendingDeleteSubtaskItem.title}」及下级子待办将移入回收站，保留 30 天。`
+        : "这个子待办将移入回收站，保留 30 天。"
       : pendingDeleteTodo
-        ? `「${pendingDeleteTodo.title}」将从今天的列表中移除。`
-        : "这个待办将从列表中移除。";
+        ? `「${pendingDeleteTodo.title}」将移入回收站，图片、子待办和计时记录保留 30 天。`
+        : "这个待办将移入回收站，保留 30 天。";
   const pendingSyncSubtaskTodo = pendingSyncSubtask
     ? dayTodos.find((todo) => todo.id === pendingSyncSubtask.todoId) ?? null
     : null;
@@ -1052,7 +1060,7 @@ function App() {
     : "将清空这个待办当前的倒计时和已用时间，并停止正在进行的计时。";
   const batchDeleteDescription =
     selectedCount > 0
-      ? `将删除已选择的 ${selectedCount} 个待办（包含子待办和计时记录），此操作不可撤销。`
+      ? `将已选择的 ${selectedCount} 个待办移入回收站，子待办、图片和计时记录保留 30 天，可随时恢复。`
       : "请先选择要删除的待办。";
   const dayTimelineItems = useMemo(
     () => getTodoTimelineItems(dayTodos, dayCategoryDividers),
@@ -1218,6 +1226,11 @@ function App() {
     const timeoutId = window.setTimeout(() => setCompletionUndo(null), 5000);
     return () => window.clearTimeout(timeoutId);
   }, [completionUndo]);
+  useEffect(() => {
+    if (!deletionUndo) return;
+    const timer = window.setTimeout(() => setDeletionUndo(null), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [deletionUndo]);
 
   useEffect(() => {
     const dayTodoIds = new Set(dayTodos.map((todo) => todo.id));
@@ -1391,7 +1404,9 @@ function App() {
   };
 
   const handleConfirmClearAll = () => {
-    clearDayTodos();
+    const batchId = clearDayTodos();
+    setCompletionUndo(null);
+    setDeletionUndo({ batchId, label: `已将当天 ${dayTodos.length} 个待办移入回收站` });
     setPendingClearAll(false);
   };
 
@@ -1406,12 +1421,18 @@ function App() {
 
   const handleConfirmDeleteTodo = () => {
     if (pendingDeleteSubtask != null) {
-      removeSubtask(pendingDeleteSubtask.todoId, pendingDeleteSubtask.subtaskId);
+      const batchId = removeSubtask(pendingDeleteSubtask.todoId, pendingDeleteSubtask.subtaskId);
+      setCompletionUndo(null);
+      setDeletionUndo({ batchId, label: "已将子待办移入回收站" });
       setPendingDeleteSubtask(null);
       return;
     }
 
-    if (pendingDeleteTodoId) removeTodo(pendingDeleteTodoId);
+    if (pendingDeleteTodoId) {
+      const batchId = removeTodo(pendingDeleteTodoId);
+      setCompletionUndo(null);
+      setDeletionUndo({ batchId, label: "已将待办移入回收站" });
+    }
     setPendingDeleteTodoId(null);
   };
 
@@ -1747,7 +1768,9 @@ function App() {
       setPendingBatchAction(null);
       return;
     }
-    removeSelectedTodos(selectedTodoIds);
+    const batchId = removeSelectedTodos(selectedTodoIds);
+    setCompletionUndo(null);
+    setDeletionUndo({ batchId, label: `已将 ${selectedCount} 个待办移入回收站` });
     handleExitBatchMode();
   };
 
@@ -1783,6 +1806,7 @@ function App() {
   };
 
   const handleToggleTodoCompletion = (todo: Todo) => {
+    setDeletionUndo(null);
     toggleComplete(todo.id);
     setCompletionUndo(
       !todo.completed && todo.recurrence == null
@@ -2040,8 +2064,8 @@ function App() {
             </button>
           </div>
           <p id="clear-all-confirm-desc">
-            将删除 {formatDisplayDate(selectedDate)} 当天的全部 {dayTodos.length}{" "}
-            个待办（包含子待办和计时记录），此操作不可撤销。
+            将 {formatDisplayDate(selectedDate)} 当天的全部 {dayTodos.length}{" "}
+            个待办移入回收站，子待办、图片、分类和计时记录保留 30 天，可恢复。
           </p>
           <div className="confirm-dialog__actions">
             <button
@@ -2219,6 +2243,19 @@ function App() {
     </div>
   ) : null;
 
+  const deletionUndoToast = deletionUndo && trash.some(entry => entry.batchId === deletionUndo.batchId) ? (
+    <div className="completion-undo deletion-undo" role="status" aria-live="polite">
+      <span>{deletionUndo.label}</span>
+      <button type="button" onClick={() => {
+        const ids = trash.filter(entry => entry.batchId === deletionUndo.batchId).map(entry => entry.id);
+        const restored = restoreTrashEntries(ids);
+        setDeletionUndo(null);
+        showGlobalToast(restored === ids.length ? "已撤销删除，计时保持暂停" : "部分记录需在回收站中先恢复所属待办", restored === ids.length ? "success" : "error");
+      }}>撤销删除</button>
+      <button type="button" aria-label="关闭删除提示" onClick={() => setDeletionUndo(null)}>关闭</button>
+    </div>
+  ) : null;
+
   if (miniMode) {
     return (
       <div className="app app--mini">
@@ -2253,6 +2290,7 @@ function App() {
           onRestore={() => void handleExitMiniMode()}
         />
         {deleteConfirmDialog}
+        {deletionUndoToast}
         {batchDeleteConfirmDialog}
         {resetConfirmDialog}
         {clearAllConfirmDialog}
@@ -2361,69 +2399,73 @@ function App() {
             todoSummaries={todoDateSummaries}
             onChange={setSelectedDate}
           />
-          <DataActions
-            notice={storageNotice}
-            selectedDate={selectedDate}
-            selectedTodoCount={dayTodos.length}
-            onExportAll={exportTodosData}
-            onExportSelectedDate={exportSelectedDateData}
-            onExportBackup={async () => JSON.stringify(await createAppBackup(getAppDataDocument(), templates), null, 2)}
-            onRestoreBackup={(backup) => restoreAppBackup(backup, getAppDataDocument(), templates)}
-            onCleanupImages={() => cleanupStoredTodoImages(allTodos)}
-          />
-          <button
-            type="button"
-            className={`btn btn-ghost btn-icon-only statistics-toggle ${
-              mainView === "statistics" ? "is-active" : ""
-            }`}
-            onClick={() => {
-              setMainView((view) =>
-                view === "statistics" ? "todos" : "statistics",
-              );
-              setTodoFormOpen(false);
-              setEditingTodoId(null);
-            }}
-            aria-label={mainView === "statistics" ? "返回待办" : "查看耗时统计"}
-            aria-pressed={mainView === "statistics"}
-            title={mainView === "statistics" ? "返回待办" : "耗时统计"}
-          >
-            <IconChartBar size={17} />
-          </button>
-          <button
-            type="button"
-            className={`btn btn-ghost btn-icon-only plan-toggle ${
-              mainView === "plan" ? "is-active" : ""
-            }`}
-            onClick={() => {
-              setMainView((view) => (view === "plan" ? "todos" : "plan"));
-              setPlanAllTodosOpen(false);
-              setTodoFormOpen(false);
-              setEditingTodoId(null);
-              setSubtaskEditorTarget(null);
-            }}
-            aria-label={mainView === "plan" ? "返回待办" : "查看计划视图"}
-            aria-pressed={mainView === "plan"}
-            title={mainView === "plan" ? "返回待办" : "计划视图"}
-          >
-            <IconCalendarEvent size={17} />
-          </button>
-          <button
-            type="button"
-            className={`btn btn-ghost btn-icon-only review-toggle ${
-              mainView === "review" ? "is-active" : ""
-            }`}
-            onClick={() => {
-              setMainView((view) => (view === "review" ? "todos" : "review"));
-              setTodoFormOpen(false);
-              setEditingTodoId(null);
-              setSubtaskEditorTarget(null);
-            }}
-            aria-label={mainView === "review" ? "返回待办" : "查看日复盘"}
-            aria-pressed={mainView === "review"}
-            title={mainView === "review" ? "返回待办" : "日复盘"}
-          >
-            <IconClipboardText size={17} />
-          </button>
+          <div className="titlebar-tool-group" role="group" aria-label="数据与视图工具">
+            <DataActions
+              automaticBackup={automaticBackup}
+              notice={storageNotice}
+              selectedDate={selectedDate}
+              selectedTodoCount={dayTodos.length}
+              onExportAll={exportTodosData}
+              onExportSelectedDate={exportSelectedDateData}
+              onExportBackup={async () => JSON.stringify(await createAppBackup(getAppDataDocument(), templates), null, 2)}
+              onRestoreBackup={(backup) => restoreAppBackup(backup, getAppDataDocument(), templates)}
+              onCleanupImages={() => cleanupStoredTodoImages(imageTodos)}
+            />
+            <RecycleBin entries={trash} todos={allTodos} onRestore={restoreTrashEntries} onPurge={purgeTrashEntries} />
+            <button
+              type="button"
+              className={`btn btn-ghost btn-icon-only statistics-toggle ${
+                mainView === "statistics" ? "is-active" : ""
+              }`}
+              onClick={() => {
+                setMainView((view) =>
+                  view === "statistics" ? "todos" : "statistics",
+                );
+                setTodoFormOpen(false);
+                setEditingTodoId(null);
+              }}
+              aria-label={mainView === "statistics" ? "返回待办" : "查看耗时统计"}
+              aria-pressed={mainView === "statistics"}
+              title={mainView === "statistics" ? "返回待办" : "耗时统计"}
+            >
+              <IconChartBar size={17} />
+            </button>
+            <button
+              type="button"
+              className={`btn btn-ghost btn-icon-only plan-toggle ${
+                mainView === "plan" ? "is-active" : ""
+              }`}
+              onClick={() => {
+                setMainView((view) => (view === "plan" ? "todos" : "plan"));
+                setPlanAllTodosOpen(false);
+                setTodoFormOpen(false);
+                setEditingTodoId(null);
+                setSubtaskEditorTarget(null);
+              }}
+              aria-label={mainView === "plan" ? "返回待办" : "查看计划视图"}
+              aria-pressed={mainView === "plan"}
+              title={mainView === "plan" ? "返回待办" : "计划视图"}
+            >
+              <IconCalendarEvent size={17} />
+            </button>
+            <button
+              type="button"
+              className={`btn btn-ghost btn-icon-only review-toggle ${
+                mainView === "review" ? "is-active" : ""
+              }`}
+              onClick={() => {
+                setMainView((view) => (view === "review" ? "todos" : "review"));
+                setTodoFormOpen(false);
+                setEditingTodoId(null);
+                setSubtaskEditorTarget(null);
+              }}
+              aria-label={mainView === "review" ? "返回待办" : "查看日复盘"}
+              aria-pressed={mainView === "review"}
+              title={mainView === "review" ? "返回待办" : "日复盘"}
+            >
+              <IconClipboardText size={17} />
+            </button>
+          </div>
           <button
             type="button"
             className="btn btn-primary btn-icon-only titlebar-add-todo"
@@ -3128,6 +3170,7 @@ function App() {
           dangerouslySetInnerHTML={{ __html: todoDragPreview.html }}
         />
       )}
+      {deletionUndoToast}
       {completionUndo && (
         <div className="completion-undo" role="status" aria-live="polite">
           <span>已完成「{completionUndo.title}」</span>

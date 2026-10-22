@@ -1,0 +1,20 @@
+.automatic-backup-settings { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); }
+.automatic-backup-settings > summary { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 11px 12px; cursor: pointer; font-size: 12px; }
+.automatic-backup-settings > summary::after { content: "展开"; color: var(--text-dim); font-size: 10px; }
+.automatic-backup-settings[open] > summary::after { content: "收起"; }
+.automatic-backup-settings > summary strong { margin-left: auto; color: var(--primary); font-size: 10px; font-weight: 500; }
+.automatic-backup-settings > summary strong.is-error, .automatic-backup-settings .automatic-backup-settings__error { color: var(--danger); }
+.automatic-backup-settings__body { display: grid; gap: 11px; padding: 0 12px 13px; }
+.automatic-backup-settings__body p { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
+.automatic-backup-settings__switch { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.automatic-backup-settings__switch input { accent-color: var(--primary); }
+.automatic-backup-settings__field { display: grid; gap: 7px; font-size: 12px; }
+.automatic-backup-settings__field input, .automatic-backup-settings__row select { min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-card); color: var(--text); font: inherit; font-size: 12px; }
+.automatic-backup-settings__field input:focus-visible, .automatic-backup-settings__row select:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.automatic-backup-settings__row, .automatic-backup-settings__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.automatic-backup-settings__row { justify-content: space-between; }
+.automatic-backup-settings__row label { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.automatic-backup-settings__row select { width: auto; padding: 5px; }
+.automatic-backup-settings .btn { font-size: 11px; padding: 7px 8px; }
+.automatic-backup-settings__path { max-height: 4em; overflow: auto; }
+.data-actions__popover { max-height: calc(100dvh - 64px); overflow-y: auto; overscroll-behavior: contain; }

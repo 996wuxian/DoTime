@@ -9,6 +9,7 @@ import type {
   TodoImage,
   TodoSubtask,
   Urgency,
+  TrashEntry,
 } from "../types";
 import type { RecurrenceRule } from "../types";
 import { getDayTodos, getTodoTimelineItems, materializeDayTodoOrder } from "../domain/todoOrdering";
@@ -34,8 +35,6 @@ import {
   moveTodosToDate,
   pauseTodoTiming,
   pauseTodoSubtaskTiming,
-  removeTodos,
-  removeTodoSubtask,
   renameTodoSubtask,
   reorderTodoSubtask,
   resetTodoTiming,
@@ -95,6 +94,7 @@ import {
   FILE_STORAGE_RELOADED_EVENT,
   mirrorAppDataStorage,
 } from "../data/fileStorage";
+import { archiveTodos, archiveSubtask, expireTrash, purgeTrash, restoreTrash, getRetainedImageTodos } from "../domain/recycleBin";
 
 const REMINDER_RETRY_DELAY_MS = 30 * 1000;
 const MAX_REMINDER_TIMER_DELAY_MS = 60 * 1000;
@@ -170,10 +170,18 @@ function hasTimingSubtask(todo: Todo): boolean {
 
 type TodoState = {
   todos: Todo[];
+  trash: TrashEntry[];
   dailyPinnedAddResult: (DailyPinnedAddResult & { useManualSort: boolean }) | null;
 };
 type TodoAction =
   | { type: "update"; update: SetStateAction<Todo[]> }
+  | { type: "load"; todos: Todo[]; trash: TrashEntry[] }
+  | { type: "archive"; ids: string[]; now: number; batchId: string; metadata?: Pick<TrashEntry, "categoryDividers" | "manualSort"> }
+  | { type: "archive-subtask"; todoId: string; subtaskId: string; now: number; batchId: string }
+  | { type: "restore"; ids: string[]; now: number }
+  | { type: "purge"; ids: string[] }
+  | { type: "expire"; now: number }
+  | { type: "images"; updates: { id: string; sourceSignature: string; images: TodoImage[] }[] }
   | {
       type: "add-daily-pinned";
       sourceId: string;
@@ -183,6 +191,21 @@ type TodoAction =
     };
 
 function reduceTodos(state: TodoState, action: TodoAction): TodoState {
+  if (action.type === "load") return { ...state, todos: action.todos, trash: action.trash };
+  if (action.type === "archive") return { ...state, ...archiveTodos(state, action.ids, action.now, action.batchId, action.metadata) };
+  if (action.type === "archive-subtask") return { ...state, ...archiveSubtask(state, action.todoId, action.subtaskId, action.now, action.batchId) };
+  if (action.type === "restore") return { ...state, ...restoreTrash(state, action.ids, action.now) };
+  if (action.type === "expire") return { ...state, ...expireTrash(state, action.now) };
+  if (action.type === "purge") return { ...state, ...purgeTrash(state, action.ids) };
+  if (action.type === "images") {
+    const updates = new Map(action.updates.map(update => [update.id, update]));
+    const updateTodo = (todo: Todo) => {
+      const update = updates.get(todo.id);
+      if (!update || getTodoImagesSignature(todo.images) !== update.sourceSignature) return todo;
+      return { ...todo, images: update.images };
+    };
+    return { ...state, todos: state.todos.map(updateTodo), trash: state.trash.map(entry => entry.subtask ? entry : { ...entry, todo: updateTodo(entry.todo) }) };
+  }
   if (action.type === "update") {
     const todos = typeof action.update === "function" ? action.update(state.todos) : action.update;
     return todos === state.todos ? state : { ...state, todos };
@@ -194,6 +217,7 @@ function reduceTodos(state: TodoState, action: TodoAction): TodoState {
     action.sourceId, action.date, action.options,
   );
   return {
+    ...state,
     todos: result.status === "added" ? todos : state.todos,
     dailyPinnedAddResult: { ...result, useManualSort: result.status === "added" && action.options.target != null },
   };
@@ -205,12 +229,21 @@ export function useTodos(selectedDate: string) {
     initialDataRef.current = loadAppData(localStorage);
   }
   const initialData = initialDataRef.current;
-  const [{ todos, dailyPinnedAddResult }, dispatchTodos] = useReducer(reduceTodos, {
+  const [{ todos, trash, dailyPinnedAddResult }, dispatchTodos] = useReducer(reduceTodos, {
     todos: initialData.data.todos,
+    trash: initialData.data.trash ?? [],
     dailyPinnedAddResult: null,
   });
   const setTodos = useCallback((update: SetStateAction<Todo[]>) => {
     dispatchTodos({ type: "update", update });
+  }, []);
+  const imageTodos = useMemo(() => getRetainedImageTodos(todos, trash), [todos, trash]);
+  useEffect(() => {
+    const expire = () => dispatchTodos({ type: "expire", now: Date.now() });
+    expire();
+    const timer = window.setInterval(expire, 60_000);
+    window.addEventListener("focus", expire);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", expire); };
   }, []);
   const [manualSortDates, setManualSortDates] = useState<Set<string>>(
     () => new Set(initialData.data.manualSortDates),
@@ -238,7 +271,7 @@ export function useTodos(selectedDate: string) {
 
   if (syncedTodoImageSignaturesRef.current == null) {
     syncedTodoImageSignaturesRef.current = new Map(
-      initialData.data.todos
+      getRetainedImageTodos(initialData.data.todos, initialData.data.trash ?? [])
         .filter((todo) => !hasInlineTodoImages(todo.images))
         .map((todo) => [todo.id, getTodoImagesSignature(todo.images)]),
     );
@@ -251,16 +284,7 @@ export function useTodos(selectedDate: string) {
       return;
     }
 
-    const currentTodoIds = new Set(todos.map((todo) => todo.id));
-    const removedIds = [...syncedSignatures.keys()].filter(
-      (id) => !currentTodoIds.has(id),
-    );
-    for (const id of removedIds) syncedSignatures.delete(id);
-    if (removedIds.length > 0) {
-      void removeTodoImageDirectories(removedIds);
-    }
-
-    const targets = todos.filter((todo) => {
+    const targets = imageTodos.filter((todo) => {
       const signature = getTodoImagesSignature(todo.images);
       if (signature === "" && !syncedSignatures.has(todo.id)) return false;
       return syncedSignatures.get(todo.id) !== signature;
@@ -271,17 +295,17 @@ export function useTodos(selectedDate: string) {
     pendingTodoImageSyncRef.current = pendingIds;
 
     void (async () => {
-      const updates: { id: string; images: TodoImage[] }[] = [];
+      const updates: { id: string; sourceSignature: string; images: TodoImage[] }[] = [];
 
       await Promise.all(
         targets.map(async (todo) => {
           try {
-            const storedImages = await persistTodoImages(todo.id, todo.images);
+            const storedImages = await persistTodoImages(todo.id, todo.images, true);
             syncedSignatures.set(
               todo.id,
               getTodoImagesSignature(storedImages),
             );
-            updates.push({ id: todo.id, images: storedImages });
+            updates.push({ id: todo.id, sourceSignature: getTodoImagesSignature(todo.images), images: storedImages });
           } catch (error) {
             console.error("Failed to persist todo images", error);
           }
@@ -292,53 +316,36 @@ export function useTodos(selectedDate: string) {
       if (isBackupRestoreInProgress()) return;
       if (updates.length === 0) return;
 
-      setTodos((current) => {
-        const imagesByTodoId = new Map(
-          updates.map((update) => [update.id, update.images]),
-        );
-        let changed = false;
-        const nextTodos = current.map((todo) => {
-          const images = imagesByTodoId.get(todo.id);
-          if (images == null) return todo;
-
-          const currentSignature = getTodoImagesSignature(todo.images);
-          const nextSignature = getTodoImagesSignature(images);
-          if (
-            currentSignature === nextSignature &&
-            !hasInlineTodoImages(todo.images)
-          ) {
-            return todo;
-          }
-
-          changed = true;
-          return { ...todo, images };
-        });
-
-        return changed ? nextTodos : current;
-      });
+      dispatchTodos({ type: "images", updates });
     })();
-  }, [todos]);
+  }, [imageTodos]);
 
   useEffect(() => {
     if (isBackupRestoreInProgress()) return;
     const result = saveAppData(
-      createAppDataDocument(todos, manualSortDates, categoryDividers),
+      createAppDataDocument(todos, manualSortDates, categoryDividers, trash),
       localStorage,
     );
     if (!result.ok) {
       setStorageNotice(`保存失败：${result.error}`);
     } else {
       mirrorAppDataStorage();
+      // Never delete image files until the active list and recycle bin are saved together.
+      const retained = new Set(imageTodos.map(todo => todo.id));
+      const signatures = syncedTodoImageSignaturesRef.current;
+      const removed = [...(signatures?.keys() ?? [])].filter(id => !retained.has(id));
+      for (const id of removed) signatures?.delete(id);
+      if (removed.length) void removeTodoImageDirectories(removed);
     }
     void emitAppDataUpdated().catch((error) => {
       console.error("failed to emit app data update", error);
     });
-  }, [categoryDividers, manualSortDates, todos]);
+  }, [categoryDividers, manualSortDates, todos, trash, imageTodos]);
 
   useEffect(() => {
     const refresh = () => {
       const loaded = loadAppData(localStorage);
-      setTodos(loaded.data.todos);
+      dispatchTodos({ type: "load", todos: loaded.data.todos, trash: loaded.data.trash ?? [] });
       setCategoryDividers(loaded.data.categoryDividers);
       setManualSortDates(new Set(loaded.data.manualSortDates));
       if (loaded.notice) setStorageNotice(loaded.notice);
@@ -653,16 +660,18 @@ export function useTodos(selectedDate: string) {
   }, [addTodo]);
 
   const removeTodo = useCallback((id: string) => {
-    void removeTodoImageDirectories([id]);
-    setTodos((prev) => prev.filter((t) => t.id !== id));
-  }, []);
+    const batchId = createId();
+    dispatchTodos({ type: "archive", ids: [id], now: Date.now(), batchId, metadata: { manualSort: manualSortDates.has(todos.find(todo => todo.id === id)?.date ?? "") } });
+    return batchId;
+  }, [manualSortDates, todos]);
 
   const clearDayTodos = useCallback(() => {
     const removedIds = todos
       .filter((todo) => todo.date === selectedDate)
       .map((todo) => todo.id);
-    void removeTodoImageDirectories(removedIds);
-    setTodos((prev) => prev.filter((todo) => todo.date !== selectedDate));
+    const batchId = createId();
+    dispatchTodos({ type: "archive", ids: removedIds, now: Date.now(), batchId,
+      metadata: { categoryDividers: categoryDividers.filter(item => item.date === selectedDate), manualSort: manualSortDates.has(selectedDate) } });
     setCategoryDividers((prev) =>
       prev.filter((divider) => divider.date !== selectedDate),
     );
@@ -672,7 +681,8 @@ export function useTodos(selectedDate: string) {
       next.delete(selectedDate);
       return next;
     });
-  }, [selectedDate, todos]);
+    return batchId;
+  }, [selectedDate, todos, categoryDividers, manualSortDates]);
 
   const addCategoryDividerBetween = useCallback(
     (
@@ -896,10 +906,10 @@ export function useTodos(selectedDate: string) {
   }, []);
 
   const removeSelectedTodos = useCallback((ids: Iterable<string>) => {
-    const todoIds = [...new Set(ids)];
-    void removeTodoImageDirectories(todoIds);
-    setTodos((prev) => removeTodos(prev, todoIds));
-  }, []);
+    const batchId = createId();
+    dispatchTodos({ type: "archive", ids: [...new Set(ids)], now: Date.now(), batchId, metadata: { manualSort: manualSortDates.has(selectedDate) } });
+    return batchId;
+  }, [manualSortDates, selectedDate]);
 
   const clearSelectedFavorites = useCallback((ids: Iterable<string>) => {
     setTodos((prev) => clearSelectedTodoFavorites(prev, ids));
@@ -955,8 +965,27 @@ export function useTodos(selectedDate: string) {
   }, []);
 
   const removeSubtask = useCallback((todoId: string, subtaskId: string) => {
-    setTodos((prev) => removeTodoSubtask(prev, todoId, subtaskId));
+    const batchId = createId();
+    dispatchTodos({ type: "archive-subtask", todoId, subtaskId, now: Date.now(), batchId });
+    return batchId;
   }, []);
+
+  const restoreTrashEntries = useCallback((ids: string[]) => {
+    const next = restoreTrash({ todos, trash }, ids, Date.now());
+    const remaining = new Set(next.trash.map(entry => entry.id));
+    const restored = trash.filter(entry => !remaining.has(entry.id));
+    dispatchTodos({ type: "restore", ids, now: Date.now() });
+    setCategoryDividers(previous => {
+      const dividers = new Map(previous.map(item => [item.id, item]));
+      for (const entry of restored) for (const divider of entry.categoryDividers ?? []) {
+        if (!dividers.has(divider.id)) dividers.set(divider.id, divider);
+      }
+      return [...dividers.values()];
+    });
+    setManualSortDates(previous => new Set([...previous, ...restored.filter(entry => entry.manualSort).map(entry => entry.todo.date)]));
+    return restored.length;
+  }, [todos, trash]);
+  const purgeTrashEntries = useCallback((ids: string[]) => dispatchTodos({ type: "purge", ids }), []);
 
   const reorderSubtask = useCallback(
     (todoId: string, draggedSubtaskId: string, targetSubtaskId: string) => {
@@ -1026,8 +1055,8 @@ export function useTodos(selectedDate: string) {
   );
 
   const getAppDataDocument = useCallback(
-    () => createAppDataDocument(todos, manualSortDates, categoryDividers),
-    [categoryDividers, manualSortDates, todos],
+    () => createAppDataDocument(todos, manualSortDates, categoryDividers, trash),
+    [categoryDividers, manualSortDates, todos, trash],
   );
 
   const exportTodosData = useCallback(
@@ -1052,7 +1081,7 @@ export function useTodos(selectedDate: string) {
       const result = parseImportedAppData(text);
       if (!result.ok) return result;
 
-      setTodos(result.data.todos);
+      dispatchTodos({ type: "load", todos: result.data.todos, trash: result.data.trash ?? [] });
       setCategoryDividers(result.data.categoryDividers);
       setManualSortDates(new Set(result.data.manualSortDates));
       setStorageNotice(`已导入 ${result.data.todos.length} 个待办。`);
@@ -1063,6 +1092,10 @@ export function useTodos(selectedDate: string) {
 
   return {
     allTodos: todos,
+    trash,
+    imageTodos,
+    restoreTrashEntries,
+    purgeTrashEntries,
     dailyPinnedTodos,
     dailyPinnedAddResult,
     dayTodos,

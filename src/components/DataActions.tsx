@@ -18,8 +18,10 @@ import {
 } from "./icons";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ToastNotice } from "./ToastNotice";
+import { AutomaticBackupSettings, type AutomaticBackupController } from "./AutomaticBackupSettings";
 
 interface DataActionsProps {
+  automaticBackup: AutomaticBackupController;
   notice: string | null;
   selectedDate: string;
   selectedTodoCount: number;
@@ -60,6 +62,7 @@ function createExportFileName(scopeDate: string | null, now = new Date()): strin
 }
 
 export function DataActions({
+  automaticBackup,
   notice,
   selectedDate,
   selectedTodoCount,
@@ -415,7 +418,8 @@ export function DataActions({
               从备份恢复
             </button>
           </div>
-          <p className="data-actions__hint">JSON 备份包含全部待办、子待办、模板、排序和图片。</p>
+          <p className="data-actions__hint">JSON 备份包含全部待办、回收站、子待办、模板、排序和图片。</p>
+          <AutomaticBackupSettings backup={automaticBackup} blocked={busy} />
           {recoveryAvailable && (
             <button type="button" className="data-actions__recovery" disabled={busy} onClick={() => void prepareRecovery()}>
               恢复上次导入前的数据
@@ -515,14 +519,15 @@ export function DataActions({
 
 function BackupPreview({ backup, busy }: { backup: BackupImport; busy: boolean }) {
   const dates = backup.appData.todos.map((todo) => todo.date).sort();
-  const imageCount = backup.appData.todos.reduce((count, todo) => count + (todo.images?.length ?? 0), 0);
+  const trash = backup.appData.trash ?? [];
+  const imageCount = [...backup.appData.todos, ...trash.filter(entry => !entry.subtask).map(entry => entry.todo)].reduce((count, todo) => count + (todo.images?.length ?? 0), 0);
   const dateRange = dates.length === 0 ? "无待办" : `${formatDisplayDate(dates[0])} 至 ${formatDisplayDate(dates[dates.length - 1])}`;
   return (
     <span className="backup-preview">
-      <span>{backup.appData.todos.length} 个待办 · {imageCount} 张图片{backup.templates == null ? "" : ` · ${backup.templates.length} 个模板`}</span>
+      <span>{backup.appData.todos.length} 个待办 · {trash.length} 条回收站记录 · {imageCount} 张图片{backup.templates == null ? "" : ` · ${backup.templates.length} 个模板`}</span>
       <span>日期范围：{dateRange}</span>
       {backup.exportedAt != null && <span>备份时间：{new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(backup.exportedAt)}</span>}
-      <span>{backup.legacy ? "这是旧版备份，将替换待办并保留现有模板；旧备份中的图片可能依赖原电脑。" : "将替换当前全部待办和模板，包含图片与排序。"}</span>
+      <span>{backup.legacy ? "这是旧版备份，将替换待办和回收站并保留现有模板；旧备份中的图片可能依赖原电脑。" : "将替换当前全部待办、回收站和模板，包含图片与排序。"}</span>
       <span>{busy ? "正在恢复，请保持窗口打开。" : "恢复前会自动保留原数据，可从数据管理中恢复。草稿、外观设置和剪贴板记录不参与替换。"}</span>
     </span>
   );

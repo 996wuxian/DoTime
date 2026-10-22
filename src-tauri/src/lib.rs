@@ -9,6 +9,7 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+mod auto_backup;
 mod reminder_window;
 mod updates;
 
@@ -2866,6 +2867,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            auto_backup::get_auto_backup_status,
+            auto_backup::save_auto_backup_settings,
+            auto_backup::write_auto_backup,
+            auto_backup::open_auto_backup_directory,
             updates::check_for_updates,
             updates::download_update,
             updates::open_update_download_directory,

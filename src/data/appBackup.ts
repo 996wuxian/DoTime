@@ -65,8 +65,10 @@ export function parseAppBackup(text: string): ParseBackupResult {
       return { ok: false, error: "备份包含重复的任务或模板标识，无法恢复。" };
     }
     const rawTodos = isRecord(value.appData) && Array.isArray(value.appData.todos) ? value.appData.todos : [];
-    if (parsed.data.todos.some((todo, index) => {
-      const raw = rawTodos[index];
+    const rawTrash = isRecord(value.appData) && Array.isArray(value.appData.trash) ? value.appData.trash : [];
+    const imageRecords = [...parsed.data.todos.map((todo, index) => ({ todo, raw: rawTodos[index] })),
+      ...(parsed.data.trash ?? []).map((entry, index) => ({ todo: entry.todo, raw: isRecord(rawTrash[index]) ? rawTrash[index].todo : undefined }))];
+    if (imageRecords.some(({ todo, raw }) => {
       const rawImages = isRecord(raw) ? raw.images : undefined;
       return (rawImages !== undefined && (!Array.isArray(rawImages) || rawImages.length !== (todo.images ?? []).length)) ||
         (todo.images ?? []).some((image) => !isPortableImage(image));
@@ -90,24 +92,27 @@ export async function createAppBackup(
   readImages: (todo: Todo) => Promise<TodoImage[]> = copyTodoImages,
 ): Promise<AppBackup> {
   const exportedAt = Date.now();
-  const todos: Todo[] = [];
-  // Keep peak memory bounded when many tasks contain images.
-  for (const todo of data.todos) {
+  const exportTodo = async (todo: Todo): Promise<Todo> => {
     const images = await readImages(todo);
     if (images.length !== (todo.images ?? []).length || images.some((image) => !isPortableImage(image))) {
       throw new Error(`无法完整读取「${todo.title}」的图片，备份未导出。`);
     }
-    todos.push({
+    return {
       ...checkpointTiming(todo, exportedAt, exportedAt),
       subtasks: todo.subtasks?.map((subtask) => checkpointSubtask(subtask, exportedAt, exportedAt)),
       images: images.map(({ id, name, mimeType, dataUrl }) => ({ id, name, mimeType, dataUrl })),
-    });
-  }
+    };
+  };
+  const todos: Todo[] = [];
+  // Keep peak memory bounded when many tasks contain images.
+  for (const todo of data.todos) todos.push(await exportTodo(todo));
+  const trash = [];
+  for (const entry of data.trash ?? []) trash.push({ ...entry, todo: await exportTodo(entry.todo) });
   return {
     format: "dotime-backup",
     version: 1,
     exportedAt,
-    appData: { ...data, todos },
+    appData: { ...data, todos, trash },
     templates: [...templates],
   };
 }
@@ -148,12 +153,10 @@ export async function prepareBackupImages(
   data: AppDataDocument,
   writeImages: typeof persistTodoImages = persistTodoImages,
 ): Promise<AppDataDocument> {
-  const todos: Todo[] = [];
-  for (const todo of data.todos) {
+  const prepareTodo = async (todo: Todo): Promise<Todo> => {
     const images = todo.images ?? [];
     if (images.length === 0) {
-      todos.push(todo);
-      continue;
+      return todo;
     }
     // New image IDs produce new filenames, so failure cannot overwrite the old files.
     const staged = images.map((image) => image.dataUrl
@@ -161,9 +164,13 @@ export async function prepareBackupImages(
       : image);
     const stored = await writeImages(todo.id, staged, true);
     if (stored.length !== images.length) throw new Error(`无法完整恢复「${todo.title}」的图片。`);
-    todos.push({ ...todo, images: stored.map((image, index) => ({ ...image, id: images[index].id })) });
-  }
-  return { ...data, todos };
+    return { ...todo, images: stored.map((image, index) => ({ ...image, id: images[index].id })) };
+  };
+  const todos: Todo[] = [];
+  for (const todo of data.todos) todos.push(await prepareTodo(todo));
+  const trash = [];
+  for (const entry of data.trash ?? []) trash.push({ ...entry, todo: await prepareTodo(entry.todo) });
+  return { ...data, todos, trash };
 }
 
 const RESTORE_STORAGE_KEYS = [

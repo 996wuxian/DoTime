@@ -5,6 +5,7 @@ import type {
   TodoCategoryDivider,
   TodoImage,
   TodoSubtask,
+  TrashEntry,
   Urgency,
 } from "../types";
 import {
@@ -50,6 +51,7 @@ export interface AppDataDocument {
   todos: Todo[];
   categoryDividers: TodoCategoryDivider[];
   manualSortDates: string[];
+  trash?: TrashEntry[];
 }
 
 export interface LoadAppDataResult {
@@ -405,6 +407,7 @@ function createDocument(
   manualSortDates: Iterable<string>,
   categoryDividers: TodoCategoryDivider[] = [],
   updatedAt = Date.now(),
+  trash: TrashEntry[] = [],
 ): AppDataDocument {
   return {
     version: APP_DATA_VERSION,
@@ -412,6 +415,7 @@ function createDocument(
     todos: normalizeTodoSortOrders(todos),
     categoryDividers: normalizeTodoCategorySortOrders(categoryDividers),
     manualSortDates: [...new Set([...manualSortDates].filter(isDateKey))],
+    trash,
   };
 }
 
@@ -466,19 +470,56 @@ function createStorageDocument(data: AppDataDocument): AppDataDocument {
     data.manualSortDates,
     data.categoryDividers,
     data.updatedAt,
+    // Keep pending inline images until the image store has persisted them.
+    (data.trash ?? []).map(entry => ({ ...entry, todo: { ...entry.todo, images: entry.todo.images ?? [] } })),
   );
+}
+
+function parseTrash(value: unknown): TrashEntry[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  const entries: TrashEntry[] = [];
+  const ids = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.id !== "string" || !item.id || ids.has(item.id) ||
+        typeof item.batchId !== "string" || !item.batchId || !isFiniteNumber(item.deletedAt) || item.deletedAt < 0) return null;
+    const todo = parseTodo(item.todo);
+    if (!todo) return null;
+    const entry: TrashEntry = { id: item.id, batchId: item.batchId, deletedAt: item.deletedAt, todo };
+    if (item.subtask !== undefined) {
+      if (!isRecord(item.subtask) || (item.subtask.parentId !== null && typeof item.subtask.parentId !== "string") ||
+          !Number.isInteger(item.subtask.index) || Number(item.subtask.index) < 0) return null;
+      const subtask = parseTodoSubtask(item.subtask.value, item.subtask.parentId == null ? 1 : 2);
+      if (!subtask) return null;
+      entry.subtask = { value: subtask, parentId: item.subtask.parentId as string | null, index: Number(item.subtask.index) };
+      if (typeof item.subtask.beforeId === "string") entry.subtask.beforeId = item.subtask.beforeId;
+      if (typeof item.subtask.afterId === "string") entry.subtask.afterId = item.subtask.afterId;
+    }
+    if (item.categoryDividers !== undefined) {
+      if (!Array.isArray(item.categoryDividers)) return null;
+      entry.categoryDividers = parseTodoCategoryDividers(item.categoryDividers);
+      if (entry.categoryDividers.length !== item.categoryDividers.length) return null;
+    }
+    entry.manualSort = item.manualSort === true;
+    entries.push(entry);
+    ids.add(item.id);
+  }
+  return entries;
 }
 
 function parseDocument(value: unknown): AppDataDocument | null {
   if (!isRecord(value) || value.version !== APP_DATA_VERSION) return null;
   const todos = parseTodos(value.todos);
   if (todos == null) return null;
+  const trash = parseTrash(value.trash);
+  if (trash == null) return null;
 
   return createDocument(
     todos,
     parseManualSortDates(value.manualSortDates),
     parseTodoCategoryDividers(value.categoryDividers),
     isFiniteNumber(value.updatedAt) ? value.updatedAt : Date.now(),
+    trash,
   );
 }
 
@@ -499,8 +540,9 @@ export function createAppDataDocument(
   todos: Todo[],
   manualSortDates: Iterable<string>,
   categoryDividers: TodoCategoryDivider[] = [],
+  trash: TrashEntry[] = [],
 ): AppDataDocument {
-  return createDocument(todos, manualSortDates, categoryDividers);
+  return createDocument(todos, manualSortDates, categoryDividers, Date.now(), trash);
 }
 
 export function loadAppData(storage: StorageLike): LoadAppDataResult {
@@ -547,7 +589,7 @@ export function saveAppData(
 ): SaveAppDataResult {
   try {
     const nextData = createStorageDocument(
-      createDocument(data.todos, data.manualSortDates, data.categoryDividers),
+      createDocument(data.todos, data.manualSortDates, data.categoryDividers, Date.now(), data.trash),
     );
     const nextRaw = JSON.stringify(nextData);
     const currentRaw = storage.getItem(APP_DATA_STORAGE_KEY);

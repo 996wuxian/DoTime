@@ -162,6 +162,17 @@ export interface TodoCategoryDivider {
   updatedAt: number;
 }
 
+/** A deleted task, or a deleted subtask with the context needed to restore it. */
+export interface TrashEntry {
+  id: string;
+  batchId: string;
+  deletedAt: number;
+  todo: Todo;
+  subtask?: { value: TodoSubtask; parentId: string | null; index: number; beforeId?: string; afterId?: string };
+  categoryDividers?: TodoCategoryDivider[];
+  manualSort?: boolean;
+}
+
 export interface TodoDateSummary {
   total: number;
   pending: number;

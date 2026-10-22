@@ -587,6 +587,12 @@ a,
   height: 100%;
 }
 
+.titlebar-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 /* Window controls */
 .window-controls {
   display: flex;
