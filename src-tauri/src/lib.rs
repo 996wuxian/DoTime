@@ -10,6 +10,8 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod auto_backup;
+mod pinned_layout;
+mod pinned_surface;
 mod reminder_window;
 mod updates;
 
@@ -25,19 +27,14 @@ const MINI_SUBTASKS_WINDOW_STACK_GAP: f64 = 4.0;
 const MINI_SUBTASKS_PARENT_INSET: f64 = 18.0;
 const PINNED_TODO_WINDOW_COLLAPSED_WIDTH: f64 = 210.0;
 const PINNED_TODO_WINDOW_COLLAPSED_HEIGHT: f64 = 46.0;
-const PINNED_TODO_WINDOW_EXPANDED_WIDTH: f64 = 420.0;
-const PINNED_TODO_WINDOW_EXPANDED_HEIGHT: f64 = 60.0;
-const PINNED_TODO_WINDOW_MARGIN: f64 = 18.0;
 const PINNED_TODO_WINDOW_COUNT: usize = 10;
-const PINNED_TODO_WINDOW_STACK_GAP: f64 = 28.0;
 const PINNED_SUBTASKS_WINDOW_COLLAPSED_WIDTH: f64 = PINNED_TODO_WINDOW_COLLAPSED_WIDTH - 30.0;
-const PINNED_SUBTASKS_WINDOW_EXPANDED_WIDTH: f64 = PINNED_TODO_WINDOW_EXPANDED_WIDTH - 40.0;
-const PINNED_SUBTASKS_WINDOW_GAP: f64 = 4.0;
 const PINNED_SUBTASKS_ITEM_COLLAPSED_HEIGHT: f64 = 46.0;
 const PINNED_SUBTASKS_LIST_GAP: f64 = 8.0;
 const PINNED_SUBTASKS_LIST_PADDING: f64 = 8.0;
 const PINNED_SUBTASKS_MAX_COLLAPSED_ITEMS: usize = 3;
 const PINNED_TODOS_UPDATED_EVENT: &str = "dotime-pinned-todos-updated";
+const PINNED_LAYOUT_UPDATED_EVENT: &str = "dotime-pinned-layout-updated";
 const CLIPBOARD_POLL_INTERVAL_MS: u64 = 800;
 const CLIPBOARD_MAX_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 const CLIPBOARD_HISTORY_LIMIT: usize = 100;
@@ -65,7 +62,6 @@ use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     utils::config::Color,
-    webview::PageLoadEvent,
     Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindowBuilder,
 };
 
@@ -75,6 +71,14 @@ struct MiniSubtasksState(Mutex<Option<String>>);
 struct PinnedTodoState(Mutex<HashMap<String, String>>);
 struct PinnedSubtasksState(Mutex<HashMap<String, String>>);
 struct PinnedStackTopmostState(Mutex<HashMap<String, bool>>);
+#[derive(Default, Clone)]
+struct PinnedDockOptions {
+    expanded: bool,
+    detached: bool,
+    children_hidden: bool,
+}
+#[derive(Default)]
+struct PinnedDockState(Mutex<HashMap<String, PinnedDockOptions>>);
 #[derive(Default)]
 struct WindowOpacityState(Mutex<HashMap<String, f64>>);
 struct ClipboardMonitorState(Mutex<Option<mpsc::Sender<()>>>);
@@ -643,6 +647,38 @@ fn set_pinned_window_frame(
 }
 
 #[tauri::command]
+fn set_pinned_window_clip(
+    window: tauri::Window,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    if ![x, y, width, height].iter().all(|n| n.is_finite()) || width <= 0.0 || height <= 0.0 {
+        return Err("invalid pinned window clip".into());
+    }
+    pinned_surface::set_clip(
+        &window,
+        pinned_layout::Frame {
+            x,
+            y,
+            width,
+            height,
+        },
+    )
+}
+
+#[tauri::command]
+fn get_pinned_subtasks_visible_frame(
+    app: tauri::AppHandle,
+    slot: String,
+) -> Result<Option<pinned_layout::Frame>, String> {
+    app.get_webview_window(&format!("pinned-subtasks-{slot}"))
+        .map(|w| pinned_surface::visible_frame(&w.as_ref().window()))
+        .transpose()
+}
+
+#[tauri::command]
 fn bring_pinned_stack_to_front(app: tauri::AppHandle, slot: String) -> Result<(), String> {
     let index = slot.parse::<usize>().unwrap_or(0);
     if let Some(window) = app.get_webview_window(&pinned_todo_window_label(index)) {
@@ -755,7 +791,6 @@ async fn show_pinned_todo_window(
         .insert(slot.to_string(), pinned_todo.clone());
 
     let existing_window = app.get_webview_window(&window_label);
-    let is_new_window = existing_window.is_none();
     let window = match existing_window {
         Some(window) => window,
         None => {
@@ -785,13 +820,6 @@ async fn show_pinned_todo_window(
                         PINNED_TODO_WINDOW_COLLAPSED_WIDTH,
                         PINNED_TODO_WINDOW_COLLAPSED_HEIGHT,
                     )
-                    .on_page_load(|window, event| {
-                        if matches!(event.event(), PageLoadEvent::Finished) {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            let _ = restore_window_opacity(&window);
-                        }
-                    })
                     .build()
                     .map_err(|error| error.to_string())?
                 }
@@ -802,18 +830,38 @@ async fn show_pinned_todo_window(
     let _ = window.unminimize();
     let _ = window.set_always_on_top(always_on_top);
     let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-    // 先拷贝一份再定位窗口：定位会派发到主线程等待，若此时仍持有锁，
-    // 主线程同步命令（如 remove_pinned_todo）会等锁，形成死锁卡死整个应用。
-    let pinned = state.0.lock().map_err(|error| error.to_string())?.clone();
-    position_pinned_todo_window(&window, slot, &pinned);
-    if !is_new_window {
-        window.show().map_err(|error| error.to_string())?;
-        let _ = window.set_focus();
-        restore_window_opacity(&window)?;
-    }
+    app.state::<PinnedDockState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(slot.to_string(), PinnedDockOptions::default());
+    position_pinned_todo_window(&window, slot)?;
+    let _ = app.emit(PINNED_LAYOUT_UPDATED_EVENT, ());
     let _ = window.emit(format!("dotime-pinned-todo-{slot}").as_str(), pinned_todo);
     let _ = app.emit(PINNED_TODOS_UPDATED_EVENT, ());
     Ok(slot.to_string())
+}
+
+#[tauri::command]
+fn pinned_todo_window_ready(
+    app: tauri::AppHandle,
+    state: State<'_, PinnedTodoState>,
+    slot: String,
+    todo_id: String,
+) -> Result<(), String> {
+    let active = state.0.lock().map_err(|error| error.to_string())?;
+    let matches = active
+        .get(&slot)
+        .and_then(|payload| serde_json::from_str::<serde_json::Value>(payload).ok())
+        .is_some_and(|todo| todo["id"].as_str() == Some(todo_id.as_str()));
+    drop(active);
+    if matches {
+        if let Some(window) = app.get_webview_window(&format!("pinned-todo-{slot}")) {
+            restore_window_opacity(&window)?;
+            window.show().map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -928,7 +976,13 @@ fn remove_pinned_todo(
         .remove(&slot);
     if let Some(window) = app.get_webview_window(&window_label) {
         window.hide().map_err(|error| error.to_string())?;
+        let _ = window.emit(format!("dotime-pinned-todo-{slot}").as_str(), "");
     }
+    app.state::<PinnedDockState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&slot);
     close_pinned_subtasks_window(app.clone(), subtasks_state, slot)?;
     let _ = app.emit(PINNED_TODOS_UPDATED_EVENT, ());
     Ok(())
@@ -950,7 +1004,6 @@ fn get_active_pinned_subtasks_group(
 async fn show_pinned_subtasks_window(
     app: tauri::AppHandle,
     state: State<'_, PinnedSubtasksState>,
-    pinned_todo_state: State<'_, PinnedTodoState>,
     topmost_state: State<'_, PinnedStackTopmostState>,
     slot: String,
     subtasks_group: String,
@@ -976,7 +1029,6 @@ async fn show_pinned_subtasks_window(
 
     let window_label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
     let existing_window = app.get_webview_window(&window_label);
-    let is_new_window = existing_window.is_none();
     let window = match existing_window {
         Some(window) => window,
         None => {
@@ -1015,28 +1067,18 @@ async fn show_pinned_subtasks_window(
         }
     };
 
-    let target_height = pinned_subtasks_collapsed_height(item_count);
-    // 同上：先拷贝，避免持锁等待主线程派发导致死锁。
-    let pinned = pinned_todo_state
+    app.state::<PinnedDockState>()
         .0
         .lock()
-        .map_err(|error| error.to_string())?
-        .clone();
-    position_pinned_subtasks_window(
-        &window,
-        slot.parse::<usize>().unwrap_or(0),
-        false,
-        target_height,
-        &pinned,
-    );
+        .map_err(|e| e.to_string())?
+        .entry(slot.clone())
+        .or_default()
+        .children_hidden = false;
+    position_pinned_subtasks_window(&window, &slot)?;
+    let _ = app.emit(PINNED_LAYOUT_UPDATED_EVENT, ());
     let _ = window.unminimize();
     let _ = window.set_always_on_top(always_on_top);
     let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-    if !is_new_window {
-        window.show().map_err(|error| error.to_string())?;
-        let _ = window.set_focus();
-        restore_window_opacity(&window)?;
-    }
     let _ = window.emit(
         format!("dotime-pinned-subtasks-{slot}").as_str(),
         subtasks_group,
@@ -1049,18 +1091,22 @@ fn pinned_subtasks_window_ready(
     app: tauri::AppHandle,
     state: State<'_, PinnedSubtasksState>,
     slot: String,
+    todo_id: String,
 ) -> Result<(), String> {
     let active = state.0.lock().map_err(|error| error.to_string())?;
-    if !active.contains_key(&slot) {
+    let matches = active
+        .get(&slot)
+        .and_then(|payload| serde_json::from_str::<serde_json::Value>(payload).ok())
+        .is_some_and(|group| group["todoId"].as_str() == Some(todo_id.as_str()));
+    if !matches {
         return Ok(());
     }
     drop(active);
     let window_label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
     if let Some(window) = app.get_webview_window(&window_label) {
         let _ = window.unminimize();
-        window.show().map_err(|error| error.to_string())?;
-        let _ = window.set_focus();
         restore_window_opacity(&window)?;
+        window.show().map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -1090,7 +1136,18 @@ fn close_pinned_subtasks_window(
     let window_label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
     if let Some(window) = app.get_webview_window(&window_label) {
         window.hide().map_err(|error| error.to_string())?;
+        let _ = window.emit(format!("dotime-pinned-subtasks-{slot}").as_str(), "");
     }
+    if let Some(option) = app
+        .state::<PinnedDockState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get_mut(&slot)
+    {
+        option.children_hidden = true;
+    }
+    let _ = app.emit(PINNED_LAYOUT_UPDATED_EVENT, ());
     Ok(())
 }
 
@@ -1109,6 +1166,16 @@ fn sync_pinned_subtasks_window_with_parent(
             )
             .map_err(|error| error.to_string())?;
     }
+    app.state::<PinnedDockState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .entry(slot)
+        .or_default()
+        .detached = true;
+    if !moving {
+        let _ = app.emit(PINNED_LAYOUT_UPDATED_EVENT, ());
+    }
     Ok(())
 }
 
@@ -1121,8 +1188,16 @@ fn move_pinned_subtasks_window_with_parent(
 ) -> Result<(), String> {
     let label = pinned_subtasks_window_label(slot.parse::<usize>().unwrap_or(0));
     if let Some(window) = app.get_webview_window(&label) {
+        let visible = pinned_surface::visible_frame(&window.as_ref().window())?;
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        let position = window.outer_position().map_err(|e| e.to_string())?;
+        let offset_x = visible.x * scale - position.x as f64;
+        let offset_y = visible.y * scale - position.y as f64;
         window
-            .set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32))
+            .set_position(PhysicalPosition::new(
+                (x - offset_x).round() as i32,
+                (y - offset_y).round() as i32,
+            ))
             .map_err(|error| error.to_string())?;
     }
     Ok(())
@@ -1139,11 +1214,28 @@ fn sync_pinned_subtasks_window(
         if mini_subtasks_item_count(&subtasks_group) == 0 {
             return close_pinned_subtasks_window(app, state, slot);
         }
-        state
-            .0
-            .lock()
-            .map_err(|error| error.to_string())?
-            .insert(slot.clone(), subtasks_group);
+        let count = mini_subtasks_item_count(&subtasks_group);
+        let changed = {
+            let mut groups = state.0.lock().map_err(|e| e.to_string())?;
+            if let Some(current) = groups.get_mut(&slot) {
+                let same_todo = |raw: &str| {
+                    serde_json::from_str::<serde_json::Value>(raw)
+                        .ok()
+                        .and_then(|p| p["todoId"].as_str().map(str::to_owned))
+                };
+                if same_todo(current) != same_todo(&subtasks_group) {
+                    return Ok(());
+                }
+                let changed = mini_subtasks_item_count(current) != count;
+                *current = subtasks_group;
+                changed
+            } else {
+                false
+            }
+        };
+        if changed {
+            let _ = app.emit(PINNED_LAYOUT_UPDATED_EVENT, ());
+        }
     }
     Ok(())
 }
@@ -2398,137 +2490,218 @@ fn pinned_subtasks_collapsed_height(item_count: usize) -> f64 {
         + PINNED_SUBTASKS_LIST_PADDING
 }
 
-fn pinned_todo_slot_footprint(payload: &serde_json::Value) -> f64 {
-    let subtask_total = payload
-        .get("subtaskTotal")
-        .and_then(|value| value.as_u64())
-        .unwrap_or(0) as usize;
-    if subtask_total == 0 {
-        PINNED_TODO_WINDOW_COLLAPSED_HEIGHT + PINNED_TODO_WINDOW_STACK_GAP
-    } else {
-        PINNED_TODO_WINDOW_COLLAPSED_HEIGHT
-            + PINNED_SUBTASKS_WINDOW_GAP
-            + pinned_subtasks_collapsed_height(subtask_total)
-            + PINNED_SUBTASKS_WINDOW_GAP
-    }
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PinnedStackWindowLayout {
+    #[serde(flatten)]
+    placement: pinned_layout::Placement,
+    parent_surface: Option<pinned_layout::Frame>,
+    subtasks_surface: Option<pinned_layout::Frame>,
 }
 
-fn pinned_todo_slot_y(pinned: &HashMap<String, String>, index: usize, margin: f64) -> f64 {
-    let mut y = margin;
-    for i in 0..index {
-        let footprint = pinned
-            .get(&i.to_string())
+fn pinned_stack_layouts(app: &tauri::AppHandle) -> Result<Vec<PinnedStackWindowLayout>, String> {
+    // Never hold a data mutex while querying or moving a native window.
+    let pinned = app
+        .state::<PinnedTodoState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let children = app
+        .state::<PinnedSubtasksState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let options = app
+        .state::<PinnedDockState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let main = app
+        .get_webview_window("main")
+        .ok_or("main window missing")?;
+    let monitor = main
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .or(main.primary_monitor().map_err(|e| e.to_string())?)
+        .ok_or("monitor missing")?;
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    let work = pinned_layout::Frame {
+        x: area.position.x as f64 / scale,
+        y: area.position.y as f64 / scale,
+        width: area.size.width as f64 / scale,
+        height: area.size.height as f64 / scale,
+    };
+    let mut stacks = Vec::new();
+    let mut detached = Vec::new();
+    let mut slots: Vec<_> = pinned.keys().collect();
+    slots.sort_by_key(|slot| slot.parse::<usize>().unwrap_or(usize::MAX));
+    for slot in slots {
+        let Some(todo) = pinned
+            .get(slot)
             .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
-            .map(|payload| pinned_todo_slot_footprint(&payload))
-            .unwrap_or(PINNED_TODO_WINDOW_COLLAPSED_HEIGHT + PINNED_TODO_WINDOW_STACK_GAP);
-        y += footprint;
+        else {
+            continue;
+        };
+        let option = options.get(slot).cloned().unwrap_or_default();
+        let count = if option.children_hidden {
+            0
+        } else {
+            children
+                .get(slot)
+                .map(|group| mini_subtasks_item_count(group))
+                .unwrap_or_else(|| todo["subtaskTotal"].as_u64().unwrap_or(0) as usize)
+        };
+        let stack = pinned_layout::Stack {
+            slot: slot.clone(),
+            child_count: count,
+            expanded: option.expanded,
+        };
+        if option.detached {
+            detached.push(stack);
+        } else {
+            stacks.push(stack);
+        }
     }
-    y
+    let mut placements = pinned_layout::layout(&stacks, work);
+    // A deliberately dragged group keeps its position; only docked groups reflow.
+    for stack in detached {
+        let Some(window) = app.get_webview_window(&format!("pinned-todo-{}", stack.slot)) else {
+            continue;
+        };
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        let visible = pinned_surface::visible_frame(&window.as_ref().window())?;
+        let mut placement =
+            pinned_layout::place_stack(&stack, visible.x + visible.width, visible.y, work.height);
+        if let (Some(child), Some(monitor)) = (
+            placement.subtasks.as_mut(),
+            window.current_monitor().ok().flatten(),
+        ) {
+            let area = monitor.work_area();
+            let top = area.position.y as f64 / scale + 4.0;
+            let bottom = (area.position.y as f64 + area.size.height as f64) / scale - 4.0;
+            if child.y + child.height > bottom {
+                child.y = visible.y - child.height - 4.0;
+            }
+            child.y = child.y.clamp(top, (bottom - child.height).max(top));
+        }
+        placements.push(placement);
+    }
+    Ok(placements
+        .into_iter()
+        .map(|placement| {
+            let right = placement.parent.x + placement.parent.width;
+            let parent_surface = cfg!(windows).then_some(pinned_layout::Frame {
+                x: right - 420.0,
+                y: work.y,
+                width: 420.0,
+                height: work.height,
+            });
+            let subtasks_surface = cfg!(windows).then_some(pinned_layout::Frame {
+                x: right - 380.0,
+                y: work.y,
+                width: 380.0,
+                height: work.height,
+            });
+            PinnedStackWindowLayout {
+                placement,
+                parent_surface,
+                subtasks_surface,
+            }
+        })
+        .collect())
 }
 
-fn position_pinned_todo_window(
-    window: &tauri::WebviewWindow,
-    index: usize,
-    pinned: &HashMap<String, String>,
-) {
-    let main_window = window.app_handle().get_webview_window("main");
-    let scale_factor = main_window
-        .as_ref()
-        .and_then(|main| main.scale_factor().ok())
-        .unwrap_or_else(|| window.scale_factor().unwrap_or(1.0));
-    let window_width = PINNED_TODO_WINDOW_COLLAPSED_WIDTH * scale_factor;
-    let window_height = PINNED_TODO_WINDOW_COLLAPSED_HEIGHT * scale_factor;
-    let margin = PINNED_TODO_WINDOW_MARGIN * scale_factor;
-    let monitor = main_window
-        .as_ref()
-        .and_then(|main| main.current_monitor().ok().flatten())
-        .or_else(|| {
-            main_window
-                .as_ref()
-                .and_then(|main| main.primary_monitor().ok().flatten())
-        })
-        .or_else(|| window.current_monitor().ok().flatten())
-        .or_else(|| window.primary_monitor().ok().flatten());
+#[tauri::command]
+fn get_pinned_stack_layout(
+    app: tauri::AppHandle,
+    slot: String,
+) -> Result<Option<PinnedStackWindowLayout>, String> {
+    Ok(pinned_stack_layouts(&app)?
+        .into_iter()
+        .find(|layout| layout.placement.slot == slot))
+}
 
-    if let Some(monitor) = monitor {
-        let work_area = monitor.work_area();
-        let x = work_area.position.x as f64 + work_area.size.width as f64 - window_width;
-        let min_y = work_area.position.y as f64 + margin;
-        let max_y =
-            work_area.position.y as f64 + work_area.size.height as f64 - window_height - margin;
-        let y = (work_area.position.y as f64
-            + pinned_todo_slot_y(pinned, index, PINNED_TODO_WINDOW_MARGIN) * scale_factor)
-            .clamp(min_y, max_y.max(min_y));
-        let _ = window.set_position(PhysicalPosition::new(x, y));
-        let _ = window.set_size(PhysicalSize::new(window_width, window_height));
-    } else {
-        let _ = window.set_size(PhysicalSize::new(window_width, window_height));
+#[tauri::command]
+fn update_pinned_stack_layout(
+    app: tauri::AppHandle,
+    slot: String,
+    todo_id: String,
+    expanded: bool,
+    subtask_total: usize,
+) -> Result<Option<PinnedStackWindowLayout>, String> {
+    let changed_count = {
+        let state = app.state::<PinnedTodoState>();
+        let mut pinned = state.0.lock().map_err(|e| e.to_string())?;
+        let Some(raw) = pinned.get_mut(&slot) else {
+            return Ok(None);
+        };
+        let mut todo: serde_json::Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+        if todo["id"].as_str() != Some(todo_id.as_str()) {
+            return Ok(None);
+        }
+        let changed = todo["subtaskTotal"].as_u64() != Some(subtask_total as u64);
+        if changed {
+            todo["subtaskTotal"] = serde_json::json!(subtask_total);
+            *raw = todo.to_string();
+        }
+        changed
+    };
+    let changed_expanded = {
+        let state = app.state::<PinnedDockState>();
+        let mut options = state.0.lock().map_err(|e| e.to_string())?;
+        let option = options.entry(slot.clone()).or_default();
+        let changed = option.expanded != expanded;
+        option.expanded = expanded;
+        changed
+    };
+    if changed_count || changed_expanded {
+        let _ = app.emit(PINNED_LAYOUT_UPDATED_EVENT, ());
     }
+    get_pinned_stack_layout(app, slot)
+}
+
+fn position_pinned_todo_window(window: &tauri::WebviewWindow, index: usize) -> Result<(), String> {
+    if let Some(layout) = get_pinned_stack_layout(window.app_handle().clone(), index.to_string())? {
+        position_pinned_surface(window, layout.placement.parent, layout.parent_surface)?;
+    }
+    Ok(())
 }
 
 fn position_pinned_subtasks_window(
     window: &tauri::WebviewWindow,
-    index: usize,
-    expanded: bool,
-    target_height: f64,
-    pinned: &HashMap<String, String>,
-) {
-    // 参照迷你模式的父子窗口处理：子待办窗口显示在父固定窗口正下方，宽度小于父窗口
-    // 展开/收起状态由父固定窗口广播，子窗口跟随父窗口同步
-    // 悬停父或子任一窗口都会展开，移开一起收起
-    // 窗口尺寸/位置过渡动画由前端逐帧驱动
-    // 子窗口右对齐屏幕边缘，展开高度按子待办条数自适应
-    // 收起高度需要容纳第一条子待办的完整内容，避免底部被截断
-    let main_window = window.app_handle().get_webview_window("main");
-    let scale_factor = main_window
-        .as_ref()
-        .and_then(|main| main.scale_factor().ok())
-        .unwrap_or_else(|| window.scale_factor().unwrap_or(1.0));
-    let parent_height = if expanded {
-        PINNED_TODO_WINDOW_EXPANDED_HEIGHT
-    } else {
-        PINNED_TODO_WINDOW_COLLAPSED_HEIGHT
-    } * scale_factor;
-    let window_width = if expanded {
-        PINNED_SUBTASKS_WINDOW_EXPANDED_WIDTH
-    } else {
-        PINNED_SUBTASKS_WINDOW_COLLAPSED_WIDTH
-    } * scale_factor;
-    let window_height = target_height * scale_factor;
-    let gap = PINNED_SUBTASKS_WINDOW_GAP * scale_factor;
-    let monitor = main_window
-        .as_ref()
-        .and_then(|main| main.current_monitor().ok().flatten())
-        .or_else(|| {
-            main_window
-                .as_ref()
-                .and_then(|main| main.primary_monitor().ok().flatten())
-        })
-        .or_else(|| window.current_monitor().ok().flatten())
-        .or_else(|| window.primary_monitor().ok().flatten());
-
-    if let Some(monitor) = monitor {
-        let work_area = monitor.work_area();
-        let parent_y = work_area.position.y as f64
-            + pinned_todo_slot_y(pinned, index, PINNED_TODO_WINDOW_MARGIN) * scale_factor;
-        let x = work_area.position.x as f64 + work_area.size.width as f64 - window_width;
-        let mut y = parent_y + parent_height + gap;
-        let max_x = work_area.position.x as f64 + work_area.size.width as f64 - window_width;
-        let max_y =
-            work_area.position.y as f64 + work_area.size.height as f64 - window_height - gap;
-        let min_x = work_area.position.x as f64 + gap;
-        let min_y = work_area.position.y as f64 + gap;
-        if y > max_y {
-            y = parent_y - window_height - gap;
+    slot: &str,
+) -> Result<(), String> {
+    if let Some(layout) = get_pinned_stack_layout(window.app_handle().clone(), slot.to_string())? {
+        if let Some(frame) = layout.placement.subtasks {
+            position_pinned_surface(window, frame, layout.subtasks_surface)?;
         }
-        let _ = window.set_position(PhysicalPosition::new(
-            x.clamp(min_x, max_x.max(min_x)),
-            y.clamp(min_y, max_y.max(min_y)),
-        ));
-        let _ = window.set_size(PhysicalSize::new(window_width, window_height));
-    } else {
-        let _ = window.set_size(PhysicalSize::new(window_width, window_height));
     }
+    Ok(())
+}
+
+fn position_pinned_surface(
+    window: &tauri::WebviewWindow,
+    frame: pinned_layout::Frame,
+    surface: Option<pinned_layout::Frame>,
+) -> Result<(), String> {
+    let canvas = surface.unwrap_or(frame);
+    let native = window.as_ref().window();
+    set_native_window_frame(&native, canvas.x, canvas.y, canvas.width, canvas.height)?;
+    if surface.is_some() {
+        pinned_surface::set_clip(
+            &native,
+            pinned_layout::Frame {
+                x: frame.x - canvas.x,
+                y: frame.y - canvas.y,
+                ..frame
+            },
+        )?;
+    }
+    Ok(())
 }
 
 fn hide_mini_subtasks_windows(app: &tauri::AppHandle) {
@@ -2687,6 +2860,8 @@ fn set_native_window_frame(
 
     type Hwnd = *mut c_void;
 
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_NOMOVE: u32 = 0x0002;
     const SWP_NOZORDER: u32 = 0x0004;
     const SWP_NOACTIVATE: u32 = 0x0010;
 
@@ -2704,16 +2879,31 @@ fn set_native_window_frame(
     }
 
     let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    let position = window.outer_position().map_err(|e| e.to_string())?;
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+    let native_x = (x * scale).round() as i32;
+    let native_y = (y * scale).round() as i32;
+    let native_width = (width * scale).round() as i32;
+    let native_height = (height * scale).round() as i32;
+    let same_position = position.x == native_x && position.y == native_y;
+    let same_size = size.width as i32 == native_width && size.height as i32 == native_height;
+    if same_position && same_size {
+        return Ok(());
+    }
+    let flags = SWP_NOZORDER
+        | SWP_NOACTIVATE
+        | if same_position { SWP_NOMOVE } else { 0 }
+        | if same_size { SWP_NOSIZE } else { 0 };
     let hwnd = window.hwnd().map_err(|error| error.to_string())?.0;
     let result = unsafe {
         SetWindowPos(
             hwnd,
             std::ptr::null_mut(),
-            (x * scale).round() as i32,
-            (y * scale).round() as i32,
-            (width * scale).round() as i32,
-            (height * scale).round() as i32,
-            SWP_NOZORDER | SWP_NOACTIVATE,
+            native_x,
+            native_y,
+            native_width,
+            native_height,
+            flags,
         )
     };
     if result == 0 {
@@ -2808,6 +2998,7 @@ pub fn run() {
         .manage(MiniSubtasksState(Mutex::new(None)))
         .manage(PinnedTodoState(Mutex::new(HashMap::new())))
         .manage(PinnedSubtasksState(Mutex::new(HashMap::new())))
+        .manage(PinnedDockState::default())
         .manage(PinnedStackTopmostState(Mutex::new(HashMap::new())))
         .manage(WindowOpacityState::default())
         .manage(ClipboardMonitorState(Mutex::new(None)))
@@ -2877,6 +3068,10 @@ pub fn run() {
             set_window_opacity,
             debug_log,
             set_pinned_window_frame,
+            set_pinned_window_clip,
+            get_pinned_subtasks_visible_frame,
+            get_pinned_stack_layout,
+            update_pinned_stack_layout,
             bring_pinned_stack_to_front,
             hide_main_window,
             close_reminder_window,
@@ -2888,6 +3083,7 @@ pub fn run() {
             show_mini_subtasks_window,
             mini_subtasks_window_ready,
             show_pinned_todo_window,
+            pinned_todo_window_ready,
             get_active_pinned_todo,
             get_pinned_stack_always_on_top,
             set_pinned_stack_always_on_top,

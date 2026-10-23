@@ -10,6 +10,10 @@ export function pinnedSubtasksExpandedEventForSlot(slot: string) {
   return `dotime-pinned-subtasks-expanded-${slot}`;
 }
 
+export function pinnedSubtasksStateRequestEventForSlot(slot: string) {
+  return `dotime-pinned-subtasks-request-state-${slot}`;
+}
+
 export function pinnedSubtasksMovingEventForSlot(slot: string) {
   return `dotime-pinned-subtasks-moving-${slot}`;
 }

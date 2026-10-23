@@ -499,15 +499,24 @@ async function showPinnedTodoWindow(todo: Todo) {
   });
 }
 
-async function showPinnedSubtasksWindow(slot: string, todo: Todo) {
-  const { invoke } = await import("@tauri-apps/api/core");
-  const group = buildMiniSubtasksGroup(todo);
-  if (group == null) return;
+const pendingPinnedSubtasksWindows = new Map<string, Promise<void>>();
 
-  await invoke("show_pinned_subtasks_window", {
-    slot,
-    subtasksGroup: JSON.stringify(group),
-  });
+function showPinnedSubtasksWindow(slot: string, todo: Todo): Promise<void> {
+  const pending = pendingPinnedSubtasksWindows.get(slot);
+  if (pending) return pending;
+  const group = buildMiniSubtasksGroup(todo);
+  if (group == null) return Promise.resolve();
+
+  // The pin action and the pinned-todos event can request the same window.
+  // Share that request so a second show cannot reset a frame being animated.
+  const request = import("@tauri-apps/api/core")
+    .then(({ invoke }) => invoke<void>("show_pinned_subtasks_window", {
+      slot,
+      subtasksGroup: JSON.stringify(group),
+    }))
+    .finally(() => pendingPinnedSubtasksWindows.delete(slot));
+  pendingPinnedSubtasksWindows.set(slot, request);
+  return request;
 }
 
 async function getActivePinnedSubtasksGroup(slot: string) {

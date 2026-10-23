@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -6,7 +7,10 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from "react";
-import gsap from "gsap";
+import { usePinnedWindowFrame } from "../hooks/usePinnedWindowFrame";
+import type { PinnedWindowFrame } from "../utils/pinnedWindowFrame";
+import { measurePinnedWindowLayout } from "../utils/pinnedWindowLayout";
+import { usePinnedLayoutRevision } from "../hooks/usePinnedLayoutRevision";
 import {
   APP_DATA_STORAGE_KEY,
   createAppDataDocument,
@@ -27,6 +31,7 @@ import {
   parsePinnedTodoPayload,
   pinnedTodoEventForSlot,
   pinnedSubtasksExpandedEventForSlot,
+  pinnedSubtasksStateRequestEventForSlot,
   type PinnedTodoPayload,
 } from "../utils/pinnedTodo";
 import { formatDuration } from "../utils/time";
@@ -45,13 +50,6 @@ import {
   IconPlayerStop,
   IconTrash,
 } from "./icons";
-
-const PINNED_TODO_COLLAPSED_WIDTH = 210;
-const PINNED_TODO_EXPANDED_WIDTH = 420;
-const PINNED_TODO_COLLAPSED_HEIGHT = 46;
-const PINNED_TODO_EXPANDED_HEIGHT = 60;
-
-const pinnedTodoFrameTokens = new Map<string, number>();
 
 function getLiveElapsed(todo: PinnedTodoPayload, now: number) {
   if (todo.isTiming && todo.timingStartedAt != null) {
@@ -74,109 +72,6 @@ async function setPinnedSubtasksMoving(slot: string, moving: boolean) {
   if (slot === "") return;
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("sync_pinned_subtasks_window_with_parent", { slot, moving });
-}
-
-type PinnedTodoFrameTarget = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  startX: number;
-  startY: number;
-  startWidth: number;
-  startHeight: number;
-};
-
-async function getPinnedTodoFrameTarget(
-  expanded: boolean,
-): Promise<PinnedTodoFrameTarget> {
-  const { currentMonitor, getCurrentWindow } = await import(
-    "@tauri-apps/api/window"
-  );
-
-  const window = getCurrentWindow();
-  const targetWidth = expanded
-    ? PINNED_TODO_EXPANDED_WIDTH
-    : PINNED_TODO_COLLAPSED_WIDTH;
-  const targetHeight = expanded
-    ? PINNED_TODO_EXPANDED_HEIGHT
-    : PINNED_TODO_COLLAPSED_HEIGHT;
-
-  const monitor = await currentMonitor();
-  const scale = monitor?.scaleFactor ?? 1;
-  const startSize = (await window.outerSize()).toLogical(scale);
-  const startPos = (await window.outerPosition()).toLogical(scale);
-
-  let targetX = startPos.x;
-  let targetY = startPos.y;
-  if (monitor != null) {
-    const workPosition = monitor.workArea.position.toLogical(scale);
-    const workSize = monitor.workArea.size.toLogical(scale);
-    const currentRight = startPos.x + startSize.width;
-    const maxRight = workPosition.x + workSize.width;
-    const right = Math.min(
-      Math.max(currentRight, workPosition.x + targetWidth),
-      maxRight,
-    );
-    targetX = right - targetWidth;
-    targetY = startPos.y;
-  }
-
-  return {
-    x: targetX,
-    y: targetY,
-    width: targetWidth,
-    height: targetHeight,
-    startX: startPos.x,
-    startY: startPos.y,
-    startWidth: startSize.width,
-    startHeight: startSize.height,
-  };
-}
-
-async function snapPinnedTodoWindowFrame(
-  slot: string,
-  expanded: boolean,
-  frame?: PinnedTodoFrameTarget,
-) {
-  const token = (pinnedTodoFrameTokens.get(slot) ?? 0) + 1;
-  pinnedTodoFrameTokens.set(slot, token);
-
-  const target = frame ?? (await getPinnedTodoFrameTarget(expanded));
-  if (token !== pinnedTodoFrameTokens.get(slot)) return;
-  const { invoke } = await import("@tauri-apps/api/core");
-  await invoke("set_pinned_window_frame", {
-    x: target.x,
-    y: target.y,
-    width: target.width,
-    height: target.height,
-  });
-}
-
-async function getPinnedTodoCurrentFrame() {
-  const { currentMonitor, getCurrentWindow } = await import(
-    "@tauri-apps/api/window"
-  );
-  const window = getCurrentWindow();
-  const monitor = await currentMonitor();
-  const scale = monitor?.scaleFactor ?? 1;
-  const size = (await window.outerSize()).toLogical(scale);
-  const position = (await window.outerPosition()).toLogical(scale);
-  return {
-    x: position.x,
-    y: position.y,
-    width: size.width,
-    height: size.height,
-  };
-}
-
-async function debugFrameLog(label: string, payload: string) {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("debug_log", { message: `${label} ${payload}` });
-  } catch {
-    /* browser */
-  }
 }
 
 function emitPinnedSubtasksExpanded(slot: string, expanded: boolean) {
@@ -269,8 +164,11 @@ function deletePinnedTodoData(todoId: string) {
 
 export function PinnedTodoWindow() {
   const [todo, setTodo] = useState<PinnedTodoPayload | null>(null);
+  const [presentation, setPresentation] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [expanded, setExpanded] = useState(false);
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
   const [alwaysOnTop, setAlwaysOnTop] = useState(true);
   const [topmostBusy, setTopmostBusy] = useState(false);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -280,8 +178,6 @@ export function PinnedTodoWindow() {
   const hoveredRef = useRef(false);
   const collapseCooldownUntilRef = useRef(0);
   const pendingExpandOnMoveRef = useRef(false);
-  const frameTokenRef = useRef(0);
-  const frameTweenRef = useRef<ReturnType<typeof gsap.to> | null>(null);
   const dragPointerIdRef = useRef<number | null>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragStartedRef = useRef(false);
@@ -321,18 +217,30 @@ export function PinnedTodoWindow() {
         import("@tauri-apps/api/event"),
       ]);
 
+      let receivedUpdate = false;
+      unlisten = await listen<string>(pinnedTodoEventForSlot(slot), (event) => {
+        if (cancelled) return;
+        receivedUpdate = true;
+        const nextTodo = parsePinnedTodoPayload(event.payload);
+        setTodo(nextTodo);
+        setPresentation((value) => value + 1);
+        setExpanded(false);
+        pendingExpandOnMoveRef.current = false;
+        collapseCooldownUntilRef.current = 0;
+        if (collapseTimerRef.current != null) {
+          window.clearTimeout(collapseTimerRef.current);
+          collapseTimerRef.current = null;
+        }
+      });
+
+      if (cancelled) { unlisten(); return; }
       const activeTodo =
         slot === ""
           ? null
           : parsePinnedTodoPayload(
               await invoke<string | null>("get_active_pinned_todo", { slot }),
             );
-      if (!cancelled) setTodo(activeTodo);
-
-      unlisten = await listen<string>(pinnedTodoEventForSlot(slot), (event) => {
-        const nextTodo = parsePinnedTodoPayload(event.payload);
-        if (nextTodo != null) setTodo(nextTodo);
-      });
+      if (!cancelled && !receivedUpdate) setTodo(activeTodo);
 
       if (cancelled) unlisten();
     })();
@@ -488,28 +396,34 @@ export function PinnedTodoWindow() {
         }
         const parentWindow = getCurrentWindow();
         const childCount = todo?.subtaskTotal ?? 0;
+        const childSize = childCount > 0
+          ? await invoke<PinnedWindowFrame | null>("get_pinned_subtasks_visible_frame", { slot })
+          : null;
+        const parentBounds = shellRef.current?.getBoundingClientRect();
         let latestPosition: { x: number; y: number } | null = null;
         let frameRequest = 0;
         let syncVersion = 0;
         const moveChildAlongside = async (position: { x: number; y: number }) => {
+          if (childSize == null) return;
           const version = ++syncVersion;
           const monitor = await monitorFromPoint(position.x, position.y);
           const scale = monitor?.scaleFactor ?? await parentWindow.scaleFactor();
-          const parentSize = await parentWindow.outerSize();
-          const childWidth = 180 * scale;
-          const visibleChildren = Math.min(childCount, 3);
-          const childHeight = (visibleChildren * 46 + Math.max(0, visibleChildren - 1) * 8 + 8) * scale;
+          const parentSize = parentBounds ?? { width: 210, height: 46, x: 0, y: 0 };
+          const parentX = position.x + parentSize.x * scale;
+          const parentY = position.y + parentSize.y * scale;
+          const childWidth = childSize.width * scale;
+          const childHeight = childSize.height * scale;
           const gap = 4 * scale;
           const workArea = monitor?.workArea;
-          let x = position.x + parentSize.width - childWidth;
-          let y = position.y + parentSize.height + gap;
+          let x = parentX + parentSize.width * scale - childWidth;
+          let y = parentY + parentSize.height * scale + gap;
           if (workArea != null) {
             const minX = workArea.position.x + gap;
             const maxX = workArea.position.x + workArea.size.width - childWidth - gap;
             const minY = workArea.position.y + gap;
             const maxY = workArea.position.y + workArea.size.height - childHeight - gap;
             x = Math.min(Math.max(x, minX), Math.max(minX, maxX));
-            if (y + childHeight > maxY) y = position.y - childHeight - gap;
+            if (y + childHeight > maxY) y = parentY - childHeight - gap;
             y = Math.min(Math.max(y, minY), Math.max(minY, maxY));
           }
           if (version !== syncVersion) return;
@@ -604,121 +518,35 @@ export function PinnedTodoWindow() {
     handleUnpin();
   };
 
+  const layoutRevision = usePinnedLayoutRevision();
+  const measureFrame = useCallback(() => measurePinnedWindowLayout("parent", {
+    slot, todoId: todo?.id, expanded, subtaskTotal: todo?.subtaskTotal ?? 0,
+  }), [slot, todo?.id, todo?.subtaskTotal, expanded, layoutRevision]);
+  const notifyReady = useCallback(async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("pinned_todo_window_ready", { slot, todoId: todo?.id });
+  }, [slot, todo?.id]);
+  usePinnedWindowFrame({
+    shellRef, identity: todo ? `${todo.id}:${presentation}` : undefined,
+    expanded, measure: measureFrame, onReady: notifyReady,
+  });
+
   useEffect(() => {
-    const shell = shellRef.current;
-    if (shell == null || todo == null) return;
+    if (expanded) void bringPinnedStackToFront(slot).catch(console.error);
+  }, [expanded, slot]);
 
-    const token = ++frameTokenRef.current;
-    frameTweenRef.current?.kill();
-    let disposed = false;
-
-    void (async () => {
-      let frame: PinnedTodoFrameTarget | null = null;
-      try {
-        frame = await getPinnedTodoFrameTarget(expanded);
-        if (disposed || token !== frameTokenRef.current) return;
-      } catch (error) {
-        console.error("failed to measure pinned todo target", error);
-      }
-
-      let start: { x: number; y: number; width: number; height: number };
-      try {
-        start = frame
-          ? {
-              x: frame.startX,
-              y: frame.startY,
-              width: frame.startWidth,
-              height: frame.startHeight,
-            }
-          : await getPinnedTodoCurrentFrame();
-      } catch (error) {
-        console.error("failed to measure pinned todo current frame", error);
-        return;
-      }
-
-      const end = frame
-        ? {
-            x: frame.x,
-            y: frame.y,
-            width: frame.width,
-            height: frame.height,
-          }
-        : {
-            ...start,
-            width: expanded
-              ? PINNED_TODO_EXPANDED_WIDTH
-              : PINNED_TODO_COLLAPSED_WIDTH,
-            height: expanded
-              ? PINNED_TODO_EXPANDED_HEIGHT
-              : PINNED_TODO_COLLAPSED_HEIGHT,
-          };
-
-      void debugFrameLog(
-        "[todo-frame]",
-        `slot=${slot} expanded=${expanded} start=${start.x.toFixed(1)},${start.width.toFixed(1)} right=${(start.x + start.width).toFixed(1)} end=${end.x.toFixed(1)},${end.width.toFixed(1)} endRight=${(end.x + end.width).toFixed(1)}`,
-      );
-
-      if (expanded) {
-        void bringPinnedStackToFront(slot).catch((error) => {
-          console.error("failed to bring pinned stack to front", error);
-        });
-      }
-
-      // 让窗口跟随内容：直接动画 shell 的尺寸，再把原生窗口同步到 shell 的
-      // 实际大小，避免透明窗口在快速缩放时 WebView 重绘滞后露出右侧空隙。
-      gsap.killTweensOf(shell);
-      gsap.set(shell, { width: start.width, height: start.height });
-
-      const setNativeFrame = (
-        x: number,
-        y: number,
-        width: number,
-        height: number,
-      ) => {
-        void (async () => {
-          try {
-            const { invoke } = await import("@tauri-apps/api/core");
-            await invoke("set_pinned_window_frame", {
-              x,
-              y,
-              width,
-              height,
-            });
-          } catch (error) {
-            console.error("failed to set pinned todo window frame", error);
-          }
-        })();
-      };
-
-      // 窗口一次性跳到目标框架（透明区域不可见），内容在固定窗口内平滑生长
-      void setNativeFrame(end.x, end.y, end.width, end.height);
-
-      frameTweenRef.current = gsap.to(shell, {
-        width: end.width,
-        height: end.height,
-        duration: expanded ? 0.28 : 0.18,
-        ease: expanded ? "power2.out" : "power2.inOut",
-        onComplete: () => {
-          if (disposed || token !== frameTokenRef.current) return;
-          gsap.set(shell, { clearProps: "width,height" });
-          if (!expanded) {
-            void setNativeFrame(end.x, end.y, end.width, end.height);
-          } else {
-            void snapPinnedTodoWindowFrame(
-              slot,
-              expanded,
-              frame ?? undefined,
-            );
-          }
-        },
+  useEffect(() => {
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
+    void import("@tauri-apps/api/event").then(async ({ listen }) => {
+      const unlisten = await listen(pinnedSubtasksStateRequestEventForSlot(slot), () => {
+        if (!cancelled) emitPinnedSubtasksExpanded(slot, expandedRef.current);
       });
-    })();
-
-    return () => {
-      disposed = true;
-      frameTweenRef.current?.kill();
-    };
-  }, [expanded, slot, todo?.id]);
+      if (cancelled) unlisten();
+      else cleanup = unlisten;
+    }).catch(console.error);
+    return () => { cancelled = true; cleanup?.(); };
+  }, [slot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -952,7 +780,7 @@ export function PinnedTodoWindow() {
                   </button>
                 </div>
 
-                <div className="pinned-todo-card__meta">
+                <div className="pinned-todo-card__meta" inert={!expanded} aria-hidden={!expanded}>
                   {countdownEnabled && (
                     <span
                       className={`meta-item pinned-todo-card__meta-item ${
@@ -989,8 +817,7 @@ export function PinnedTodoWindow() {
                       子待办 {todo.subtaskDone}/{todo.subtaskTotal}
                     </span>
                   )}
-                  {expanded && (
-                    <span className="pinned-todo-card__actions">
+                  <span className="pinned-todo-card__actions">
                       {(todo.countdownEnabled || todo.recordTimeEnabled) &&
                         (todo.isTiming ? (
                           <>
@@ -1049,8 +876,7 @@ export function PinnedTodoWindow() {
                       >
                         <IconTrash size={13} />
                       </button>
-                    </span>
-                  )}
+                  </span>
                 </div>
 
                 {countdownEnabled && liveElapsed > 0 && (

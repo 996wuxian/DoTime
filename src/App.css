@@ -7676,9 +7676,16 @@ body.is-pinned-subtasks-window #root {
 }
 
 .pinned-subtasks-window {
-  width: 100%;
-  height: 100%;
+  --pinned-expansion: 0;
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 180px;
+  height: 54px;
   max-width: 380px;
+  will-change: transform;
+  backface-visibility: hidden;
+  contain: layout paint size;
   margin-left: auto;
   display: flex;
   flex-direction: column;
@@ -7696,12 +7703,11 @@ body.is-pinned-subtasks-window #root {
 .pinned-subtasks-window .mini-subtasks-window__item {
   border-radius: 12px 0 0 12px;
   row-gap: 1px;
-}
-
-.pinned-subtasks-window.is-expanded .mini-subtasks-window__item {
-  min-height: 54px;
-  padding-top: 3px;
-  padding-bottom: 4px;
+  height: calc(46px + 8px * var(--pinned-expansion));
+  min-height: calc(46px + 8px * var(--pinned-expansion));
+  padding-top: calc(7px - 4px * var(--pinned-expansion));
+  padding-bottom: calc(8px - 4px * var(--pinned-expansion));
+  box-shadow: none;
 }
 
 .pinned-subtasks-window .mini-subtasks-window__body {
@@ -7718,6 +7724,13 @@ body.is-pinned-subtasks-window #root {
 
 .pinned-subtasks-window .mini-subtasks-window__meta-row {
   min-height: 0;
+  height: calc(24px * var(--pinned-expansion));
+  opacity: var(--pinned-expansion);
+  overflow: hidden;
+}
+
+.pinned-subtasks-window.is-collapsed .mini-subtasks-window__meta-row {
+  pointer-events: none;
 }
 
 .pinned-subtasks-window .mini-subtasks-window__progress {
@@ -7788,18 +7801,24 @@ body.is-pinned-subtasks-window #root {
 }
 
 .pinned-todo-window__shell {
-  width: 100%;
-  height: 100%;
+  --pinned-expansion: 0;
+  width: 210px;
+  height: 46px;
   margin-left: auto;
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
   overflow: hidden;
-  position: relative;
+  position: absolute;
+  top: 0;
+  right: 0;
   border-radius: 12px 0 0 12px;
+  clip-path: inset(0 round 12px 0 0 12px);
   background: var(--bg-card);
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
   contain: layout paint size;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 .pinned-todo-card {
@@ -7821,7 +7840,6 @@ body.is-pinned-subtasks-window #root {
   cursor: grab;
   user-select: none;
   overflow: hidden;
-  will-change: transform;
 }
 
 .pinned-todo-card:active {
@@ -7845,7 +7863,7 @@ body.is-pinned-subtasks-window #root {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: calc(1px + 2px * var(--pinned-expansion));
   grid-column: 2;
   grid-row: 1;
   min-height: 0;
@@ -7917,6 +7935,8 @@ body.is-pinned-subtasks-window #root {
   overflow: hidden;
   min-height: 0;
   line-height: 1.15;
+  height: calc(16px * var(--pinned-expansion));
+  opacity: var(--pinned-expansion);
 }
 
 .pinned-todo-card__meta .meta-item {
@@ -7944,19 +7964,7 @@ body.is-pinned-subtasks-window #root {
 }
 
 .pinned-todo-window.is-collapsed .pinned-todo-card__meta {
-  display: none;
-}
-
-.pinned-todo-window.is-expanded .pinned-todo-card {
-  grid-template-columns: 20px minmax(0, 1fr);
-}
-
-.pinned-todo-window.is-expanded .pinned-todo-card__body {
-  gap: 3px;
-}
-
-.pinned-todo-window.is-expanded .pinned-todo-card__body {
-  align-self: stretch;
+  pointer-events: none;
 }
 
 .pinned-todo-card__meta span {
