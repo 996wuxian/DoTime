@@ -54,6 +54,7 @@ const eol = cargo.includes("\r\n") ? "\r\n" : "\n";
 const lines = cargo.split(/\r?\n/);
 let inPackage = false;
 let cargoChanged = false;
+let cargoPackageName;
 
 for (let i = 0; i < lines.length; i++) {
   const trimmed = lines[i].trim();
@@ -67,13 +68,47 @@ for (let i = 0; i < lines.length; i++) {
       lines[i] = updated;
       cargoChanged = true;
     }
-    break;
+  }
+  if (inPackage) {
+    const name = /^name\s*=\s*"([^"]+)"\s*$/.exec(trimmed);
+    if (name) cargoPackageName = name[1];
   }
 }
 
 if (cargoChanged) {
   writeFileSync(resolve(root, cargoPath), lines.join(eol), "utf8");
   console.log(`[sync-version] ${cargoPath}: 已同步到 ${version}`);
+}
+
+// 4. Rust 锁文件中的应用版本；依赖包版本保持原样。
+if (!cargoPackageName) {
+  throw new Error("[sync-version] 无法读取 Cargo.toml 的应用名称");
+}
+const cargoLockPath = "src-tauri/Cargo.lock";
+const cargoLock = readFileSync(resolve(root, cargoLockPath), "utf8");
+const cargoLockEol = cargoLock.includes("\r\n") ? "\r\n" : "\n";
+const cargoLockLines = cargoLock.split(/\r?\n/);
+let inApplication = false;
+let foundApplication = false;
+let cargoLockChanged = false;
+for (let i = 0; i < cargoLockLines.length; i++) {
+  const trimmed = cargoLockLines[i].trim();
+  if (trimmed === "[[package]]") inApplication = false;
+  const name = /^name\s*=\s*"([^"]+)"\s*$/.exec(trimmed);
+  if (name) inApplication = name[1] === cargoPackageName;
+  if (inApplication && /^version\s*=\s*"[^"]*"\s*$/.test(trimmed)) {
+    foundApplication = true;
+    const updated = cargoLockLines[i].replace(/"[^"]*"/, `"${version}"`);
+    if (updated !== cargoLockLines[i]) {
+      cargoLockLines[i] = updated;
+      cargoLockChanged = true;
+    }
+  }
+}
+if (!foundApplication) throw new Error(`[sync-version] Cargo.lock 缺少 ${cargoPackageName} 应用条目`);
+if (cargoLockChanged) {
+  writeFileSync(resolve(root, cargoLockPath), cargoLockLines.join(cargoLockEol), "utf8");
+  console.log(`[sync-version] ${cargoLockPath}: 已同步到 ${version}`);
 }
 
 console.log(`[sync-version] 完成，当前版本 ${version}`);

@@ -86,21 +86,9 @@ jobs:
         if: steps.release.outputs.exists != 'true'
         run: npm ci
 
-      - name: Sync Tauri version from package.json
+      - name: Sync application versions from package.json
         if: steps.release.outputs.exists != 'true'
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.version }}"
-
-          $tauriConfigPath = "src-tauri/tauri.conf.json"
-          $tauriConfig = Get-Content $tauriConfigPath -Raw | ConvertFrom-Json
-          $tauriConfig.version = $version
-          $tauriConfig | ConvertTo-Json -Depth 100 | Set-Content $tauriConfigPath -Encoding UTF8
-
-          $cargoTomlPath = "src-tauri/Cargo.toml"
-          $cargoToml = Get-Content $cargoTomlPath -Raw
-          $cargoToml = $cargoToml -replace '(?m)^(version\s*=\s*)".*"$', "`$1`"$version`""
-          Set-Content $cargoTomlPath $cargoToml -Encoding UTF8
+        run: npm run sync:version
 
       - name: Test frontend domain logic
         if: steps.release.outputs.exists != 'true'

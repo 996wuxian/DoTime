@@ -411,7 +411,9 @@ fn migrate_data_directory(
     state: State<'_, ClipboardHistoryState>,
     new_directory: String,
 ) -> Result<String, String> {
-    let _notes_guard = sticky_notes::NOTES_LOCK.lock().map_err(|error| error.to_string())?;
+    let _notes_guard = sticky_notes::NOTES_LOCK
+        .lock()
+        .map_err(|error| error.to_string())?;
     let source = data_directory(&app)?;
     let target = PathBuf::from(new_directory.trim());
     if target.as_os_str().is_empty() {
