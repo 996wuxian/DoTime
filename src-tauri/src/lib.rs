@@ -13,6 +13,7 @@ mod auto_backup;
 mod pinned_layout;
 mod pinned_surface;
 mod reminder_window;
+mod sticky_notes;
 mod updates;
 
 const MINI_OPACITY_MIN: f64 = 0.35;
@@ -51,6 +52,7 @@ const DATA_FILE_NAMES: &[&str] = &[
     "task-templates.json",
     "task-templates-backup.json",
     CLIPBOARD_HISTORY_FILE,
+    sticky_notes::FILE_NAME,
 ];
 
 // 固定待办窗口在异步命令里创建时会派发到主线程等待；多个调用方（点击固定 +
@@ -409,6 +411,7 @@ fn migrate_data_directory(
     state: State<'_, ClipboardHistoryState>,
     new_directory: String,
 ) -> Result<String, String> {
+    let _notes_guard = sticky_notes::NOTES_LOCK.lock().map_err(|error| error.to_string())?;
     let source = data_directory(&app)?;
     let target = PathBuf::from(new_directory.trim());
     if target.as_os_str().is_empty() {
@@ -3055,9 +3058,18 @@ pub fn run() {
                 position_reminder_window(&window, 0);
             }
             hide_mini_subtasks_windows(app.handle());
+            let notes_app = app.handle().clone();
+            thread::spawn(move || sticky_notes::restore_open_windows(notes_app));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            sticky_notes::list_sticky_notes,
+            sticky_notes::create_sticky_note,
+            sticky_notes::open_sticky_note,
+            sticky_notes::update_sticky_note,
+            sticky_notes::save_sticky_note_bounds,
+            sticky_notes::close_sticky_note,
+            sticky_notes::delete_sticky_note,
             auto_backup::get_auto_backup_status,
             auto_backup::save_auto_backup_settings,
             auto_backup::write_auto_backup,

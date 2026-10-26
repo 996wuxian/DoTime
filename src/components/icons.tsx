@@ -6,6 +6,12 @@
 import type { ComponentType } from "react";
 import {
   IconAlarmSnooze as TbAlarmSnooze,
+  IconBold as TbBold,
+  IconItalic as TbItalic,
+  IconUnderline as TbUnderline,
+  IconStrikethrough as TbStrikethrough,
+  IconList as TbList,
+  IconNote as TbNote,
   IconCalendarEvent as TbCalendarEvent,
   IconChartBar as TbChartBar,
   IconArrowBarToDown as TbArrowBarToDown,
@@ -108,6 +114,12 @@ function wrap(Tb: TbIcon, defaults?: { stroke?: number; className?: string }) {
 }
 
 export const IconPlus = wrap(TbPlus);
+export const IconBold = wrap(TbBold);
+export const IconItalic = wrap(TbItalic);
+export const IconUnderline = wrap(TbUnderline);
+export const IconStrikethrough = wrap(TbStrikethrough);
+export const IconList = wrap(TbList);
+export const IconNote = wrap(TbNote);
 export const IconDots = wrap(TbDots);
 export const IconSearch = wrap(TbSearch);
 export const IconTrash = wrap(TbTrash);

@@ -15,6 +15,7 @@ import { DataActions } from "./components/DataActions";
 import { useAutomaticBackup } from "./hooks/useAutomaticBackup";
 import { RecycleBin } from "./components/RecycleBin";
 import { SettingsButton } from "./components/SettingsButton";
+import { StickyNoteLauncher } from "./components/StickyNoteLauncher";
 import { useAppUpdates } from "./hooks/useAppUpdates";
 import { DateNavigator } from "./components/DateNavigator";
 import { CalendarPopover } from "./components/CalendarPopover";
@@ -2354,6 +2355,7 @@ function App() {
 
         <div className="titlebar-actions">
           <SettingsButton updates={updates} />
+          <StickyNoteLauncher />
           <button
             type="button"
             className="btn btn-ghost btn-icon-only clipboard-window-toggle"

@@ -6,6 +6,7 @@ import { MiniSubtasksWindow } from "./components/MiniSubtasksWindow";
 import { PinnedTodoWindow } from "./components/PinnedTodoWindow";
 import { PinnedSubtasksWindow } from "./components/PinnedSubtasksWindow";
 import { ReminderPopup } from "./components/ReminderPopup";
+import { StickyNoteWindow } from "./components/StickyNoteWindow";
 import { initializeFileBackedDataStore } from "./data/fileStorage";
 import { applyTheme, loadTheme } from "./utils/theme";
 import { initializeTypographySettings } from "./utils/typography";
@@ -33,6 +34,7 @@ const params = new URLSearchParams(window.location.search);
 const isMainView = !params.get("view");
 const isReminderWindow = params.get("view") === "reminder";
 const isClipboardWindow = params.get("view") === "clipboard";
+const isStickyNoteWindow = params.get("view") === "sticky-note";
 const isMiniSubtasksWindow = params.get("view") === "mini-subtasks";
 const isPinnedTodoWindow = params.get("view") === "pinned-todo";
 const isPinnedSubtasksWindow = params.get("view") === "pinned-subtasks";
@@ -40,6 +42,11 @@ const isPinnedSubtasksWindow = params.get("view") === "pinned-subtasks";
 if (isReminderWindow) {
   document.documentElement.classList.add("is-reminder-window");
   document.body.classList.add("is-reminder-window");
+}
+
+if (isStickyNoteWindow) {
+  document.documentElement.classList.add("is-sticky-note-window");
+  document.body.classList.add("is-sticky-note-window");
 }
 
 if (isMiniSubtasksWindow) {
@@ -71,7 +78,9 @@ if (appLoadingEl != null) {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    {isReminderWindow ? (
+    {isStickyNoteWindow ? (
+      <StickyNoteWindow />
+    ) : isReminderWindow ? (
       <ReminderPopup />
     ) : isMiniSubtasksWindow ? (
       <MiniSubtasksWindow />
