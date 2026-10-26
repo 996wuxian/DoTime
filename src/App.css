@@ -480,9 +480,10 @@ a,
   position: relative;
   container-type: inline-size;
   z-index: 100;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(8px, 1fr) minmax(0, max-content) auto;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-height: var(--titlebar-height);
   height: var(--titlebar-height);
   padding: 0 0 0 14px;
@@ -573,8 +574,7 @@ a,
 }
 
 .titlebar-drag {
-  flex: 1;
-  min-width: 12px;
+  min-width: 8px;
   height: 100%;
   align-self: stretch;
 }
@@ -582,9 +582,14 @@ a,
 .titlebar-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
   height: 100%;
+}
+
+.titlebar-actions > * {
+  flex-shrink: 0;
 }
 
 .titlebar-tool-group {
@@ -599,7 +604,7 @@ a,
   align-items: stretch;
   height: var(--titlebar-height);
   flex-shrink: 0;
-  margin-left: 2px;
+  margin-left: 0;
 }
 
 .window-controls__btn {
@@ -644,7 +649,7 @@ a,
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-right: 4px;
+  margin-right: 0;
 }
 
 .calendar-popover {
@@ -862,7 +867,7 @@ a,
 }
 
 .theme-toggle {
-  margin-right: 2px;
+  margin-right: 0;
 }
 
 .titlebar-add-todo {
@@ -1636,12 +1641,8 @@ a,
   margin-right: 0;
 }
 
-.dock-toggle + .window-controls {
-  margin-left: -4px;
-}
-
 .clipboard-window-toggle {
-  margin-right: 2px;
+  margin-right: 0;
 }
 
 .date-nav__current {
@@ -1677,18 +1678,12 @@ a,
 /* Stats */
 .stats-row {
   display: grid;
-  grid-template-columns: 56px 68px 68px 96px;
+  grid-template-columns: repeat(4, max-content);
   align-items: center;
-  gap: 16px;
-  width: 336px;
-  flex-shrink: 0;
-  margin-right: 10px;
-}
-
-.stats-row--has-duration {
-  grid-template-columns: 56px 68px 68px max-content;
+  gap: 12px;
   width: max-content;
-  margin-right: 18px;
+  flex-shrink: 0;
+  margin-right: 4px;
 }
 
 .stat-card {
@@ -1727,7 +1722,7 @@ a,
 }
 
 .stat-card__value--sm {
-  min-width: 3.8em;
+  min-width: 0;
   font-size: 0.76rem;
   white-space: nowrap;
 }
@@ -1738,13 +1733,13 @@ a,
   white-space: nowrap;
 }
 
-/* Keep titlebar controls reachable as the reading font grows. */
+/* Window controls have their own grid column; compact the statistics as text grows. */
 @container (max-width: 75em) {
   .titlebar .stats-row {
     grid-template-columns: repeat(4, max-content);
     width: max-content;
-    gap: 12px;
-    margin-right: 4px;
+    gap: 8px;
+    margin-right: 0;
   }
 
   .titlebar .stat-card__label {

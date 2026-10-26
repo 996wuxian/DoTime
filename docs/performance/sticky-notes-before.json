@@ -1,0 +1,494 @@
+[
+  {
+    "count": 1,
+    "startupMs": 1205,
+    "phases": {
+      "editing": {
+        "meanPrivateMB": 250.65,
+        "lastPrivateMB": 250.68,
+        "meanCpuMachinePercent": 0.1,
+        "peakCpuMachinePercent": 0.2,
+        "samples": 4
+      },
+      "half-closed": {
+        "meanPrivateMB": 239.02,
+        "lastPrivateMB": 236.91,
+        "meanCpuMachinePercent": 0.0,
+        "peakCpuMachinePercent": 0.0,
+        "samples": 4
+      },
+      "idle": {
+        "meanPrivateMB": 217.63,
+        "lastPrivateMB": 240.04,
+        "meanCpuMachinePercent": 1.02,
+        "peakCpuMachinePercent": 3.91,
+        "samples": 4
+      },
+      "settled": {
+        "meanPrivateMB": 245.45,
+        "lastPrivateMB": 245.45,
+        "meanCpuMachinePercent": 0.0,
+        "peakCpuMachinePercent": 0.0,
+        "samples": 3
+      }
+    },
+    "samples": [
+      {
+        "phase": "idle",
+        "privateMB": 160.61,
+        "workingSetMB": 305.66,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 6
+      },
+      {
+        "phase": "idle",
+        "privateMB": 233.01,
+        "workingSetMB": 427.92,
+        "cpuOneCorePercent": 62.49,
+        "cpuMachinePercent": 3.91,
+        "processCount": 8
+      },
+      {
+        "phase": "idle",
+        "privateMB": 236.87,
+        "workingSetMB": 438.89,
+        "cpuOneCorePercent": 2.87,
+        "cpuMachinePercent": 0.18,
+        "processCount": 8
+      },
+      {
+        "phase": "idle",
+        "privateMB": 240.04,
+        "workingSetMB": 441.69,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 8
+      },
+      {
+        "phase": "editing",
+        "privateMB": 248.44,
+        "workingSetMB": 450.5,
+        "cpuOneCorePercent": 3.07,
+        "cpuMachinePercent": 0.19,
+        "processCount": 8
+      },
+      {
+        "phase": "editing",
+        "privateMB": 253.02,
+        "workingSetMB": 454.05,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 8
+      },
+      {
+        "phase": "editing",
+        "privateMB": 250.47,
+        "workingSetMB": 449.91,
+        "cpuOneCorePercent": 3.18,
+        "cpuMachinePercent": 0.2,
+        "processCount": 8
+      },
+      {
+        "phase": "editing",
+        "privateMB": 250.68,
+        "workingSetMB": 449.95,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 8
+      },
+      {
+        "phase": "settled",
+        "privateMB": 245.45,
+        "workingSetMB": 444.98,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 8
+      },
+      {
+        "phase": "settled",
+        "privateMB": 245.45,
+        "workingSetMB": 444.99,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 8
+      },
+      {
+        "phase": "settled",
+        "privateMB": 245.45,
+        "workingSetMB": 444.99,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 8
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 245.45,
+        "workingSetMB": 445.02,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 8
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 236.87,
+        "workingSetMB": 436.69,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 8
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 236.87,
+        "workingSetMB": 436.71,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 8
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 236.91,
+        "workingSetMB": 436.95,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 8
+      }
+    ]
+  },
+  {
+    "count": 5,
+    "startupMs": 2412,
+    "phases": {
+      "editing": {
+        "meanPrivateMB": 705.53,
+        "lastPrivateMB": 714.3,
+        "meanCpuMachinePercent": 0.34,
+        "peakCpuMachinePercent": 0.5,
+        "samples": 4
+      },
+      "half-closed": {
+        "meanPrivateMB": 486.35,
+        "lastPrivateMB": 482.73,
+        "meanCpuMachinePercent": 0.0,
+        "peakCpuMachinePercent": 0.0,
+        "samples": 4
+      },
+      "idle": {
+        "meanPrivateMB": 662.85,
+        "lastPrivateMB": 664.96,
+        "meanCpuMachinePercent": 1.05,
+        "peakCpuMachinePercent": 3.53,
+        "samples": 4
+      },
+      "settled": {
+        "meanPrivateMB": 653.27,
+        "lastPrivateMB": 649.48,
+        "meanCpuMachinePercent": 0.0,
+        "peakCpuMachinePercent": 0.0,
+        "samples": 3
+      }
+    },
+    "samples": [
+      {
+        "phase": "startup",
+        "privateMB": 269.03,
+        "workingSetMB": 453.35,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 8
+      },
+      {
+        "phase": "idle",
+        "privateMB": 658.26,
+        "workingSetMB": 940.5,
+        "cpuOneCorePercent": 56.55,
+        "cpuMachinePercent": 3.53,
+        "processCount": 12
+      },
+      {
+        "phase": "idle",
+        "privateMB": 663.24,
+        "workingSetMB": 951.98,
+        "cpuOneCorePercent": 8.6,
+        "cpuMachinePercent": 0.54,
+        "processCount": 12
+      },
+      {
+        "phase": "idle",
+        "privateMB": 664.95,
+        "workingSetMB": 953.76,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 12
+      },
+      {
+        "phase": "idle",
+        "privateMB": 664.96,
+        "workingSetMB": 953.92,
+        "cpuOneCorePercent": 2.05,
+        "cpuMachinePercent": 0.13,
+        "processCount": 12
+      },
+      {
+        "phase": "editing",
+        "privateMB": 702.73,
+        "workingSetMB": 993.38,
+        "cpuOneCorePercent": 3.76,
+        "cpuMachinePercent": 0.23,
+        "processCount": 12
+      },
+      {
+        "phase": "editing",
+        "privateMB": 693.24,
+        "workingSetMB": 995.31,
+        "cpuOneCorePercent": 5.08,
+        "cpuMachinePercent": 0.32,
+        "processCount": 12
+      },
+      {
+        "phase": "editing",
+        "privateMB": 711.86,
+        "workingSetMB": 1008.68,
+        "cpuOneCorePercent": 7.97,
+        "cpuMachinePercent": 0.5,
+        "processCount": 12
+      },
+      {
+        "phase": "editing",
+        "privateMB": 714.3,
+        "workingSetMB": 1010.58,
+        "cpuOneCorePercent": 5.35,
+        "cpuMachinePercent": 0.33,
+        "processCount": 12
+      },
+      {
+        "phase": "settled",
+        "privateMB": 658.65,
+        "workingSetMB": 955.32,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 12
+      },
+      {
+        "phase": "settled",
+        "privateMB": 651.67,
+        "workingSetMB": 948.39,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 12
+      },
+      {
+        "phase": "settled",
+        "privateMB": 649.48,
+        "workingSetMB": 946.27,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 12
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 496.73,
+        "workingSetMB": 745.58,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 10
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 483.23,
+        "workingSetMB": 732.51,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 10
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 482.71,
+        "workingSetMB": 732.0,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 10
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 482.73,
+        "workingSetMB": 732.22,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 10
+      }
+    ]
+  },
+  {
+    "count": 10,
+    "startupMs": 5241,
+    "phases": {
+      "editing": {
+        "meanPrivateMB": 1246.19,
+        "lastPrivateMB": 1147.15,
+        "meanCpuMachinePercent": 0.57,
+        "peakCpuMachinePercent": 0.89,
+        "samples": 4
+      },
+      "half-closed": {
+        "meanPrivateMB": 697.37,
+        "lastPrivateMB": 692.77,
+        "meanCpuMachinePercent": 0.02,
+        "peakCpuMachinePercent": 0.07,
+        "samples": 4
+      },
+      "idle": {
+        "meanPrivateMB": 1223.56,
+        "lastPrivateMB": 1215.91,
+        "meanCpuMachinePercent": 1.66,
+        "peakCpuMachinePercent": 4.93,
+        "samples": 3
+      },
+      "settled": {
+        "meanPrivateMB": 1145.84,
+        "lastPrivateMB": 1145.83,
+        "meanCpuMachinePercent": 0.03,
+        "peakCpuMachinePercent": 0.06,
+        "samples": 2
+      }
+    },
+    "samples": [
+      {
+        "phase": "startup",
+        "privateMB": 163.46,
+        "workingSetMB": 316.39,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 7
+      },
+      {
+        "phase": "startup",
+        "privateMB": 764.95,
+        "workingSetMB": 1115.97,
+        "cpuOneCorePercent": 34.4,
+        "cpuMachinePercent": 2.15,
+        "processCount": 14
+      },
+      {
+        "phase": "startup",
+        "privateMB": 1176.96,
+        "workingSetMB": 1594.41,
+        "cpuOneCorePercent": 79.88,
+        "cpuMachinePercent": 4.99,
+        "processCount": 17
+      },
+      {
+        "phase": "idle",
+        "privateMB": 1227.4,
+        "workingSetMB": 1627.12,
+        "cpuOneCorePercent": 78.89,
+        "cpuMachinePercent": 4.93,
+        "processCount": 17
+      },
+      {
+        "phase": "idle",
+        "privateMB": 1227.38,
+        "workingSetMB": 1627.26,
+        "cpuOneCorePercent": 1.01,
+        "cpuMachinePercent": 0.06,
+        "processCount": 17
+      },
+      {
+        "phase": "idle",
+        "privateMB": 1215.91,
+        "workingSetMB": 1617.72,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 17
+      },
+      {
+        "phase": "editing",
+        "privateMB": 1261.91,
+        "workingSetMB": 1666.45,
+        "cpuOneCorePercent": 2.71,
+        "cpuMachinePercent": 0.17,
+        "processCount": 17
+      },
+      {
+        "phase": "editing",
+        "privateMB": 1272.66,
+        "workingSetMB": 1673.09,
+        "cpuOneCorePercent": 12.1,
+        "cpuMachinePercent": 0.76,
+        "processCount": 17
+      },
+      {
+        "phase": "editing",
+        "privateMB": 1303.05,
+        "workingSetMB": 1698.78,
+        "cpuOneCorePercent": 14.26,
+        "cpuMachinePercent": 0.89,
+        "processCount": 17
+      },
+      {
+        "phase": "editing",
+        "privateMB": 1147.15,
+        "workingSetMB": 1545.33,
+        "cpuOneCorePercent": 7.23,
+        "cpuMachinePercent": 0.45,
+        "processCount": 17
+      },
+      {
+        "phase": "settled",
+        "privateMB": 1145.86,
+        "workingSetMB": 1544.27,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 17
+      },
+      {
+        "phase": "settled",
+        "privateMB": 1145.83,
+        "workingSetMB": 1544.24,
+        "cpuOneCorePercent": 1.02,
+        "cpuMachinePercent": 0.06,
+        "processCount": 17
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 702.85,
+        "workingSetMB": 995.32,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 12
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 701.08,
+        "workingSetMB": 994.08,
+        "cpuOneCorePercent": 1.05,
+        "cpuMachinePercent": 0.07,
+        "processCount": 12
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 692.77,
+        "workingSetMB": 985.79,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 12
+      },
+      {
+        "phase": "half-closed",
+        "privateMB": 692.77,
+        "workingSetMB": 985.79,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 12
+      },
+      {
+        "phase": "complete",
+        "privateMB": 69.22,
+        "workingSetMB": 157.05,
+        "cpuOneCorePercent": 0.0,
+        "cpuMachinePercent": 0.0,
+        "processCount": 2
+      }
+    ]
+  }
+]

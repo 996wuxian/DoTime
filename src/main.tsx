@@ -1,13 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
-import { ClipboardWindow } from "./components/ClipboardWindow";
-import { MiniSubtasksWindow } from "./components/MiniSubtasksWindow";
-import { PinnedTodoWindow } from "./components/PinnedTodoWindow";
-import { PinnedSubtasksWindow } from "./components/PinnedSubtasksWindow";
-import { ReminderPopup } from "./components/ReminderPopup";
-import { StickyNoteWindow } from "./components/StickyNoteWindow";
-import { initializeFileBackedDataStore } from "./data/fileStorage";
+import "./App.css";
 import { applyTheme, loadTheme } from "./utils/theme";
 import { initializeTypographySettings } from "./utils/typography";
 
@@ -28,7 +21,6 @@ function disableGlobalBrowserShortcuts() {
 disableGlobalBrowserShortcuts();
 applyTheme(loadTheme());
 initializeTypographySettings();
-await initializeFileBackedDataStore();
 
 const params = new URLSearchParams(window.location.search);
 const isMainView = !params.get("view");
@@ -38,6 +30,24 @@ const isStickyNoteWindow = params.get("view") === "sticky-note";
 const isMiniSubtasksWindow = params.get("view") === "mini-subtasks";
 const isPinnedTodoWindow = params.get("view") === "pinned-todo";
 const isPinnedSubtasksWindow = params.get("view") === "pinned-subtasks";
+
+// Auxiliary notes only need their own data, never the main task/backup store.
+if (!isStickyNoteWindow && !isClipboardWindow) {
+  const { initializeFileBackedDataStore } = await import("./data/fileStorage");
+  await initializeFileBackedDataStore();
+}
+
+async function loadWindowComponent() {
+  if (isStickyNoteWindow) return (await import("./components/StickyNoteWindow")).StickyNoteWindow;
+  if (isReminderWindow) return (await import("./components/ReminderPopup")).ReminderPopup;
+  if (isMiniSubtasksWindow) return (await import("./components/MiniSubtasksWindow")).MiniSubtasksWindow;
+  if (isClipboardWindow) return (await import("./components/ClipboardWindow")).ClipboardWindow;
+  if (isPinnedTodoWindow) return (await import("./components/PinnedTodoWindow")).PinnedTodoWindow;
+  if (isPinnedSubtasksWindow) return (await import("./components/PinnedSubtasksWindow")).PinnedSubtasksWindow;
+  return (await import("./App")).default;
+}
+
+const WindowComponent = await loadWindowComponent();
 
 if (isReminderWindow) {
   document.documentElement.classList.add("is-reminder-window");
@@ -78,20 +88,6 @@ if (appLoadingEl != null) {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    {isStickyNoteWindow ? (
-      <StickyNoteWindow />
-    ) : isReminderWindow ? (
-      <ReminderPopup />
-    ) : isMiniSubtasksWindow ? (
-      <MiniSubtasksWindow />
-    ) : isClipboardWindow ? (
-      <ClipboardWindow />
-    ) : isPinnedTodoWindow ? (
-      <PinnedTodoWindow />
-    ) : isPinnedSubtasksWindow ? (
-      <PinnedSubtasksWindow />
-    ) : (
-      <App />
-    )}
+    <WindowComponent />
   </React.StrictMode>,
 );

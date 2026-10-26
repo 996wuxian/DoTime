@@ -51,7 +51,10 @@ export function sanitizeNoteHtml(html: string): string {
 
 export function notePreview(html: string): string {
   const template = document.createElement("template");
-  template.innerHTML = sanitizeNoteHtml(html);
+  // This fragment stays inert and is only read as text; do not rebuild images
+  // or serialize their base64 payloads just to generate a search preview.
+  template.innerHTML = html;
+  for (const element of template.content.querySelectorAll("script,style,iframe,object,embed,svg,math,form,input,button,textarea,select,noscript")) element.remove();
   for (const block of template.content.querySelectorAll("p,div,li,br")) {
     block.appendChild(document.createTextNode(" "));
   }

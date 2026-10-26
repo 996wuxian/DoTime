@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { deleteStickyNote, listStickyNotes, STICKY_NOTES_CHANGED_EVENT, updateStickyNote, type StickyNote } from "./stickyNotes";
+import { deleteStickyNote, getStickyNote, listStickyNotes, listStickyNoteSummaries, STICKY_NOTES_CHANGED_EVENT, updateStickyNote, type StickyNote } from "./stickyNotes";
 
 const storageKey = "dotime-sticky-notes-v1";
 const makeNote = (id: string): StickyNote => ({
@@ -72,5 +72,25 @@ describe("便签列表删除", () => {
 
     expect(requests).toEqual([{ command: "delete_sticky_note", payload: { id: "other" } }]);
     expect(closeWindow).not.toHaveBeenCalled();
+  });
+
+  it("桌面便签只请求自身内容，列表只请求不含 HTML 的摘要", async () => {
+    vi.stubGlobal("isTauri", true);
+    const requests: string[] = [];
+    const { html: _html, ...summary } = makeNote("current");
+    const summaries = [{ ...summary, text: "current" }];
+    mockIPC((command, payload) => {
+      requests.push(command);
+      if (command === "get_sticky_note") {
+        expect(payload).toEqual({ id: "current" });
+        return makeNote("current");
+      }
+      if (command === "list_sticky_note_summaries") return summaries;
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    expect(await getStickyNote("current")).toEqual(makeNote("current"));
+    expect(await listStickyNoteSummaries()).toEqual(summaries);
+    expect(requests).toEqual(["get_sticky_note", "list_sticky_note_summaries"]);
   });
 });

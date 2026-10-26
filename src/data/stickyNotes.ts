@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { notePreview } from "../utils/stickyNoteEditor";
 
 export const NOTE_COLORS = [
   { id: "yellow", label: "暖黄" },
@@ -15,6 +16,7 @@ export type NoteColor = (typeof NOTE_COLORS)[number]["id"];
 export type StickyNote = {
   id: string;
   html: string;
+  text?: string;
   color: NoteColor;
   pinned: boolean;
   open: boolean;
@@ -22,7 +24,8 @@ export type StickyNote = {
   updatedAt: number;
 };
 
-export type NotePatch = Partial<Pick<StickyNote, "html" | "color" | "pinned">>;
+export type StickyNoteSummary = Omit<StickyNote, "html" | "text"> & { text: string };
+export type NotePatch = Partial<Pick<StickyNote, "html" | "text" | "color" | "pinned">>;
 export const STICKY_NOTES_CHANGED_EVENT = "dotime-sticky-notes-changed";
 const BROWSER_STORAGE_KEY = "dotime-sticky-notes-v1";
 
@@ -56,6 +59,16 @@ function openBrowserNote(id: string) {
 
 export async function listStickyNotes(): Promise<StickyNote[]> {
   return isTauri() ? invoke<StickyNote[]>("list_sticky_notes") : loadBrowserNotes();
+}
+
+export async function getStickyNote(id: string): Promise<StickyNote | null> {
+  return isTauri() ? invoke<StickyNote | null>("get_sticky_note", { id })
+    : loadBrowserNotes().find((note) => note.id === id) ?? null;
+}
+
+export async function listStickyNoteSummaries(): Promise<StickyNoteSummary[]> {
+  if (isTauri()) return invoke<StickyNoteSummary[]>("list_sticky_note_summaries");
+  return loadBrowserNotes().map(({ html, text, ...note }) => ({ ...note, text: text ?? notePreview(html) }));
 }
 
 export async function createStickyNote(color: NoteColor = "yellow"): Promise<void> {

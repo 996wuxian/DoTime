@@ -448,6 +448,11 @@ fn migrate_data_directory(
         copy_directory_recursive(&source_images, &target.join(TODO_IMAGES_DIR))?;
     }
 
+    let source_notes = source.join(sticky_notes::DIRECTORY_NAME);
+    if source_notes.is_dir() {
+        copy_directory_recursive(&source_notes, &target.join(sticky_notes::DIRECTORY_NAME))?;
+    }
+
     write_data_directory_config(&app, &target)?;
     if let Ok(mut storage_path) = state.storage_path.lock() {
         *storage_path = Some(target.join(CLIPBOARD_HISTORY_FILE));
@@ -3064,6 +3069,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             sticky_notes::list_sticky_notes,
+            sticky_notes::get_sticky_note,
+            sticky_notes::list_sticky_note_summaries,
             sticky_notes::create_sticky_note,
             sticky_notes::open_sticky_note,
             sticky_notes::update_sticky_note,

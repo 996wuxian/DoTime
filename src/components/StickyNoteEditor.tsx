@@ -23,6 +23,7 @@ export function StickyNoteEditor({ initialHtml, onChange, onSave, onError }: Pro
   const fileRef = useRef<HTMLInputElement>(null);
   const selectionRef = useRef<Range | null>(null);
   const initialHtmlRef = useRef(initialHtml);
+  const initialized = useRef(false);
   const composing = useRef(false);
   const [formats, setFormats] = useState<string[]>([]);
   const [empty, setEmpty] = useState(true);
@@ -31,16 +32,21 @@ export function StickyNoteEditor({ initialHtml, onChange, onSave, onError }: Pro
     const selection = window.getSelection();
     if (selection?.rangeCount && editorRef.current?.contains(selection.anchorNode)) {
       selectionRef.current = selection.getRangeAt(0).cloneRange();
-      setFormats(FORMATS.filter(({ command }) => document.queryCommandState(command)).map(({ command }) => command));
+      const nextFormats = FORMATS.filter(({ command }) => document.queryCommandState(command)).map(({ command }) => command);
+      setFormats((current) => current.length === nextFormats.length && current.every((value, index) => value === nextFormats[index]) ? current : nextFormats);
     }
   }, []);
 
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    editor.innerHTML = sanitizeNoteHtml(initialHtmlRef.current);
-    setEmpty(!editor.textContent?.trim() && !editor.querySelector("img,li"));
-    editor.focus();
+    if (!initialized.current) {
+      editor.innerHTML = sanitizeNoteHtml(initialHtmlRef.current);
+      initialHtmlRef.current = "";
+      initialized.current = true;
+      setEmpty(!editor.textContent?.trim() && !editor.querySelector("img,li"));
+      editor.focus();
+    }
     document.addEventListener("selectionchange", updateSelection);
     return () => document.removeEventListener("selectionchange", updateSelection);
   }, [updateSelection]);
@@ -50,7 +56,7 @@ export function StickyNoteEditor({ initialHtml, onChange, onSave, onError }: Pro
     if (!editor) return;
     const isEmpty = !editor.textContent?.trim() && !editor.querySelector("img,li");
     setEmpty(isEmpty);
-    onChange(isEmpty ? "" : sanitizeNoteHtml(editor.innerHTML));
+    onChange(isEmpty ? "" : editor.innerHTML);
     updateSelection();
   }, [onChange, updateSelection]);
 

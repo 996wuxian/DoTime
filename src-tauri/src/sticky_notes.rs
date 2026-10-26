@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+#[cfg(test)]
 use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -7,15 +8,21 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
 
+#[path = "sticky_notes_store.rs"]
+mod store;
+use store::NoteRepository;
+
 pub const FILE_NAME: &str = "sticky-notes.json";
+pub const DIRECTORY_NAME: &str = store::DIRECTORY_NAME;
 pub static NOTES_LOCK: Mutex<()> = Mutex::new(());
+static NOTES_CACHE: Mutex<Option<NoteRepository>> = Mutex::new(None);
 static WINDOW_BUILD_LOCK: Mutex<()> = Mutex::new(());
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 const COLORS: &[&str] = &["yellow", "green", "pink", "purple", "blue", "gray", "dark"];
 const CHANGED_EVENT: &str = "dotime-sticky-notes-changed";
 const MAX_HTML_BYTES: usize = 24 * 1024 * 1024;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteBounds {
     x: i32,
@@ -24,11 +31,13 @@ pub struct NoteBounds {
     height: f64,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StickyNote {
     id: String,
     html: String,
+    #[serde(default)]
+    text: Option<String>,
     color: String,
     pinned: bool,
     open: bool,
@@ -42,8 +51,21 @@ pub struct StickyNote {
 #[serde(rename_all = "camelCase")]
 pub struct NotePatch {
     html: Option<String>,
+    text: Option<String>,
     color: Option<String>,
     pinned: Option<bool>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteSummary {
+    id: String,
+    color: String,
+    pinned: bool,
+    open: bool,
+    created_at: u64,
+    updated_at: u64,
+    text: String,
 }
 
 fn now() -> u64 {
@@ -62,6 +84,7 @@ fn load_notes(path: &Path) -> Result<Vec<StickyNote>, String> {
     }
 }
 
+#[cfg(test)]
 fn store_notes(path: &Path, notes: &[StickyNote]) -> Result<(), String> {
     let parent = path.parent().ok_or("便签路径无效")?;
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -81,19 +104,24 @@ fn store_notes(path: &Path, notes: &[StickyNote]) -> Result<(), String> {
     Ok(())
 }
 
-// Read and patch under one lock: independent windows never overwrite each other's notes.
-fn mutate_notes<T>(
+// Share one native cache; each save atomically writes only the changed note.
+fn with_repository<T>(
     app: &tauri::AppHandle,
-    change: impl FnOnce(&mut Vec<StickyNote>) -> Result<T, String>,
+    action: impl FnOnce(&mut NoteRepository) -> Result<T, String>,
 ) -> Result<T, String> {
     let _guard = NOTES_LOCK.lock().map_err(|error| error.to_string())?;
-    let path = super::data_directory(app)?.join(FILE_NAME);
-    let mut notes = load_notes(&path)?;
-    let result = change(&mut notes)?;
-    store_notes(&path, &notes)?;
-    Ok(result)
+    let directory = super::data_directory(app)?;
+    let mut cache = NOTES_CACHE.lock().map_err(|error| error.to_string())?;
+    if cache
+        .as_ref()
+        .is_none_or(|repository| repository.root != directory)
+    {
+        *cache = Some(NoteRepository::load(&directory)?);
+    }
+    action(cache.as_mut().unwrap())
 }
 
+#[cfg(test)]
 fn find_note<'a>(notes: &'a mut [StickyNote], id: &str) -> Result<&'a mut StickyNote, String> {
     notes
         .iter_mut()
@@ -116,16 +144,29 @@ fn apply_patch(note: &mut StickyNote, patch: NotePatch) -> Result<(), String> {
     {
         return Err("不支持的便签颜色".into());
     }
+    let mut changed = false;
     if let Some(html) = patch.html {
-        note.html = html;
+        if html != note.html {
+            note.text = Some(patch.text.unwrap_or_else(|| store::text_from_html(&html)));
+            note.html = html;
+            changed = true;
+        }
     }
     if let Some(color) = patch.color {
-        note.color = color;
+        if color != note.color {
+            note.color = color;
+            changed = true;
+        }
     }
     if let Some(pinned) = patch.pinned {
-        note.pinned = pinned;
+        if pinned != note.pinned {
+            note.pinned = pinned;
+            changed = true;
+        }
     }
-    note.updated_at = now();
+    if changed {
+        note.updated_at = now();
+    }
     Ok(())
 }
 
@@ -215,8 +256,17 @@ fn show_window(app: &tauri::AppHandle, note: &StickyNote, focus: bool) -> Result
 
 #[tauri::command]
 pub fn list_sticky_notes(app: tauri::AppHandle) -> Result<Vec<StickyNote>, String> {
-    let _guard = NOTES_LOCK.lock().map_err(|error| error.to_string())?;
-    load_notes(&super::data_directory(&app)?.join(FILE_NAME))
+    with_repository(&app, |repository| Ok(repository.all()))
+}
+
+#[tauri::command]
+pub fn get_sticky_note(app: tauri::AppHandle, id: String) -> Result<Option<StickyNote>, String> {
+    with_repository(&app, |repository| Ok(repository.get(&id)))
+}
+
+#[tauri::command]
+pub fn list_sticky_note_summaries(app: tauri::AppHandle) -> Result<Vec<NoteSummary>, String> {
+    with_repository(&app, |repository| Ok(repository.summaries()))
 }
 
 #[tauri::command]
@@ -232,6 +282,7 @@ pub async fn create_sticky_note(
     let note = StickyNote {
         id: format!("{timestamp}-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed)),
         html: String::new(),
+        text: Some(String::new()),
         color,
         pinned: false,
         open: true,
@@ -239,10 +290,7 @@ pub async fn create_sticky_note(
         updated_at: timestamp,
         bounds: None,
     };
-    mutate_notes(&app, |notes| {
-        notes.push(note.clone());
-        Ok(())
-    })?;
+    with_repository(&app, |repository| repository.insert(note.clone()))?;
     show_window(&app, &note, true)?;
     emit_changed(&app);
     Ok(note)
@@ -250,10 +298,11 @@ pub async fn create_sticky_note(
 
 #[tauri::command]
 pub async fn open_sticky_note(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let note = mutate_notes(&app, |notes| {
-        let note = find_note(notes, &id)?;
-        note.open = true;
-        Ok(note.clone())
+    let note = with_repository(&app, |repository| {
+        repository.update(&id, |note| {
+            note.open = true;
+            Ok(())
+        })
     })?;
     show_window(&app, &note, true)?;
     emit_changed(&app);
@@ -282,7 +331,9 @@ pub async fn update_sticky_note(
     } else {
         None
     };
-    if let Err(error) = mutate_notes(&app, |notes| apply_patch(find_note(notes, &id)?, patch)) {
+    if let Err(error) = with_repository(&app, |repository| {
+        repository.update(&id, |note| apply_patch(note, patch))
+    }) {
         if let Some((window, previous)) = previous_pin {
             let _ = window.set_always_on_top(previous);
         }
@@ -313,9 +364,11 @@ pub async fn save_sticky_note_bounds(
     id: String,
 ) -> Result<(), String> {
     if let Some(bounds) = current_bounds(&window) {
-        mutate_notes(&app, |notes| {
-            find_note(notes, &id)?.bounds = Some(bounds);
-            Ok(())
+        with_repository(&app, |repository| {
+            repository.update(&id, |note| {
+                note.bounds = Some(bounds);
+                Ok(())
+            })
         })?;
     }
     Ok(())
@@ -328,13 +381,14 @@ pub async fn close_sticky_note(
     id: String,
 ) -> Result<(), String> {
     let bounds = current_bounds(&window);
-    mutate_notes(&app, |notes| {
-        let note = find_note(notes, &id)?;
-        note.open = false;
-        if bounds.is_some() {
-            note.bounds = bounds;
-        }
-        Ok(())
+    with_repository(&app, |repository| {
+        repository.update(&id, |note| {
+            note.open = false;
+            if bounds.is_some() {
+                note.bounds = bounds;
+            }
+            Ok(())
+        })
     })?;
     window.destroy().map_err(|error| error.to_string())?;
     emit_changed(&app);
@@ -343,10 +397,7 @@ pub async fn close_sticky_note(
 
 #[tauri::command]
 pub async fn delete_sticky_note(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    mutate_notes(&app, |notes| {
-        notes.retain(|note| note.id != id);
-        Ok(())
-    })?;
+    with_repository(&app, |repository| repository.remove(&id))?;
     // A list can delete another note; only close the window belonging to that ID.
     let close_result = app
         .get_webview_window(&label(&id))
@@ -377,6 +428,7 @@ mod tests {
         StickyNote {
             id: id.into(),
             html: "<b>记录</b>".into(),
+            text: None,
             color: "yellow".into(),
             pinned: false,
             open: true,
@@ -420,6 +472,7 @@ mod tests {
             find_note(&mut notes, "two").unwrap(),
             NotePatch {
                 html: Some("<i>新内容</i>".into()),
+                text: None,
                 color: None,
                 pinned: Some(true),
             },
@@ -439,6 +492,7 @@ mod tests {
             &mut note,
             NotePatch {
                 html: Some("changed".into()),
+                text: None,
                 color: Some("invalid".into()),
                 pinned: None
             }

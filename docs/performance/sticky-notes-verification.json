@@ -1,0 +1,13 @@
+{
+  "noteCount": 20,
+  "notesWithAllEdits": 20,
+  "summariesContainNoImageData": true,
+  "largestPlainTextLength": 750.0,
+  "baselineExecutableSha256": "C9AF7E9B1486C5B19A5A86433EDBA6F8473CF46CE82FE652094CB64BCFF01CDF",
+  "optimizedExecutableSha256": "0FBA224BDC258A98AFF57AD70AA1D89D4322ED563307A31B7DC3BDE56DD0537E",
+  "baseline20": {
+    "status": "stopped_at_private_commit_safety_limit",
+    "limitBytes": 2147483648,
+    "phase": "idle"
+  }
+}

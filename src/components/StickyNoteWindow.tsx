@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useStickyNote } from "../hooks/useStickyNote";
-import { closeStickyNote, createStickyNote, deleteStickyNote, listStickyNotes, NOTE_COLORS, noteErrorMessage, openStickyNote, subscribeStickyNotes, type StickyNote } from "../data/stickyNotes";
+import { closeStickyNote, createStickyNote, deleteStickyNote, listStickyNoteSummaries, NOTE_COLORS, noteErrorMessage, openStickyNote, subscribeStickyNotes, type StickyNote, type StickyNoteSummary } from "../data/stickyNotes";
 import { notePreview } from "../utils/stickyNoteEditor";
 import { StickyNoteEditor } from "./StickyNoteEditor";
 import { IconCheck, IconClose, IconDots, IconList, IconNote, IconPin, IconPinOff, IconPlus, IconSearch, IconTrash } from "./icons";
@@ -10,25 +10,35 @@ import "./StickyNoteWindow.css";
 function StickyNotesList({ currentId, onSelect, onDelete, onError }: {
   currentId: string;
   onSelect: () => void;
-  onDelete: (note: StickyNote, trigger: HTMLButtonElement) => void;
+  onDelete: (note: StickyNoteSummary, trigger: HTMLButtonElement) => void;
   onError: (message: string) => void;
 }) {
-  const [notes, setNotes] = useState<StickyNote[]>([]);
+  const [notes, setNotes] = useState<StickyNoteSummary[]>([]);
   const [query, setQuery] = useState("");
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let loading = false;
+    let queued = false;
     const refresh = () => {
-      void listStickyNotes().then((items) => { if (!disposed) setNotes(items); })
-        .catch((error) => { if (!disposed) onError(noteErrorMessage(error)); });
+      if (loading) { queued = true; return; }
+      loading = true;
+      void listStickyNoteSummaries().then((items) => { if (!disposed) setNotes(items); })
+        .catch((error) => { if (!disposed) onError(noteErrorMessage(error)); })
+        .finally(() => {
+          loading = false;
+          if (queued && !disposed) { queued = false; timer = setTimeout(refresh, 200); }
+        });
     };
     refresh();
-    void subscribeStickyNotes(refresh).then((cleanup) => {
+    void subscribeStickyNotes(() => { clearTimeout(timer); timer = setTimeout(refresh, 200); }).then((cleanup) => {
       if (disposed) cleanup(); else unlisten = cleanup;
     }).catch((error) => onError(noteErrorMessage(error)));
-    return () => { disposed = true; unlisten?.(); };
+    return () => { disposed = true; clearTimeout(timer); unlisten?.(); };
   }, [onError]);
-  const visible = notes.map((note) => ({ ...note, preview: notePreview(note.html) }))
+  const previews = useMemo(() => notes.map((note) => ({ ...note, preview: note.text || "空白便签" })), [notes]);
+  const visible = previews
     .filter((note) => note.preview.toLowerCase().includes(query.toLowerCase()))
     .sort((left, right) => right.updatedAt - left.updatedAt);
   return (
@@ -138,10 +148,11 @@ export function StickyNoteWindow() {
     if (deleteTarget) document.getElementById("sticky-note-cancel-delete")?.focus();
   }, [deleteTarget]);
 
-  function requestDelete(target: StickyNote, trigger: HTMLButtonElement | null) {
+  function requestDelete(target: StickyNote | StickyNoteSummary, trigger: HTMLButtonElement | null) {
     deleteTriggerRef.current = trigger;
     setDeleteError(null);
-    setDeleteTarget({ id: target.id, preview: notePreview(target.html).slice(0, 100) });
+    const preview = "html" in target ? notePreview(target.html) : target.text || "空白便签";
+    setDeleteTarget({ id: target.id, preview: preview.slice(0, 100) });
     setMenuOpen(false);
   }
 

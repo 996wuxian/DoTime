@@ -2595,8 +2595,8 @@ function App() {
           >
             <IconDockTop size={17} />
           </button>
-          <WindowControls />
         </div>
+        <WindowControls />
       </header>
 
       <main
