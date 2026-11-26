@@ -1691,6 +1691,24 @@ function App() {
     setSelectedTodoIds(new Set());
   };
 
+  const handleBatchCopy = async () => {
+    const lines: string[] = [];
+    for (const item of dayTimelineItems) {
+      if (item.type === "todo" && selectedTodoIds.has(item.todo.id)) {
+        const title = item.todo.title.replace(/[\r\n]+/g, " ");
+        lines.push(`${lines.length + 1}. ${title}`);
+      }
+    }
+    if (lines.length === 0) return;
+
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      showGlobalToast(`已复制 ${lines.length} 个待办`, "success");
+    } catch {
+      showGlobalToast("复制待办失败，请重试", "error");
+    }
+  };
+
   const handleBatchComplete = () => {
     if (selectedCount === 0) return;
     completeTodos(selectedTodoIds);
@@ -3114,6 +3132,15 @@ function App() {
                   >
                     {selectedAllPinned ? <IconPinOff size={14} /> : <IconDockTop size={14} />}
                     {selectedAllPinned ? "批量取消固定" : "批量固定"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleBatchCopy}
+                    disabled={selectedCount === 0}
+                  >
+                    <IconClipboardText size={14} />
+                    批量复制
                   </button>
                   <button
                     type="button"
