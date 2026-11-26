@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./App.css";
-import { applyTheme, loadTheme } from "./utils/theme";
+import { initializeThemeSettings } from "./utils/theme";
 import { initializeTypographySettings } from "./utils/typography";
 
 function disableGlobalBrowserShortcuts() {
@@ -19,7 +19,7 @@ function disableGlobalBrowserShortcuts() {
 }
 
 disableGlobalBrowserShortcuts();
-applyTheme(loadTheme());
+initializeThemeSettings();
 initializeTypographySettings();
 
 const params = new URLSearchParams(window.location.search);

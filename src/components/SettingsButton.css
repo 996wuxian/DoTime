@@ -1,5 +1,5 @@
 .settings-dialog {
-  width: min(480px, calc(100vw - 32px));
+  width: min(504px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   margin: auto;
   padding: 0;
@@ -90,6 +90,190 @@
   padding: 0;
   font-size: 0.88rem;
   font-weight: 700;
+}
+
+.settings-dialog__accent-status {
+  font-weight: 600;
+}
+
+.settings-dialog__accent-presets {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.settings-dialog__accent-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    transform 0.12s ease;
+}
+
+.settings-dialog__accent-preset:hover {
+  border-color: rgba(var(--primary-rgb), 0.42);
+  background: var(--bg-card-hover);
+}
+
+.settings-dialog__accent-preset:active {
+  transform: scale(0.97);
+}
+
+.settings-dialog__accent-preset.is-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.settings-dialog__accent-preset:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.settings-dialog__accent-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    0 2px 8px rgba(0, 0, 0, 0.18);
+  transition: transform 0.14s ease, box-shadow 0.16s ease;
+}
+
+.settings-dialog__accent-preset.is-active .settings-dialog__accent-dot {
+  transform: scale(1.06);
+  box-shadow:
+    0 0 0 2px var(--bg-card),
+    0 0 0 4px var(--primary);
+}
+
+.settings-dialog__accent-name {
+  font-size: 0.7rem;
+  line-height: 1.2;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.settings-dialog__accent-preset.is-active .settings-dialog__accent-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.settings-dialog__custom-accent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.settings-dialog__custom-accent.is-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.settings-dialog__color-picker {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.settings-dialog__color-swatch {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.12),
+    0 2px 6px rgba(0, 0, 0, 0.14);
+}
+
+.settings-dialog__color-picker input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.settings-dialog__color-picker:has(input:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.settings-dialog__custom-accent-info {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+
+.settings-dialog__custom-accent-info label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-dialog__custom-accent-info small {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.settings-dialog__hex-input {
+  width: 88px;
+  flex-shrink: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.settings-dialog__hex-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.settings-dialog__hex-input[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.settings-dialog__error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 0.72rem;
+  line-height: 1.4;
 }
 
 .settings-dialog__font-options {
@@ -186,9 +370,25 @@
   overflow-wrap: anywhere;
 }
 
-.settings-dialog__preview > span {
+.settings-dialog__preview-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-dialog__preview-top > span:first-child {
   color: var(--text-dim);
   font-size: 0.68rem;
+}
+
+.settings-dialog__preview-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 0.68rem;
+  font-weight: 600;
 }
 
 .settings-dialog__preview p {
@@ -201,6 +401,22 @@
   color: var(--text-muted);
   font-size: 0.76rem;
   line-height: 1.5;
+}
+
+.settings-dialog__preview-bar {
+  height: 5px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  overflow: hidden;
+}
+
+.settings-dialog__preview-bar span {
+  display: block;
+  width: 64%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary-gradient-start), var(--primary));
 }
 
 .settings-dialog__footer {
@@ -356,6 +572,18 @@
 }
 
 @media (max-width: 420px) {
+  .settings-dialog__accent-presets {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .settings-dialog__custom-accent {
+    flex-wrap: wrap;
+  }
+
+  .settings-dialog__hex-input {
+    width: 100%;
+  }
+
   .settings-dialog__font-options {
     grid-template-columns: minmax(0, 1fr);
   }
